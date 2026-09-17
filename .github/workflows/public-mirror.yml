@@ -1,44 +1,170 @@
 name: public-mirror
 
-# Publish a sanitized copy of main to the public mirror repo: docs/runbooks/setup-operations/public-mirror.md
+# Push to main: export gates only. Weekly dispatch: gates, Claude review of the diff, publish.
+# docs/runbooks/setup-operations/public-mirror.md
 
 on:
   push:
     branches: [main]
+  schedule:
+    # Fallback only: the primary trigger is scripts/public-mirror-trigger.sh (Sun 12:00 Vienna).
+    - cron: '0 14 * * 1'
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Export and run the gates, but do not push
+        description: Run the gates and the review, but do not publish
         type: boolean
         default: false
+      approve_sha:
+        description: Publish this main commit (full SHA) without the Claude review, after checking a HOLD yourself
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
-# Each run exports its own HEAD, so a newer pending run replacing an older one loses nothing.
+# Check runs and syncs never share a group: a burst of merges would otherwise evict a pending sync.
 concurrency:
-  group: public-mirror
-  cancel-in-progress: false
+  group: public-mirror-${{ github.event_name == 'push' && 'check' || 'sync' }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
-  sync:
-    runs-on: ubuntu-latest   # GitHub-hosted ONLY: the mirror's deploy key must never reach the self-hosted runner.
+  export:
+    runs-on: ubuntu-latest   # GitHub-hosted ONLY: this job holds the mirror's deploy key.
     timeout-minutes: 10
-    env:
-      MIRROR_REPO: drizzelat/NAS-public
+    permissions:
+      contents: read
+      actions: read   # the fallback guard reads this workflow's dispatched runs
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+      changed: ${{ steps.stage.outputs.changed }}
+      diff_sha: ${{ steps.stage.outputs.diff_sha }}
     steps:
+      - name: Decide check, sync or skip
+        id: mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          APPROVE_SHA: ${{ inputs.approve_sha }}
+        run: |
+          set -euo pipefail
+          case $EVENT in
+            push) mode=check ;;
+            workflow_dispatch)
+              mode=sync
+              [ -z "$APPROVE_SHA" ] || [[ $APPROVE_SHA =~ ^[0-9a-f]{40}$ ]] \
+                || { echo "::error::approve_sha must be a full 40-character commit SHA"; exit 1; }
+              ;;
+            schedule)
+              # A run costs a Claude review, so the fallback fires only in a week the dispatch never landed.
+              ran=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/public-mirror.yml/runs?event=workflow_dispatch&per_page=20" \
+                --jq '[.workflow_runs[] | select(.conclusion != null)
+                       | select((.created_at | fromdateiso8601) > (now - 7 * 86400))] | length')
+              if [ "$ran" -gt 0 ]; then
+                mode=skip
+                echo "the host cron already ran a sync this week ($ran run(s)), skipping"
+              else
+                mode=sync
+                echo "::warning::no dispatched sync in 7 days - the host cron may be broken, running the fallback"
+              fi
+              ;;
+          esac
+          echo "mode=$mode" >>"$GITHUB_OUTPUT"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.mode.outputs.mode != 'skip'
+        with:
+          ref: ${{ inputs.approve_sha || github.sha }}
+          fetch-depth: 0   # approve_sha must be proven to be on main
+
+      - name: Check approve_sha is on main
+        if: inputs.approve_sha
+        run: git merge-base --is-ancestor HEAD origin/main || { echo "::error::approve_sha is not on main"; exit 1; }
 
       - name: Install gitleaks
+        if: steps.mode.outputs.mode != 'skip'
         run: |
           curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz -C "$RUNNER_TEMP" gitleaks
           echo "$RUNNER_TEMP" >>"$GITHUB_PATH"
 
       - name: Export and gate
+        if: steps.mode.outputs.mode != 'skip'
         run: scripts/public-mirror/export.sh "$RUNNER_TEMP/export"
 
-      - name: Push to the mirror
-        if: ${{ !inputs.dry_run }}
+      - name: Stage on the mirror
+        id: stage
+        if: steps.mode.outputs.mode == 'sync'
         env:
+          MIRROR_REPO: drizzelat/NAS-public
           MIRROR_DEPLOY_KEY: ${{ secrets.PUBLIC_MIRROR_DEPLOY_KEY }}
-        run: scripts/public-mirror/push.sh "$RUNNER_TEMP/export"
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          scripts/public-mirror/mirror.sh stage "$RUNNER_TEMP/export" "$RUNNER_TEMP/stage"
+          # A tar keeps exec bits and dotfiles, which the artifact upload would drop.
+          tar -cf "$RUNNER_TEMP/stage/export.tar" -C "$RUNNER_TEMP/export" .
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.stage.outputs.changed == 'true'
+        with:
+          name: public-mirror-stage
+          path: |
+            ${{ runner.temp }}/stage/export.tar
+            ${{ runner.temp }}/stage/full.diff
+            ${{ runner.temp }}/stage/files.txt
+          retention-days: 14
+
+  review:
+    needs: export
+    if: needs.export.outputs.changed == 'true' && !inputs.approve_sha
+    runs-on: ubuntu-latest   # GitHub-hosted ONLY. No deploy key here: the model reads untrusted text.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: public-mirror-stage
+          path: ${{ runner.temp }}/stage
+
+      - name: Install Claude Code CLI
+        run: |
+          set -euo pipefail
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Review the diff
+        env:
+          # Same auth as nas-health-check: `claude setup-token` -> CLAUDE_CODE_OAUTH_TOKEN.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: scripts/public-mirror/review.sh "$RUNNER_TEMP/stage"
+
+  publish:
+    needs: [export, review]
+    if: >-
+      !cancelled() && needs.export.result == 'success' && needs.export.outputs.changed == 'true' && !inputs.dry_run &&
+      (needs.review.result == 'success' || (needs.review.result == 'skipped' && inputs.approve_sha))
+    runs-on: ubuntu-latest   # GitHub-hosted ONLY: this job holds the mirror's deploy key.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.approve_sha || github.sha }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: public-mirror-stage
+          path: ${{ runner.temp }}/stage
+
+      - name: Publish the reviewed diff
+        env:
+          MIRROR_REPO: drizzelat/NAS-public
+          MIRROR_DEPLOY_KEY: ${{ secrets.PUBLIC_MIRROR_DEPLOY_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          DIFF_SHA: ${{ needs.export.outputs.diff_sha }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/export"
+          tar -xf "$RUNNER_TEMP/stage/export.tar" -C "$RUNNER_TEMP/export"
+          scripts/public-mirror/mirror.sh publish "$RUNNER_TEMP/export" "$DIFF_SHA"

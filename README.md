@@ -1,4 +1,4 @@
-> **Public mirror.** A sanitized, read-only copy of a private homelab repo, synced on every push.
+> **Public mirror.** A sanitized, read-only copy of a private homelab repo, synced weekly.
 > Secrets, the encrypted vault and some internal docs are left out; domains, public IPs, SSH keys
 > and personal details are replaced with example values, so nothing here deploys as-is.
 > Links to pull requests and removed files do not resolve.

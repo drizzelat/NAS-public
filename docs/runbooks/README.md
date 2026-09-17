@@ -31,7 +31,7 @@ are here.
 | --- | --- |
 | [Replicate this setup](setup-operations/replicate-setup.md) | Full build order from scratch |
 | [NAS repo auto-pull](setup-operations/nas-repo-autopull.md) | Cron scripts run from a live clone kept in sync with `main` (deploy key + pull cron) |
-| [Public mirror](setup-operations/public-mirror.md) | Sanitized public copy of `main` for friends: what is left out or scrubbed, the three gates, a failed sync, undoing a leak |
+| [Public mirror](setup-operations/public-mirror.md) | Weekly sanitized public copy of `main` for friends: rules and allowlists, the five gates, the Claude diff review, approving a HOLD, the weekly cron, undoing a leak |
 | [Renovate on-time trigger](setup-operations/renovate-trigger.md) | Host cron fires the Renovate run via `workflow_dispatch` (GitHub `schedule:` is late) |
 | [Renovate as a GitHub App](setup-operations/renovate-github-app.md) | Repo-scoped App installation token in place of the account-wide classic PAT — App creation clicks, the permission table, cutover and rollback |
 | [Renovate PR review](setup-operations/renovate-pr-review.md) | The gate every stack bump passes: registry-API image delta (incl. "no-op for our arch") + a Claude risk verdict, then a 05:00–06:00 sweep that merges only the no-ops and the `RISK: LOW` ones |

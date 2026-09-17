@@ -108,10 +108,12 @@ in the gitignored `secrets/`. Manage it with [`scripts/secrets.sh`](scripts/secr
 unwrapped key `secrets/age-key.txt`, any plaintext `.env`, or the plaintext SSH keys under
 `secrets/ssh/`.
 
-**Everything on `main` is published, scrubbed.** `public-mirror.yml` pushes a sanitized copy of
-every `main` commit to a public repo. A new public IP makes that sync fail. A new domain, hostname,
-person's name or SSH key does not, so add a `scrub` line to
-[`scripts/public-mirror/rules`](scripts/public-mirror/rules) in the same commit. See the
+**Everything on `main` is published, scrubbed.** `public-mirror.yml` syncs a sanitized copy to a
+public repo every week, after a Claude review of the diff. Every push to `main` runs its gates. A
+new top-level path, public IP, domain or email address fails them: add a `scrub` line for your own
+values, or an `allow-*` line for third-party ones, to
+[`scripts/public-mirror/rules`](scripts/public-mirror/rules) in the same commit. A new hostname or
+person's name passes the gates, so scrub it too. See the
 [public-mirror runbook](docs/runbooks/setup-operations/public-mirror.md).
 
 ## Committing changes
