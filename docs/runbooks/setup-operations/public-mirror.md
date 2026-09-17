@@ -147,6 +147,9 @@ Create it only after `public-mirror.yml` with `workflow_dispatch` is on `main`; 
 dispatch gets HTTP 404. Prove the cron path with `sudo midclt call -j cronjob.run <id>`, then
 `tail -2 /var/log/public-mirror-trigger.log`.
 
+Installed 2026-09-17 as TrueNAS cron job `21`. Its first `cronjob.run` dispatched a sync that went
+green with `changed=false`.
+
 ## Setup (done once)
 
 1. Create the repo as **private**: `gh repo create drizzelat/NAS-public --private`. Disable Actions,
