@@ -1,0 +1,93 @@
+# Prometheus scrape config, read by victoriametrics itself (-promscrape.config).
+# Adding a service: one job below + its proxy_<stack> network on the vm service.
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: victoriametrics
+    static_configs:
+      - targets: ["victoriametrics:8428"]
+
+  - job_name: victorialogs
+    static_configs:
+      - targets: ["victorialogs:9428"]
+
+  # Needs prometheus.listen_addr 0.0.0.0 in the crowdsec config on the host — it
+  # defaults to 127.0.0.1. See docs/services/observability.md.
+  - job_name: crowdsec
+    static_configs:
+      - targets: ["crowdsec:6060"]
+
+  # Only the authentik SERVER: the worker sits on authentik_net next to Postgres,
+  # and joining that network to reach it is not worth the blast radius. `server` is
+  # the compose service alias on proxy_authentik.
+  - job_name: authentik
+    static_configs:
+      - targets: ["server:9300"]
+
+  # network_mode: host, so there is no proxy_ network to join — scraped on the LAN IP.
+  - job_name: snowflake
+    metrics_path: /internal/metrics
+    static_configs:
+      - targets: ["192.168.178.111:9999"]
+
+  # Psiphon Conduit: network_mode host like snowflake, so also scraped on the LAN IP.
+  - job_name: conduit
+    static_configs:
+      - targets: ["192.168.178.111:9998"]
+
+  # obfs4 bridge on the A1, over the tailnet — published on the A1's tailnet IP only.
+  - job_name: tor-bridge
+    static_configs:
+      - targets: ["100.64.0.13:9035"]
+
+  # WebTunnel bridge on the A1, the same shape as tor-bridge.
+  - job_name: tor-webtunnel
+    static_configs:
+      - targets: ["100.64.0.13:9036"]
+
+  # chrony_exporter next to the A1 NTP Pool server, over the tailnet like the bridges.
+  - job_name: ntp
+    static_configs:
+      - targets: ["100.64.0.13:9037"]
+
+  # qBittorrent exporter in gluetun's namespace (downloads stack), over proxy_downloads.
+  # Per-torrent series are labelled by name only; Kiwix panels select name=~".+\\.zim".
+  - job_name: qbittorrent
+    static_configs:
+      - targets: ["gluetun:9022"]
+
+  # Media stack: one exportarr sidecar per app (arr stack, over proxy_arr), SABnzbd's in gluetun's namespace.
+  - job_name: sonarr
+    static_configs:
+      - targets: ["exportarr-sonarr:9707"]
+
+  - job_name: radarr
+    static_configs:
+      - targets: ["exportarr-radarr:9707"]
+
+  - job_name: prowlarr
+    static_configs:
+      - targets: ["exportarr-prowlarr:9707"]
+
+  # One series per distinct subtitle score, unbounded over a year of retention.
+  - job_name: bazarr
+    static_configs:
+      - targets: ["exportarr-bazarr:9707"]
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: bazarr_subtitles_score_total
+        action: drop
+
+  - job_name: sabnzbd
+    static_configs:
+      - targets: ["gluetun:9023"]
+
+  # Client IPs stay out of the metrics store (as for Caddy); last_access churns a series per login.
+  - job_name: jellyfin
+    static_configs:
+      - targets: ["jellyfin-exporter:9594"]
+    metric_relabel_configs:
+      - regex: ip_address|client_version|last_access
+        action: labeldrop

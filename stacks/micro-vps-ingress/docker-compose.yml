@@ -1,0 +1,85 @@
+# nginx.conf is inlined as a Compose `config`: Portainer ships only compose content
+# to Agent endpoints, not sibling files. Docs: docs/services/micro-vps-ingress.md
+services:
+  nginx:
+    image: nginx:alpine@sha256:c8497b180665e631ec92a5091125bec5b214f0e2b99409e30653a125b37557da
+    restart: unless-stopped
+    network_mode: host
+    # Bump `config-rev` whenever the inlined config changes — a `configs.*.content`
+    # change alone does not always recreate the container.
+    labels:
+      - "config-rev=2026-09-09-cloudflare-only"
+    configs:
+      - source: nginx_conf
+        target: /etc/nginx/nginx.conf
+
+configs:
+  nginx_conf:
+    content: |
+      events {}
+
+      stream {
+          # Cloudflare's published origin-pull ranges (ips-v4 + ips-v6, verified
+          # 2026-09-09). `jellyfin` is gray-cloud by necessity (streaming, ToS 2.8), so
+          # its A record publishes this VPS's address — which makes the origin public
+          # knowledge for every OTHER name too. Without this gate anyone who resolves
+          # `jellyfin` can open a direct connection here with `auth`/`files`/`immich`/
+          # `mealie` in the SNI and skip Cloudflare's WAF, bot rules and challenges
+          # entirely. v6 ranges are listed even though the servers below are v4-only, so
+          # adding a `listen [::]:443` later cannot silently fail closed.
+          geo $$cf_edge {
+              default          0;
+              173.245.48.0/20  1;
+              103.21.244.0/22  1;
+              103.22.200.0/22  1;
+              103.31.4.0/22    1;
+              141.101.64.0/18  1;
+              108.162.192.0/18 1;
+              190.93.240.0/20  1;
+              188.114.96.0/20  1;
+              197.234.240.0/22 1;
+              198.41.128.0/17  1;
+              162.158.0.0/15   1;
+              104.16.0.0/13    1;
+              104.24.0.0/14    1;
+              172.64.0.0/13    1;
+              131.0.72.0/22    1;
+              2400:cb00::/32   1;
+              2606:4700::/32   1;
+              2803:f800::/32   1;
+              2405:b500::/32   1;
+              2405:8100::/32   1;
+              2a06:98c0::/29   1;
+              2c0f:f248::/32   1;
+          }
+
+          # SNI allowlist, now keyed on "<is the peer Cloudflare>:<SNI>". Only public
+          # hostnames reach the NAS, and the orange-clouded four only via Cloudflare.
+          # nginx variables MUST be written `$$` here (Compose eats a single one).
+          # Upstreams use the NAS Caddy :8443 PROXY listener.
+          map "$$cf_edge:$$ssl_preread_server_name" $$public_upstream {
+              "1:auth.example.com"      100.64.0.11:8443;
+              "1:files.example.com"     100.64.0.11:8443;
+              "1:immich.example.com"    100.64.0.11:8443;
+              "1:mealie.example.com"    100.64.0.11:8443;
+              # Gray-cloud, so it must answer from any source. Both keys are listed
+              # rather than a regex: if it is ever orange-clouded it keeps working.
+              "0:jellyfin.example.com"  100.64.0.11:8443;
+              "1:jellyfin.example.com"  100.64.0.11:8443;
+              default                     "";
+          }
+
+          # Public HTTP to NPMplus over Tailscale; :80 only carries HTTPS redirects.
+          server {
+              listen 80;
+              proxy_pass 100.64.0.11:80;
+          }
+          # Public HTTPS over Tailscale, SNI passes through. Empty map result = closed.
+          server {
+              listen 443;
+              ssl_preread on;
+              # PROXY-protocol v1 header so NPMplus can recover the real client IP.
+              proxy_protocol on;
+              proxy_pass $$public_upstream;
+          }
+      }

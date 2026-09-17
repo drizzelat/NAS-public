@@ -1,0 +1,23 @@
+# Tor Snowflake proxy: outbound-only WebRTC relay for censored users. Docs: docs/services/snowflake.md
+services:
+  snowflake-proxy:
+    image: thetorproject/snowflake-proxy:v2.14.1@sha256:1ded2a9bbb5d67d41f3c11f6b392b8a2735964e7b070e1bcb1278fddf28f90a4
+    container_name: snowflake-proxy
+    restart: unless-stopped
+    network_mode: host   # WebRTC NAT traversal without a Docker NAT layer on top of CGNAT
+    user: "65534:65534"
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    # No -capacity: with a cap set, a late client returns its slot twice and the proxy deadlocks
+    command:
+      - "-metrics"
+      - "-metrics-address=192.168.178.111"   # not localhost: victoriametrics is on a bridge network
+      - "-metrics-port=9999"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 256M

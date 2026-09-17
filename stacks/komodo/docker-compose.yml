@@ -1,0 +1,75 @@
+services:
+  mongo:
+    image: docker.io/library/mongo:8.0.30@sha256:4a0f30875898413139bec44c73c02a05fed172578de65b644dcdcee143ae7306
+    container_name: komodo-mongo
+    labels:
+      komodo.skip: ""   # Komodo's StopAllContainers must never stop its own database
+    command: ["--quiet", "--wiredTigerCacheSizeGB", "0.25"]
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    healthcheck:
+      # Healthy only if mongod answers AND refuses an unauthenticated query: a Mongo started
+      # without its root credentials comes up wide open (docs/services/komodo.md).
+      test: ["CMD", "mongosh", "--quiet", "--eval", "try { db.adminCommand({listDatabases: 1}); quit(1) } catch (e) { quit(e.codeName === 'Unauthorized' ? 0 : 1) }"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 768M
+    volumes:
+      - /mnt/apps/komodo/mongo/db:/data/db
+      - /mnt/apps/komodo/mongo/configdb:/data/configdb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${KOMODO_DATABASE_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${KOMODO_DATABASE_PASSWORD}
+
+  core:
+    image: ghcr.io/moghtech/komodo-core:2.3.3@sha256:bca73d0eee143066228fb9b80c38a5a2726e573ad2758f7aa92b5c91a8aef1c7
+    container_name: komodo-core
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    depends_on:
+      mongo:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+    networks:
+      - default
+      - proxy_komodo
+    volumes:
+      - /mnt/apps/komodo/keys:/config/keys
+      - /mnt/apps/komodo/backups:/backups
+    environment:
+      TZ: Europe/Vienna
+      KOMODO_TITLE: Komodo
+      KOMODO_HOST: https://komodo.example.com
+      KOMODO_DATABASE_ADDRESS: mongo:27017
+      KOMODO_DATABASE_USERNAME: ${KOMODO_DATABASE_USERNAME}
+      KOMODO_DATABASE_PASSWORD: ${KOMODO_DATABASE_PASSWORD}
+      KOMODO_JWT_SECRET: ${KOMODO_JWT_SECRET}
+      KOMODO_WEBHOOK_SECRET: ${KOMODO_WEBHOOK_SECRET}
+      # Local admin only, permanently: the control plane must not depend on Authentik (§4).
+      KOMODO_LOCAL_AUTH: "true"
+      KOMODO_INIT_ADMIN_USERNAME: ${KOMODO_INIT_ADMIN_USERNAME}
+      KOMODO_INIT_ADMIN_PASSWORD: ${KOMODO_INIT_ADMIN_PASSWORD}
+      KOMODO_DISABLE_USER_REGISTRATION: "true"
+      KOMODO_ENABLE_NEW_USERS: "false"
+      KOMODO_OIDC_ENABLED: "false"
+      KOMODO_GITHUB_OAUTH_ENABLED: "false"
+      KOMODO_GOOGLE_OAUTH_ENABLED: "false"
+      KOMODO_MONITORING_INTERVAL: 15-sec
+      KOMODO_RESOURCE_POLL_INTERVAL: 1-hr
+
+networks:
+  proxy_komodo:
+    external: true

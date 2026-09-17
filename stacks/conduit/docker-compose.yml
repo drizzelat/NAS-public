@@ -1,0 +1,26 @@
+# Psiphon Conduit station: outbound-only relay into the Psiphon network. Docs: docs/services/conduit.md
+services:
+  conduit:
+    image: ghcr.io/psiphon-inc/conduit/cli:2.1.0@sha256:7cb646cc9d54a389f6845dc25b5cce0b5426d999f62950320df796766b44efea
+    container_name: conduit
+    restart: unless-stopped
+    network_mode: host   # WebRTC NAT traversal without a Docker NAT layer on top of CGNAT
+    user: "1000:1000"
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    command:
+      - start
+      - "--max-common-clients=25"
+      - "--bandwidth=10"                        # Mbps; the home uplink also carries Snowflake and remote streaming
+      - "--data-dir=/home/conduit/data"
+      - "--metrics-addr=192.168.178.111:9998"   # not localhost: victoriametrics is on a bridge network
+    volumes:
+      - /mnt/apps/conduit:/home/conduit/data    # station key = broker reputation; dataset owned 1000:1000, see docs
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M

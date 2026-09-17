@@ -1,0 +1,30 @@
+# Stacks deploy-stacks deploys through Komodo, one per line. reconcile-owned in resources.toml must list exactly these.
+# A new name plus its resources.toml entry is created and deployed by the next push: docs/runbooks/setup-operations/deploy-stacks.md
+a1-vps-beszel-agent
+a1-vps-ntp
+a1-vps-tor-bridge
+a1-vps-webtunnel
+a1-vps-matrix
+a1-vps-kuma
+micro-vps-beszel-agent
+micro-vps-ingress
+beszel
+homarr
+mealie
+romm
+books
+games
+files
+paperless
+immich
+arr
+downloads
+jellyfin
+conduit
+snowflake
+observability
+kuma
+authentik
+adguard
+tailscale
+caddy

@@ -1,0 +1,37 @@
+# Komodo Periphery on the AMD micro VPS (x86_64), the transport Core deploys through. Applied by hand as project `periphery`
+# from /home/ubuntu/periphery/docker-compose.yml over SSH, never by Komodo (komodo-migration.md F12). Docs: docs/services/micro-vps-periphery.md
+services:
+  periphery:
+    # Multi-arch manifest list: the same pin serves amd64 and arm64. Core and every periphery move together (F2).
+    image: ghcr.io/moghtech/komodo-periphery:2.3.3@sha256:fa3f1a641a265216066676950d5eecdf506955a7bafe2f01996135ae93115cd5
+    container_name: komodo-periphery
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    # Host network, bound to the tailnet IP only (F6: inbound periphery). A published port would do,
+    # except Docker SNATs it to the bridge gateway, and PERIPHERY_ALLOWED_IPS could then never see
+    # the NAS (measured 2026-09-15).
+    network_mode: host
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 256M
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /proc:/proc
+      # Identical path inside and out. /etc/komodo is fine on Ubuntu, unlike the NAS (F4).
+      - /etc/komodo:/etc/komodo
+    environment:
+      TZ: Europe/Vienna
+      PERIPHERY_ROOT_DIRECTORY: /etc/komodo
+      PERIPHERY_PRIVATE_KEY: file:/etc/komodo/keys/periphery.key
+      # Written by hand from the NAS Core's /mnt/apps/komodo/keys/core.pub before first start, so the
+      # first Core to connect is not trusted blindly. Never unset (F15).
+      PERIPHERY_CORE_PUBLIC_KEYS: file:/etc/komodo/keys/core.pub
+      PERIPHERY_BIND_IP: 100.64.0.12
+      # The NAS tailnet address: Core's traffic leaves the NAS through tailscale0.
+      PERIPHERY_ALLOWED_IPS: 100.64.0.11
+      PERIPHERY_DISABLE_TERMINALS: "true"
+      PERIPHERY_INCLUDE_DISK_MOUNTS: /etc/hostname

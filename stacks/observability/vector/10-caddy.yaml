@@ -1,0 +1,135 @@
+# Caddy's JSON access log. Copy this file per new service; keep the out_/metrics_
+# name prefixes or 00-global.yaml's sink globs will not pick the new one up.
+sources:
+  caddy_access:
+    type: file
+    include:
+      - /var/log/caddy/access.log
+    # Backfills the current (unrotated) log on a cold start; checkpoints in
+    # /var/lib/vector stop a restart re-ingesting it.
+    read_from: beginning
+    fingerprint:
+      strategy: checksum
+      lines: 1
+
+transforms:
+  out_caddy:
+    type: remap
+    inputs: [caddy_access]
+    drop_on_error: true
+    reroute_dropped: false
+    source: |
+      parsed = object!(parse_json!(.message))
+
+      # Caddy names the access logger PER SITE BLOCK — http.log.access.log0,
+      # .log24, ... — so this must be a prefix test, never an equality one.
+      logger = string(parsed.logger) ?? ""
+      if !starts_with(logger, "http.log.access") {
+        abort
+      }
+
+      req = object(parsed.request) ?? {}
+      hdrs = object(req.headers) ?? {}
+      ua = array(hdrs."User-Agent") ?? []
+      ref = array(hdrs."Referer") ?? []
+
+      vhost = string(req.host) ?? "unknown"
+      method = string(req.method) ?? ""
+      uri = string(req.uri) ?? ""
+      user_agent = string(ua[0]) ?? ""
+
+      # Jellyfin and friends put credentials in the query string. The dashboards
+      # group by uri, so without this the log store and every "Top paths" panel
+      # display working API keys. Redact before anything else touches the value —
+      # .message is built from it further down.
+      uri = replace(uri, r'(?i)([?&](?:api_?key|auth_?token|access_?token|token|password|passwd|secret|sig|signature|x-emby-token)=)[^&]*', "${1}REDACTED")
+      status = to_int(parsed.status) ?? 0
+
+      # remote_ip is already the real client on :8443 — the PROXY listener wrapper
+      # rewrites it, so no trusted_proxies plumbing is needed here.
+      client_ip = string(req.client_ip) ?? string(req.remote_ip) ?? ""
+
+      country = "local"
+      city_name = ""
+      asn_org = ""
+      lat = null
+      lon = null
+
+      # Each check falls back to `true` (= treat as private) so a malformed or empty
+      # address skips the lookup instead of erroring the whole event.
+      is_public = false
+      if client_ip != "" {
+        p1 = ip_cidr_contains("10.0.0.0/8", client_ip) ?? true
+        p2 = ip_cidr_contains("172.16.0.0/12", client_ip) ?? true
+        p3 = ip_cidr_contains("192.168.0.0/16", client_ip) ?? true
+        p4 = ip_cidr_contains("127.0.0.0/8", client_ip) ?? true
+        p5 = ip_cidr_contains("169.254.0.0/16", client_ip) ?? true
+        p6 = ip_cidr_contains("100.64.0.0/10", client_ip) ?? true
+        is_public = !p1 && !p2 && !p3 && !p4 && !p5 && !p6
+      }
+
+      # Uptime Kuma on the A1 VPS probes every public hostname, so it reaches Caddy
+      # with a public source IP — Oracle's on :8443, a Cloudflare edge one on :443 —
+      # and it is ~99% of everything that is not LAN. Left as a normal country it
+      # buries the handful of real outside requests in every off-LAN panel. Its own
+      # bucket keeps the rows queryable while letting the dashboards subtract it.
+      # LAN-side Kuma is unaffected: the is_public guard leaves it "local".
+      is_monitor = is_public && starts_with(user_agent, "Uptime-Kuma")
+
+      if is_monitor {
+        country = "monitor"
+      } else if is_public {
+        geo = get_enrichment_table_record("geoip_city", {"ip": client_ip}) ?? {}
+        asn = get_enrichment_table_record("geoip_asn", {"ip": client_ip}) ?? {}
+        country = string(geo.country_code) ?? ""
+        city_name = string(geo.city_name) ?? ""
+        lat = to_float(geo.latitude) ?? null
+        lon = to_float(geo.longitude) ?? null
+        asn_org = string(asn.autonomous_system_organization) ?? ""
+        if country == "" { country = "unknown" }
+      }
+
+      ts = to_float(parsed.ts) ?? 0.0
+
+      # Built from locals, not from `.`: a value read back off the event is typed
+      # `any`, which does not concatenate.
+      . = {}
+      .service = "caddy"
+      .host = vhost
+      .method = method
+      .uri = uri
+      .proto = string(req.proto) ?? ""
+      .status = status
+      .size = to_int(parsed.size) ?? 0
+      .duration = to_float(parsed.duration) ?? 0.0
+      .user_agent = user_agent
+      .referer = string(ref[0]) ?? ""
+      .client_ip = client_ip
+      .geo_country = country
+      .geo_city = city_name
+      .geo_lat = lat
+      .geo_lon = lon
+      .asn_org = asn_org
+      .timestamp = from_unix_timestamp!(to_int(round(ts * 1000000.0)), unit: "microseconds")
+      .message = method + " " + vhost + uri + " " + to_string(status)
+
+  # Survives VictoriaLogs' 90d retention, so traffic trends stay queryable at the
+  # metrics store's 1y. Tags stay low cardinality on purpose — no client_ip.
+  metrics_caddy:
+    type: log_to_metric
+    inputs: [out_caddy]
+    metrics:
+      - type: counter
+        field: status
+        name: caddy_requests_total
+        tags:
+          vhost: "{{host}}"
+          method: "{{method}}"
+          status: "{{status}}"
+          country: "{{geo_country}}"
+      - type: counter
+        field: size
+        name: caddy_response_bytes_total
+        increment_by_value: true
+        tags:
+          vhost: "{{host}}"

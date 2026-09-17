@@ -1,0 +1,37 @@
+# Secrets — plaintext NEVER committed
+.env
+*.env
+*.env.*
+!*.env.example
+secrets/
+**/secrets/
+
+# Encrypted secret vault — SAFE to commit (see docs/runbooks/secret-sync.md).
+# secrets.enc/ holds age ciphertext + the public key + the passphrase-wrapped
+# private key. The *.env.* rule above would otherwise swallow *.env.age, so the
+# encrypted env files are re-included explicitly.
+!*.env.age
+# age binaries auto-bootstrapped by scripts/secrets.sh — device-local, don't commit.
+scripts/.bin/
+
+# Certificates & keys
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
+
+# Local tooling (age binaries fetched by scripts/secrets.sh)
+scripts/.bin/
+.agents/
+agent/
+skills-lock.json

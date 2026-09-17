@@ -1,0 +1,94 @@
+services:
+  db:
+    labels:
+      nas.backup.dump: "true"
+      nas.backup.user: mealie
+      nas.backup.db: mealie
+      nas.backup.dir: /mnt/apps/mealie/dumps
+    image: docker.io/library/postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
+    container_name: mealie-db
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mealie -d mealie"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+    volumes:
+      # postgres:18+ stores data in a version-specific subdir; mount the parent.
+      - /mnt/apps/mealie/db:/var/lib/postgresql
+    environment:
+      POSTGRES_DB: mealie
+      POSTGRES_USER: mealie
+      POSTGRES_PASSWORD: ${MEALIE_DB_PW}
+      PGDATA: /var/lib/postgresql/18/docker
+
+  mealie:
+    image: ghcr.io/mealie-recipes/mealie:v3.26.0@sha256:a4d12ab3a009832cc94058345e22aea831c3e992e94783fefc1cd5a08544fe0c
+    container_name: mealie
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    healthcheck:
+      # mealie image is python-based (no curl); serves the API on 9000.
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9000').status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+    depends_on:
+      - db
+    networks:
+      - default
+      - proxy_mealie
+    volumes:
+      - /mnt/apps/mealie/data:/app/data
+    environment:
+      # Core
+      TZ: Europe/Vienna
+      LANG: de-DE
+      BASE_URL: https://mealie.example.com
+      # Postgres backend
+      DB_ENGINE: postgres
+      POSTGRES_USER: mealie
+      POSTGRES_PASSWORD: ${MEALIE_DB_PW}
+      POSTGRES_SERVER: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: mealie
+      # First-run admin (change password in UI after first login)
+      DEFAULT_EMAIL: ${MEALIE_ADMIN_EMAIL}
+      # Set to true to disable open self-registration (single-user / invite-only)
+      ALLOW_SIGNUP: "false"
+      # OIDC via Authentik. Client id/secret are runtime secrets — Komodo Variables.
+      # See docs/services/mealie.md.
+      OIDC_AUTH_ENABLED: "true"
+      OIDC_PROVIDER_NAME: authentik
+      OIDC_CONFIGURATION_URL: https://auth.example.com/application/o/mealie/.well-known/openid-configuration
+      OIDC_CLIENT_ID: ${MEALIE_OIDC_CLIENT_ID}
+      OIDC_CLIENT_SECRET: ${MEALIE_OIDC_CLIENT_SECRET}
+      # No OIDC group vars: access is gated by the Authentik application binding.
+      # AUTO_REDIRECT stays false — upstream redirect-loop bugs on public/share routes.
+      OIDC_AUTO_REDIRECT: "false"
+      OIDC_REMEMBER_ME: "true"
+      # Authentik's default email scope hardcodes email_verified: False, so leaving this
+      # at the default locks everyone out. See docs/services/mealie.md.
+      OIDC_REQUIRES_EMAIL_VERIFICATION: "false"
+      # Authentik is the ONLY login — no local break-glass. Recovery is to flip this back
+      # to "true" and redeploy. See docs/services/mealie.md.
+      ALLOW_PASSWORD_LOGIN: "false"
+
+networks:
+  proxy_mealie:
+    external: true

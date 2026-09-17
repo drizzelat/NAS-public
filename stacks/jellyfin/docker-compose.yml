@@ -1,0 +1,79 @@
+# Media playback (public, Authentik SSO) and its request front-end (LAN-only).
+# Seerr reaches sonarr/radarr over media_net. Docs: docs/services/jellyfin.md
+services:
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:10.11.11ubu2404-ls38@sha256:c9bb091532bec4fa12b3ce3c08d163cab2b369f5f30f1f30ca49a46d97f5eec8
+    container_name: jellyfin
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
+    environment:
+      - PUID=950
+      - PGID=950
+      - TZ=Europe/Vienna
+    devices:
+      - /dev/dri:/dev/dri
+    volumes:
+      - /mnt/apps/mediaserver/config/jellyfin:/config
+      - /mnt/data/mediaserver/data/media:/data/media
+    networks:
+      - default
+      - media_net
+      - proxy_jellyfin
+    restart: unless-stopped
+  seerr:
+    image: ghcr.io/seerr-team/seerr:v3.4.1@sha256:f4768de5f616248d723e05891f3345a1402123775d03bf0890dbfedc0831bda1
+    container_name: seerr
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+    init: true
+    user: 950:950
+    environment:
+      - TZ=Europe/Vienna
+    volumes:
+      - /mnt/apps/mediaserver/config/seerr:/app/config
+    networks:
+      - default
+      - media_net
+      - proxy_jellyfin
+    restart: unless-stopped
+  # Prometheus metrics for the Media stack dashboard, scraped as jellyfin-exporter:9594 over proxy_jellyfin.
+  jellyfin-exporter:
+    image: rebelcore/jellyfin-exporter:v1.5.2@sha256:8a1294b7fea80993e4ec18220e391578e0f9ca9e109294fd6a379d2cb5213c85
+    container_name: jellyfin-exporter
+    command:
+      - --collector.transcoding
+      - --collector.tasks
+      - --collector.storage
+    user: "65534:65534"
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+    environment:
+      - JELLYFIN_ADDRESS=http://jellyfin:8096
+      - JELLYFIN_TOKEN=${JELLYFIN_EXPORTER_TOKEN}   # dedicated API key "jellyfin-exporter" (Dashboard -> API Keys)
+    networks:
+      - default
+      - proxy_jellyfin
+    restart: unless-stopped
+networks:
+  proxy_jellyfin:
+    external: true
+  media_net:
+    external: true

@@ -1,0 +1,69 @@
+services:
+  beszel:
+    image: henrygd/beszel:0.19.0@sha256:fefb27166f5e1611ebf67f8697ea928a23f44efdb00af922e2ac3b5faa2efd5c
+    container_name: beszel
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    networks:
+      - default
+      - proxy_beszel
+    ports:
+      # Published on the NAS tailnet IP only, so off-host agents reach the hub directly
+      # and bypass Caddy. Needs the tailscale stack up first, or the bind fails.
+      - "100.64.0.11:8090:8090"
+    volumes:
+      - /mnt/apps/beszel/hub_data:/beszel_data
+    environment:
+      - APP_URL=http://localhost:8090
+  beszel-agent:
+    image: henrygd/beszel-agent:0.19.0@sha256:00c88600e7d120128f623b2deb5257603d464e841fd68f88cc791dcc075f9e46
+    container_name: beszel-agent
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - /mnt/data:/mnt/data:ro
+    environment:
+      - PORT=45876
+      - KEY=${BESZEL_ENVIRONMENT_AGENT_KEY}
+      - EXTRA_FILESYSTEMS=/mnt/data
+      - DOCKER_HOST=tcp://127.0.0.1:42375
+    depends_on:
+      - beszel-socket-proxy
+
+  beszel-socket-proxy:
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    container_name: beszel-socket-proxy
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    environment:
+      # GET-only access to container endpoints (list + per-container stats).
+      CONTAINERS: 1
+      PING: 1
+      VERSION: 1
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    tmpfs:
+      # Entrypoint writes /tmp/haproxy.cfg; read-only rootfs needs writable /tmp + /run.
+      - /run
+      - /tmp
+    ports:
+      # Host loopback only — the agent is network_mode: host, so it can't share a
+      # bridge network with the proxy; it reaches the filtered API via 127.0.0.1.
+      - "127.0.0.1:42375:2375"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+networks:
+  proxy_beszel:
+    external: true

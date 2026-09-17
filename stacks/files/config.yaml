@@ -1,0 +1,61 @@
+# Read-only from the on-NAS repo clone. Do NOT add a second `*-config.yaml` here:
+# Quantum merges every sibling matching that suffix into this file.
+server:
+  port: 30052
+  baseURL: "/"
+  database: "/state/database.db"
+  cacheDir: "/state/cache"
+  cacheDirCleanup: true
+  # Share links are built from this. It must be the public name, not the container.
+  externalUrl: "https://files.example.com"
+  disableUpdateCheck: true
+  sources:
+    - path: "/srv/smb_share"
+      name: "smb_share"
+      config:
+        defaultEnabled: true
+        defaultUserScope: "/"
+        createUserDir: false
+  logging:
+    - levels: "info|warning|error"
+
+frontend:
+  name: "NAS Files"
+
+auth:
+  methods:
+    # Authentik is the ONLY login — no local break-glass. Recovery is to flip this
+    # back to true and redeploy. See docs/services/files.md.
+    password:
+      enabled: false
+    oidc:
+      enabled: true
+      issuerUrl: "https://auth.example.com/application/o/files/"
+      scopes: "openid email profile"
+      userIdentifier: "preferred_username"
+      groupsClaim: "groups"
+      # The Authentik group, reused rather than a files-specific one: whoever is an
+      # Authentik admin is an admin here. Exact name match, space included.
+      adminGroup: "authentik Admins"
+      logoutRedirectUrl: "https://auth.example.com/application/o/files/end-session/"
+      # clientId/clientSecret come from FILEBROWSER_OIDC_CLIENT_ID/_SECRET.
+
+userDefaults:
+  account:
+    loginMethod: "oidc"
+    lockPassword: true
+    disableUpdateNotifications: true
+    # Who may log in at all is the Authentik application binding, not these.
+    permissions:
+      admin: false
+      api: false
+      modify: true
+      create: true
+      delete: true
+      download: true
+      share: true
+      realtime: true
+  ui:
+    darkMode: true
+  listing:
+    showHidden: false

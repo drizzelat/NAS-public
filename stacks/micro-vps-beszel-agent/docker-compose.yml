@@ -1,0 +1,62 @@
+# Beszel agent for the Oracle VPS ingress host. Outbound WebSocket to the hub over
+# Tailscale; no inbound port on the public IP. Docs: docs/services/micro-vps-beszel-agent.md
+services:
+  beszel-agent:
+    image: henrygd/beszel-agent:0.19.0@sha256:00c88600e7d120128f623b2deb5257603d464e841fd68f88cc791dcc075f9e46
+    container_name: beszel-agent
+    restart: unless-stopped
+    network_mode: host
+    security_opt:
+      - no-new-privileges=true
+    volumes:
+      - beszel_agent_data:/var/lib/beszel-agent
+      # Root-disk usage: statfs of any path on the root fs returns whole-fs usage, so
+      # bind an EMPTY probe dir rather than host `/` (which would expose every secret).
+      - /var/lib/beszel-root-probe:/extra-filesystems/root:ro
+    environment:
+      # Display name in the hub; defaults to Oracle's instance hostname.
+      - SYSTEM_NAME=vps
+      - LISTEN=127.0.0.1:45876
+      - HUB_URL=http://100.64.0.11:8090
+      - KEY=${BESZEL_VPS_AGENT_KEY}
+      - TOKEN=${BESZEL_VPS_AGENT_TOKEN}
+      # Read container stats through the GET-only socket-proxy on host loopback.
+      - DOCKER_HOST=tcp://127.0.0.1:42375
+    depends_on:
+      - beszel-socket-proxy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+
+  beszel-socket-proxy:
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    container_name: beszel-socket-proxy
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    environment:
+      # GET-only access to container endpoints (list + per-container stats).
+      CONTAINERS: 1
+      PING: 1
+      VERSION: 1
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    tmpfs:
+      # Entrypoint writes /tmp/haproxy.cfg; read-only rootfs needs writable /tmp + /run.
+      - /run
+      - /tmp
+    ports:
+      # Host loopback only — the agent is network_mode: host and cannot share a bridge.
+      - "127.0.0.1:42375:2375"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+
+volumes:
+  beszel_agent_data:

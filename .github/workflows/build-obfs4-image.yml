@@ -1,0 +1,134 @@
+name: build-obfs4-image
+
+# Tor's own obfs4 image is rebuilt rarely and fell behind Tor, so this repo builds the arm64 image the
+# A1 runs and rebuilds it whenever Tor, Debian or Go has an update. Model: docs/services/a1-vps-tor-bridge.md
+
+on:
+  push:
+    # main only: the tag is what Renovate watches, so a branch build would become a digest PR.
+    branches: [main]
+    paths:
+      - stacks/a1-vps-tor-bridge/Dockerfile
+      - .github/workflows/build-obfs4-image.yml
+  # Daily primary trigger: scripts/tor-bridge-image-trigger.sh (host cron). schedule: is the late fallback.
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Rebuild and push even if nothing upstream changed."
+        type: boolean
+        default: false
+  schedule:
+    - cron: "25 3 * * *"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-obfs4-image
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/obfs4-bridge
+  CONTEXT: stacks/a1-vps-tor-bridge
+
+jobs:
+  build:
+    # Also refuses a dispatch from another branch, which would push the same tag.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest   # GitHub-hosted: the NAS runner has no docker socket.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+
+      - name: Decide whether a rebuild is due
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          ly=$(sed -n 's/^ARG LYREBIRD_VERSION=\([0-9.]*\)$/\1/p' "$CONTEXT/Dockerfile")
+          golang=$(sed -n 's/^FROM .* \(golang:[^ ]*\) AS build$/\1/p' "$CONTEXT/Dockerfile")
+          [ -n "$ly" ] && [ -n "$golang" ] || { echo "::error::cannot read LYREBIRD_VERSION or the golang tag from $CONTEXT/Dockerfile"; exit 1; }
+
+          # What a build would pull right now: the Go release behind the builder tag, the Debian base.
+          go=$(docker buildx imagetools inspect "$golang" --format '{{json (index .Image "linux/amd64")}}' \
+            | jq -r '.config.Env[] | select(startswith("GOLANG_VERSION=")) | ltrimstr("GOLANG_VERSION=")')
+          base=$(docker buildx imagetools inspect debian:trixie-slim --format '{{json .Manifest}}' | jq -r .digest)
+          [ -n "$go" ] && [ -n "$base" ] || { echo "::error::could not resolve the Go version or the Debian base digest"; exit 1; }
+
+          reasons=()
+          [ "$EVENT" != push ] || reasons+=("Dockerfile or workflow changed")
+          [ "$FORCE" != true ] || reasons+=("forced")
+          if labels=$(docker buildx imagetools inspect "$IMAGE:$ly" --format '{{json .Image.Config.Labels}}' 2>/dev/null); then
+            [ "$(jq -r '."nas.go-version" // ""' <<<"$labels")" = "$go" ] || reasons+=("Go $go")
+            [ "$(jq -r '."nas.base-digest" // ""' <<<"$labels")" = "$base" ] || reasons+=("debian:trixie-slim moved")
+            # A dry-run upgrade inside the published image sees Debian security fixes and new Tor alike.
+            upgrades=$(docker run --rm --platform linux/arm64 --user 0 --entrypoint sh "$IMAGE:$ly" \
+              -c 'apt-get update -qq >/dev/null && apt-get -s upgrade | sed -n "s/^Inst \([^ ]*\) .*/\1/p"' | xargs)
+            [ -z "$upgrades" ] || reasons+=("apt: $upgrades")
+          else
+            reasons+=("$IMAGE:$ly is not published yet")
+          fi
+
+          { echo "ly=$ly"; echo "go=$go"; echo "base=$base"; } >> "$GITHUB_OUTPUT"
+          if [ ${#reasons[@]} -eq 0 ]; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "\`$IMAGE:$ly\` is current: $go, same Debian base, no apt upgrades." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            printf 'Rebuilding `%s:%s`:\n\n' "$IMAGE" "$ly" >> "$GITHUB_STEP_SUMMARY"
+            printf -- '- %s\n' "${reasons[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Build, check and push
+        if: steps.plan.outputs.build == 'true'
+        env:
+          LY: ${{ steps.plan.outputs.ly }}
+          GO_VERSION: ${{ steps.plan.outputs.go }}
+          BASE: ${{ steps.plan.outputs.base }}
+          SOURCE: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # --pull --no-cache: a rebuild exists to take new packages, so no layer may come from a cache.
+          docker build --pull --no-cache --platform linux/arm64 --provenance=false --sbom=false \
+            --label "org.opencontainers.image.source=$SOURCE" \
+            --label "org.opencontainers.image.version=$LY" \
+            --label "nas.go-version=$GO_VERSION" \
+            --label "nas.base-digest=$BASE" \
+            -t "$IMAGE:$LY" "$CONTEXT"
+
+          # Same confinement as the compose file, so a capability problem fails here and not on the A1.
+          arm() { docker run --rm --platform linux/arm64 --cap-drop ALL --security-opt no-new-privileges "$@"; }
+          tor=$(arm --entrypoint tor "$IMAGE:$LY" --version | sed -n 's/^Tor version \([0-9.]*[0-9]\).*/\1/p')
+          [ -n "$tor" ] || { echo "::error::tor --version printed no version"; exit 1; }
+          lyv=$(arm --entrypoint /usr/bin/lyrebird "$IMAGE:$LY" -version)
+          [ "$lyv" = "lyrebird $LY" ] || { echo "::error::lyrebird -version printed '$lyv', want 'lyrebird $LY'"; exit 1; }
+          arm --entrypoint sh "$IMAGE:$LY" -c 'test -x /usr/local/bin/start-tor.sh && test -x /usr/local/bin/get-bridge-line'
+          # start-tor.sh renders torrc from the compose env; a tor shim turns its final exec into a config check.
+          arm -e OR_PORT=9443 -e PT_PORT=4443 -e OBFS4_ENABLE_ADDITIONAL_VARIABLES=1 \
+            -e OBFS4V_AddressDisableIPv6=1 -e "OBFS4V_MetricsPortPolicy=accept 100.64.0.11,accept 172.16.0.0/12" \
+            --entrypoint bash "$IMAGE:$LY" -c \
+            'mkdir -p /tmp/shim && printf "#!/bin/sh\nexec /usr/bin/tor --verify-config \"\$@\"\n" > /tmp/shim/tor && chmod +x /tmp/shim/tor && PATH="/tmp/shim:$PATH" /usr/local/bin/start-tor.sh' \
+            | tee /tmp/verify.log
+          grep -q '^Configuration was valid$' /tmp/verify.log || { echo "::error::start-tor.sh rendered a torrc that tor --verify-config rejects"; exit 1; }
+
+          docker push "$IMAGE:$LY"
+          digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$LY" | cut -d@ -f2)
+          {
+            echo
+            echo "Pushed with Tor $tor and lyrebird $LY ($GO_VERSION). Renovate raises the pin in \`$CONTEXT/docker-compose.yml\` on its next run:"
+            echo
+            echo '```yaml'
+            echo "    image: $IMAGE:$LY@$digest"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "$IMAGE:$LY@$digest"

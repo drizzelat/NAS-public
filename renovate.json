@@ -1,0 +1,162 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Merging stack images is NOT Renovate's job any more: .github/workflows/renovate-pr-review.yml reviews every stack PR (image delta + Claude risk verdict), publishes the verdict as the `renovate-review` commit status - a required check on main - and merges only the green ones (no-op or RISK: LOW) in the 05:00-06:00 window. Renovate still automerges github-actions bumps itself - they touch no stack and redeploy nothing, and they get a green renovate-review so the required check never deadlocks them.",
+    "No release-age soak: open a PR for the newest release as soon as it appears. Dropped minimumReleaseAge because fast-releasing images kept resetting the soak clock and stranded PRs needing hand-merges.",
+    "ignorePrAuthor: match Renovate's own PRs by branch name, not by PR author. It is NOT set here - it is a global-only option, and Renovate answers `ignorePrAuthor` in renovate.json with a config warning (\"cannot be configured within a repository's config file\") and then ignores it. It lives as RENOVATE_IGNORE_PR_AUTHOR in .github/workflows/renovate.yml instead. Renovate authenticates with a GitHub App installation token, so its PRs are authored by the App's bot user - and were authored by the classic PAT's owner before that. Without it, changing the bot identity makes every already-open PR invisible to Renovate and it opens a duplicate for each one: it sat unset (as repo config) from 2026-08-22 to 2026-09-08, and PR #129 (portainer v2.44.0, opened under the PAT owner) went unseen for 40 days until it was hand-merged. Nothing but Renovate opens renovate/* branches in this repo.",
+    "rebaseWhen=conflicted: do NOT rebase branches merely because they are behind main. With automerge on, Renovate's default (auto) rebases every open branch as soon as main moves - and Renovate merges at most one PR per run, so each morning's single merge pushed a new commit onto all remaining branches, reset their check-runs to pending, and left them unmergeable until the next run. Result: exactly one merge per day (always the daily github-runner digest PR) while everything else piled up. Branch protection on main has strict=false, so a behind-base branch merges fine; the rebase bought nothing. Stacks live in separate folders, so real conflicts are rare - and those still rebase."
+  ],
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "timezone": "Europe/Berlin",
+  "prConcurrentLimit": 0,
+  "prHourlyLimit": 0,
+  "rebaseWhen": "conflicted",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "labels": ["security"]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The WebTunnel server version stacks/a1-vps-webtunnel/Dockerfile builds. Go datasource, i.e. proxy.golang.org: gitlab.torproject.org bot-walls automated clients.",
+      "managerFilePatterns": ["/^stacks/a1-vps-webtunnel/Dockerfile$/"],
+      "matchStrings": ["ARG WEBTUNNEL_VERSION=(?<currentValue>v\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/webtunnel",
+      "datasourceTemplate": "go"
+    },
+    {
+      "customType": "regex",
+      "description": "The lyrebird (obfs4 transport) version stacks/a1-vps-tor-bridge/Dockerfile builds. Its tags are lyrebird-X.Y.Z, not vX.Y.Z, so proxy.golang.org lists no versions and the go datasource sees nothing: read the tags over git instead. The build itself still fetches the source through the Go module proxy.",
+      "managerFilePatterns": ["/^stacks/a1-vps-tor-bridge/Dockerfile$/"],
+      "matchStrings": ["ARG LYREBIRD_VERSION=(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "lyrebird",
+      "packageNameTemplate": "https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird.git",
+      "datasourceTemplate": "git-tags",
+      "extractVersionTemplate": "^lyrebird-(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "Go modules stacks/caddy/Dockerfile compiles into the edge binary: the xcaddy --with plugins, and the --replace overrides that force patched versions of dependencies Caddy and the plugins still pin to vulnerable ones. A --with depName is the module root (host/owner/repo), so the crowdsec-bouncer http and appsec packages are one dependency and move together.",
+      "managerFilePatterns": ["/^stacks/caddy/Dockerfile$/"],
+      "matchStrings": [
+        "--with (?<depName>github\\.com/[^/@\\s]+/[^/@\\s]+)(?:/[^@\\s]+)?@(?<currentValue>v\\d+\\.\\d+\\.\\d+)",
+        "--replace [^=\\s]+=(?<depName>[^@\\s]+)@(?<currentValue>v\\d+\\.\\d+\\.\\d+)"
+      ],
+      "datasourceTemplate": "go"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Keep every stack image pinned by digest; Renovate refreshes the digest too.",
+      "matchManagers": ["docker-compose"],
+      "pinDigests": true
+    },
+    {
+      "description": "Bundle minor+patch+digest per stack folder into one PR. One merge = one stack redeploy (deploy-stacks fires a webhook per changed stacks/<name>/).",
+      "matchManagers": ["docker-compose"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "{{packageFileDir}}",
+      "commitMessageTopic": "{{packageFileDir}}"
+    },
+    {
+      "description": "Renovate does NOT merge stack images — .github/workflows/renovate-pr-review.yml does. Every stack PR, whatever the update type, gets the two-layer review (registry-API image delta + a Claude risk verdict) and is merged only if it comes back a no-op for our arch or RISK: LOW; that workflow's window-merge job does the merging, inside the same 05:00-06:00 redeploy window Renovate used to merge in. Why this rule stopped saying automerge: a minor bump is not evidence of a small change — mealie v3.20.1 -> v3.22.0 (PR #92) carried v3.21.0's new OIDC email_verified requirement, which would have auto-merged at 05:00 and locked every account out of a stack with no password login. Renovate keeps OPENING the PRs; deciding is the workflow's job.",
+      "matchManagers": ["docker-compose"],
+      "matchUpdateTypes": ["major", "minor", "patch", "digest", "pin", "pinDigest"],
+      "automerge": false
+    },
+    {
+      "description": "Minor bumps: label for visibility. CalVer images (authentik = 2026.M.P, etc.) report a month bump as 'minor' but ship DB migrations / breaking config — and even plain semver minors do (see the mealie note above), which is why nothing merges without the review workflow clearing it.",
+      "matchManagers": ["docker-compose"],
+      "matchUpdateTypes": ["minor"],
+      "labels": ["minor-update"]
+    },
+    {
+      "description": "Major bumps get their own PR (not bundled with the grouped minor+patch+digest) + label for visibility.",
+      "matchManagers": ["docker-compose"],
+      "matchUpdateTypes": ["major"],
+      "labels": ["major-update"]
+    },
+    {
+      "description": "Stateful / blast-radius-critical images (databases, cache, SSO, and the edge's own Caddy build): a bad bump means data loss, full auth lockout (authentik fronts the proxied services), or every site down (ghcr.io/drizzelat/nas-caddy is built from this repo, so its digest PR shows a new digest but not which branch built it). Since the review workflow now gates every stack PR, this rule no longer changes what merges — it keeps the needs-manual-review label so these PRs are obvious in the list and in the GitHub email, and it keeps automerge pinned false in case the docker-compose rule above is ever relaxed. immich-app/postgres is here too (its major/minor/patch are disabled below, so only digests move). Keep this list in sync with MERGE_SKIP_IMAGES in renovate-pr-review.yml, which is what actually holds these PRs back from the sweep.",
+      "matchManagers": ["docker-compose"],
+      "matchPackageNames": [
+        "postgres",
+        "docker.io/library/postgres",
+        "docker.io/library/mariadb",
+        "valkey/valkey",
+        "docker.io/library/redis",
+        "ghcr.io/goauthentik/server",
+        "ghcr.io/immich-app/postgres",
+        "ghcr.io/drizzelat/nas-caddy",
+        "docker.io/library/mongo"
+      ],
+      "automerge": false,
+      "labels": ["needs-manual-review"]
+    },
+    {
+      "description": "Komodo is the CONTROL PLANE (docs/runbooks/setup-operations/komodo-migration.md F2): Core and all three peripheries must move together, a v2 minor can break the Core-periphery transport, and the peripheries are hand-applied, so a merged bump deploys nothing on its own and leaves every host drifting until someone applies it. Grouped so Core and Periphery arrive in one PR. Never swept up: both images are on MERGE_SKIP_IMAGES in renovate-pr-review.yml, and mongo sits in the stateful rule above.",
+      "matchManagers": ["docker-compose"],
+      "matchPackageNames": ["ghcr.io/moghtech/komodo-core", "ghcr.io/moghtech/komodo-periphery"],
+      "groupName": "komodo",
+      "automerge": false,
+      "labels": ["needs-manual-review", "control-plane"]
+    },
+    {
+      "description": "FileBrowser Quantum ships two tag lines from one repo: `<x.y.z>-stable` and `<x.y.z>-beta` (the 2.x rewrite). BOTH are semver prereleases, so a `-stable` pin is itself unstable and Renovate will happily offer `2.0.5-beta` as the next major. Constrain it to the stable line; moving to 2.x is a hand-edit once it ships stable. Same class of trap as the portainer-ee tag lines above.",
+      "matchManagers": ["docker-compose"],
+      "matchPackageNames": ["gtstef/filebrowser"],
+      "allowedVersions": "/-stable$/"
+    },
+    {
+      "description": "MariaDB stays on the 12.3 LTS line. Everything after it (12.4+, 13.x) is a rolling release that stops getting patches as soon as the next one ships, and a major is a one-way datadir upgrade (docs/services/romm.md). Moving to the next LTS is a hand-edit. PR #407 (13.0) was closed for this.",
+      "matchManagers": ["docker-compose"],
+      "matchPackageNames": ["docker.io/library/mariadb"],
+      "allowedVersions": "/^12\\.3(\\.\\d+)?$/"
+    },
+    {
+      "description": "komodo-mongo stays on MongoDB 8.0, a major release with a five-year lifecycle. Minor lines (8.2, 8.3) lose patches when the next one ships and cannot be skipped: each hop is a binary upgrade plus an FCV bump on a standalone datadir. PR #377 (8.0.30 -> 8.3.11) was closed for this.",
+      "matchManagers": ["docker-compose"],
+      "matchPackageNames": ["docker.io/library/mongo"],
+      "allowedVersions": "/^8\\.0\\.\\d+$/"
+    },
+    {
+      "description": "App images that run irreversible DB schema migrations on first boot: gate MAJOR only to manual review. The deploy auto-rollback reverts the compose pin but NOT a migrated database, so a bad major = old image can't read the new schema = restore-from-dump. patch/minor/digest go through the review sweep like any other stack PR. Both immich images are listed so server + machine-learning never diverge across a major.",
+      "matchManagers": ["docker-compose"],
+      "matchPackageNames": [
+        "ghcr.io/immich-app/immich-server",
+        "ghcr.io/immich-app/immich-machine-learning",
+        "ghcr.io/paperless-ngx/paperless-ngx",
+        "ghcr.io/mealie-recipes/mealie"
+      ],
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "labels": ["needs-manual-review", "major-update"]
+    },
+    {
+      "description": "immich's custom Postgres uses a bespoke vendor tag (18-vectorchordX.Y.Z); only follow it by digest. Bump the tag manually per immich release notes.",
+      "matchPackageNames": ["ghcr.io/immich-app/postgres"],
+      "matchUpdateTypes": ["major", "minor", "patch"],
+      "enabled": false
+    },
+    {
+      "description": "GitHub Actions updates (actions/checkout etc.): auto-merge EVERY update type, including major. NO automergeSchedule — action bumps don't redeploy stacks, so the 05:00-06:00 redeploy window doesn't apply; merge as soon as checks pass. Digests stay pinned via helpers:pinGitHubActionDigests. Low blast radius: a bad action bump breaks CI (caught immediately, revert the pin), never a running service.",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["major", "minor", "patch", "digest", "pin", "pinDigest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": false
+    },
+    {
+      "description": "Inputs of the self-built Tor bridge images (stacks/a1-vps-webtunnel/Dockerfile and stacks/a1-vps-tor-bridge/Dockerfile: the WebTunnel server and lyrebird versions, the golang builder tag, and the thetorproject/obfs4-bridge image the start scripts are copied from): automerge, like github-actions. Merging one only rebuilds the image - build-webtunnel-image.yml or build-obfs4-image.yml pushes a new digest or tag, and that reaches the A1 as an ordinary docker-compose PR, which renovate-pr-review.yml still gates. Hand-merging these would stall exactly the security fixes a self-built image has to keep taking. They get a green renovate-review (no stack image moved), so the required check never blocks them.",
+      "matchFileNames": ["stacks/a1-vps-webtunnel/Dockerfile", "stacks/a1-vps-tor-bridge/Dockerfile"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": false
+    },
+    {
+      "description": "Everything stacks/caddy/Dockerfile builds from - both caddy base images and the Go modules of the customManager above - in one PR. Merging it only rebuilds ghcr.io/drizzelat/nas-caddy on main (build-caddy-image.yml); the edge moves when the digest PR that follows is merged by hand (MERGE_SKIP_IMAGES). One PR per batch = one build and one digest PR, not one of each per module.",
+      "matchFileNames": ["stacks/caddy/Dockerfile"],
+      "groupName": "caddy image build"
+    }
+  ]
+}

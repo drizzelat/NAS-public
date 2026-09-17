@@ -1,0 +1,305 @@
+name: edge-access-policy
+
+# Machine-checked assertion that admin hostnames are not reachable from the internet.
+# Both layers, why each shape means what it means: docs/runbooks/setup-operations/edge-access-policy-probe.md
+
+on:
+  schedule:
+    # Fallback only, and clear of every host-cron slot in both DST offsets: GitHub
+    # drops most schedule events. Primary is scripts/edge-probe-trigger.sh (every 6h).
+    - cron: '17 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # The fallback reads this workflow's own run list to see if today already ran.
+  actions: read
+
+concurrency:
+  group: edge-access-policy
+  cancel-in-progress: false
+
+env:
+  DOMAIN: example.com
+  # The SNI allowlist in stacks/micro-vps-ingress/docker-compose.yml — keep in step.
+  # The union, used by Layer 2 (which reaches the NAS directly and is unaffected by
+  # the VPS gate). Layer 1 splits them, because they are reachable from different
+  # places on purpose.
+  PUBLIC_HOSTS: auth files immich jellyfin mealie
+  # Orange-clouded: the VPS forwards these ONLY when the peer is a Cloudflare edge
+  # address, so from anywhere else — including this runner — they must be dropped.
+  CF_ONLY_HOSTS: auth files immich mealie
+  # Gray-cloud, so it must answer from any source.
+  DIRECT_PUBLIC_HOSTS: jellyfin
+  # Every LAN-only proxy host, per docs/network.md → Access control.
+  LAN_ONLY_HOSTS: >-
+    adguard bazarr beszel games grafana homarr komodo kuma nas paperless
+    prowlarr qbittorrent questarr radarr romm sabnzbd seerr shelfmark sonarr
+  VPS_PUBLIC_IP: 198.51.100.10
+  # DNS-only at Cloudflare; every other name must stay proxied (orange).
+  GREY_CLOUD_HOSTS: jellyfin
+  VPS_TAILNET_IP: 100.64.0.12
+  VPS_SSH_PORT: 2222
+  # Every LAN-only vhost imports the same lan_only snippet, so one host proves its ranges for all.
+  ORDER_PROBE_HOST: komodo
+
+jobs:
+  # The fallback must not duplicate the host cron's runs — it fires only on a day no
+  # dispatch landed. Docs: docs/runbooks/setup-operations/edge-access-policy-probe.md
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Skip the fallback if the host cron already ran today
+        id: check
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          today="$(date -u +%F)"
+          runs="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/edge-access-policy.yml/runs"
+          ran="$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$runs?event=workflow_dispatch&per_page=50" \
+            | jq --arg today "$today" '[.workflow_runs[]
+                 | select(.created_at | startswith($today))
+                 | select(.conclusion != null)] | length')"
+          if [ "$ran" -gt 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "host cron already ran the probe today ($ran run(s)) - skipping"
+          else
+            echo "::warning::no dispatched run today - the host cron may be broken, running the fallback"
+          fi
+
+  # Layer 1 — VPS SNI allowlist, seen the way the internet sees it.
+  sni-allowlist:
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Assert the public edge drops admin hostnames
+        run: |
+          set -uo pipefail
+
+          # DoH, so the runner's own resolver is never in the path: this must be the
+          # public view of the name, not whatever the runner is configured with.
+          resolve() {
+            curl -sS --max-time 15 --retry 3 --retry-all-errors \
+              -H 'accept: application/dns-json' \
+              "https://cloudflare-dns.com/dns-query?name=$1&type=A" \
+              | jq -r '[.Answer[]? | select(.type == 1) | .data] | first // ""'
+          }
+
+          # Straight at the VPS, not through Cloudflare: Cloudflare serves this runner's
+          # datacenter IP a managed JS challenge (403, Cf-Mitigated: challenge), so the
+          # 525 an ordinary client sees is unreachable here. This asserts the SNI
+          # allowlist itself rather than Cloudflare's rendering of it, and the cloud
+          # colour is checked separately below. --http1.1 keeps the exit code stable.
+          probe() {
+            local code rc
+            code=$(curl -s --http1.1 --max-time 20 \
+              -A 'NAS edge-access-policy probe' \
+              --resolve "$1:443:$VPS_PUBLIC_IP" "https://$1/" -o /dev/null -w '%{http_code}')
+            rc=$?
+            printf '%s %s' "$code" "$rc"
+          }
+
+          fail=0
+          {
+            echo "## Layer 1 — VPS SNI allowlist (public path)"
+            echo
+            echo "| Host | Expected | Cloud | Result | |"
+            echo "| --- | --- | --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          check() { # host expectation
+            local host="$1" want="$2" fqdn ip code rc got verdict note cloud wantcloud
+            fqdn="$host.$DOMAIN"
+
+            wantcloud=orange
+            case " $GREY_CLOUD_HOSTS " in *" $host "*) wantcloud=grey ;; esac
+            ip=$(resolve "$fqdn")
+            if [ -z "$ip" ]; then cloud=none
+            elif [ "$ip" = "$VPS_PUBLIC_IP" ]; then cloud=grey
+            else cloud=orange
+            fi
+
+            for attempt in 1 2 3; do
+              got=$(probe "$fqdn")
+              code=${got% *}; rc=${got#* }
+              verdict=bad
+              case "$want" in
+                # An unlisted SNI hits `proxy_pass ""`, so the VPS closes the connection
+                # before TLS completes and curl reports 35.
+                blocked) [ "$rc" = 35 ] && verdict=ok ;;
+                # Same mechanism, different reason: the SNI is listed, but only under
+                # the Cloudflare half of the map key, and this runner is not Cloudflare.
+                cf_only) [ "$rc" = 35 ] && verdict=ok ;;
+                public)  case "$code" in 200|301|302|307|308) verdict=ok ;; esac ;;
+              esac
+              [ "$verdict" = ok ] && break
+              sleep 5
+            done
+
+            note=''
+            if [ "$verdict" != ok ]; then
+              case "$want:$code:$rc" in
+                blocked:200:*|blocked:30[1278]:*) note=' — **reachable from the internet**' ;;
+                blocked:403:*|blocked:000:5[26]) note=' — the NAS edge answered, so Layer 1 has failed open (blind-forward)' ;;
+                cf_only:200:*|cf_only:30[1278]:*) note=' — **reachable direct-to-origin**: the Cloudflare-only gate is not in force, so Cloudflare can be bypassed' ;;
+                public:000:35) note=' — dropped at the VPS: missing from the SNI allowlist map' ;;
+                *) note=' — unexpected edge response' ;;
+              esac
+            fi
+
+            # Turning the orange cloud off would expose the origin IP and drop Cloudflare's
+            # TLS/DDoS layer; orange-clouding jellyfin breaks streaming (ToS §2.8).
+            if [ "$cloud" != "$wantcloud" ]; then
+              note="$note — DNS is $cloud-cloud, expected $wantcloud"
+              verdict=bad
+            fi
+
+            if [ "$verdict" = ok ]; then
+              printf '| `%s` | %s | %s | code=%s rc=%s | ✅ |\n' \
+                "$host" "$want" "$cloud" "$code" "$rc" >> "$GITHUB_STEP_SUMMARY"
+            else
+              printf '| `%s` | %s | %s | code=%s rc=%s%s | ❌ |\n' \
+                "$host" "$want" "$cloud" "$code" "$rc" "$note" >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::$fqdn expected $want, got code=$code rc=$rc$note"
+              fail=1
+            fi
+          }
+
+          for h in $LAN_ONLY_HOSTS;      do check "$h" blocked; done
+          for h in $CF_ONLY_HOSTS;       do check "$h" cf_only; done
+          # Liveness for the orange-clouded four cannot be asserted from here — through
+          # Cloudflare this runner's datacenter IP gets a managed challenge, and direct
+          # is exactly what the gate above forbids. Uptime Kuma on the A1 owns it: it
+          # probes all five through Cloudflare every ~60s. `jellyfin` is gray-cloud, so
+          # it still doubles as the "is the edge up at all" case here.
+          for h in $DIRECT_PUBLIC_HOSTS; do check "$h" public;  done
+
+          [ "$fail" = 0 ] || { echo "::error::Layer 1 assertion failed"; exit 1; }
+          echo "Layer 1 OK — admin hostnames dropped, orange-clouded names Cloudflare-only, gray-cloud serving."
+
+  # Layer 2 — Caddy's @lan exclusion of the VPS tailnet IP, which only the VPS can observe.
+  edge-access-list:
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Write probe SSH key
+        env:
+          # Forced-command key, no shell, no sudo — it can only run the probe.
+          # Setup: docs/runbooks/setup-operations/edge-access-policy-probe.md
+          VPS_PROBE_SSH_KEY: ${{ secrets.VPS_PROBE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$VPS_PROBE_SSH_KEY" ] || { echo "::error::VPS_PROBE_SSH_KEY secret not set — see the edge-access-policy-probe runbook"; exit 1; }
+          printf '%s\n' "$VPS_PROBE_SSH_KEY" > "$RUNNER_TEMP/probe_key"
+          chmod 600 "$RUNNER_TEMP/probe_key"
+          # Pinned host key: an unauthenticated origin could fake a passing probe.
+          printf '%s\n' \
+            '[198.51.100.10]:2222 ssh-ed25519 <redacted>' \
+            > "$RUNNER_TEMP/known_hosts"
+
+      - name: Assert the LAN-only rule from the ingress VPS
+        run: |
+          set -uo pipefail
+
+          # "<host> <claimed client IP> <expected verdict>". The claimed IP rides a
+          # PROXY v1 header, which Caddy's :8443 listener trusts only from the VPS.
+          cases="$RUNNER_TEMP/cases.txt"
+          : > "$cases"
+          # The rule under test: the VPS is excluded from the CGNAT range, on every host.
+          for h in $LAN_ONLY_HOSTS; do echo "$h $VPS_TAILNET_IP deny" >> "$cases"; done
+          # Not just presence: both ranges must still be admitted, and an arbitrary
+          # public client must not.
+          echo "$ORDER_PROBE_HOST 100.64.0.1 allow"      >> "$cases"
+          echo "$ORDER_PROBE_HOST 192.168.178.50 allow"  >> "$cases"
+          echo "$ORDER_PROBE_HOST 203.0.113.10 deny"     >> "$cases"
+          # Proves Caddy is answering at all, so the denies above mean something.
+          for h in $PUBLIC_HOSTS; do echo "$h 203.0.113.10 allow" >> "$cases"; done
+
+          run_probe() {
+            cut -d' ' -f1,2 "$cases" | ssh -q -T \
+              -i "$RUNNER_TEMP/probe_key" \
+              -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
+              -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=20 \
+              -p "$VPS_SSH_PORT" "edgeprobe@$VPS_PUBLIC_IP" > "$1" 2>"$1.err"
+          }
+
+          out="$RUNNER_TEMP/results.txt"
+          if ! run_probe "$out"; then
+            echo "first probe run failed, retrying once:"; cat "$out.err" || true
+            sleep 15
+            run_probe "$out" || { echo "::error::could not run the probe on the VPS"; cat "$out.err"; exit 1; }
+          fi
+          cat "$out"
+
+          fail=0
+          # The VPS copy is hand-installed, so drift from the repo copy is invisible
+          # until asserted. Compare before trusting anything the run printed.
+          want_sha=$(sha256sum scripts/edge-access-probe.sh | cut -d' ' -f1)
+          got_sha=$(sed -n 's/^probe sha256=//p' "$out")
+          if [ "$got_sha" != "$want_sha" ]; then
+            echo "::error::probe on the VPS is not scripts/edge-access-probe.sh (got ${got_sha:-none}, want $want_sha) — re-install it, see the runbook"
+            fail=1
+          fi
+
+          {
+            echo "## Layer 2 — Caddy LAN-only rule (from the VPS tailnet IP)"
+            echo
+            echo "| Host | Claimed client | Expected | Result | |"
+            echo "| --- | --- | --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          while read -r host claimed want; do
+            line=$(grep -m1 "^result host=$host claimed=$claimed " "$out" || true)
+            if [ -z "$line" ]; then
+              printf '| `%s` | %s | %s | no result | ❌ |\n' "$host" "$claimed" "$want" >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::no probe result for $host claimed=$claimed"
+              fail=1; continue
+            fi
+            code=${line##*code=}; code=${code%% *}
+            rc=${line##*rc=}
+
+            verdict=bad; note=''
+            case "$want" in
+              # Denied = no HTTP answer (nginx 444 reset -> curl 56, Caddy `abort`
+              # close -> curl 52) or a plain 403 where the drop block is absent.
+              deny)
+                if [ "$rc" = 56 ] || [ "$rc" = 52 ] || [ "$code" = 403 ]; then verdict=ok
+                elif [ "$rc" = 35 ]; then note=' — TLS rejected: no proxy host for this name (deleted?)'
+                else note=' — **the LAN-only rule did not deny this**'
+                fi
+                ;;
+              allow)
+                case "$code" in 200|301|302|307|308) verdict=ok ;;
+                  *) note=' — expected to be allowed; the @lan ranges or the host itself may be broken' ;;
+                esac
+                ;;
+            esac
+
+            if [ "$verdict" = ok ]; then
+              printf '| `%s` | %s | %s | code=%s rc=%s | ✅ |\n' \
+                "$host" "$claimed" "$want" "$code" "$rc" >> "$GITHUB_STEP_SUMMARY"
+            else
+              printf '| `%s` | %s | %s | code=%s rc=%s%s | ❌ |\n' \
+                "$host" "$claimed" "$want" "$code" "$rc" "$note" >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::$host (claimed $claimed) expected $want, got code=$code rc=$rc$note"
+              fail=1
+            fi
+          done < "$cases"
+
+          [ "$fail" = 0 ] || { echo "::error::Layer 2 assertion failed"; exit 1; }
+          echo "Layer 2 OK — 100.64.0.12 is still excluded from 100.64.0.0/10 on every LAN-only host."

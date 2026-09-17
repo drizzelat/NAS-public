@@ -1,0 +1,170 @@
+name: nas-health-check
+
+# Nightly Claude-driven health check; checklist and pass criteria live in
+# .github/nas-health-check.md. Setup: docs/runbooks/setup-operations/nas-health-check.md
+
+on:
+  schedule:
+    # Fallback only, and deliberately 2h behind the host cron: GitHub delivers this
+    # hours late. Primary trigger is scripts/nas-health-trigger.sh (06:30 Vienna).
+    - cron: '30 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # The fallback reads this workflow's own run list to see if today already ran.
+  actions: read
+
+concurrency:
+  group: nas-health-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: [self-hosted, nas]
+    # Budget is for the SSH/API round trips a bad night adds.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0  # check 14 dates image drift with git log -S
+
+      # A run costs real money, so the fallback must not duplicate the host cron's
+      # run — it fires only on a day the dispatch never landed.
+      - name: Skip the fallback if the host cron already ran today
+        id: guard
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          today="$(date -u +%F)"
+          runs="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/nas-health-check.yml/runs"
+          ran="$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$runs?event=workflow_dispatch&per_page=50" \
+            | jq --arg today "$today" '[.workflow_runs[]
+                 | select(.created_at | startswith($today))
+                 | select(.conclusion != null)] | length')"
+          if [ "$ran" -gt 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "host cron already ran the check today ($ran run(s)) - skipping"
+          else
+            echo "::warning::no dispatched run today - the host cron may be broken, running the fallback"
+          fi
+
+      - name: Install Claude Code CLI
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Write NAS SSH key
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          # `nashealth`, NOT truenas_admin: the key is pinned to a forced command that
+          # serves a fixed verb list. Seeding is a workstation step, see the runbook.
+          NAS_HEALTH_SSH_KEY: ${{ secrets.NAS_HEALTH_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$NAS_HEALTH_SSH_KEY" ] || { echo "::error::NAS_HEALTH_SSH_KEY secret not set — see the nas-health-check runbook"; exit 1; }
+          printf '%s\n' "$NAS_HEALTH_SSH_KEY" > "$RUNNER_TEMP/nas_health_ssh_key"
+          chmod 600 "$RUNNER_TEMP/nas_health_ssh_key"
+
+      - name: Run health check
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          # Subscription auth: `claude setup-token` -> CLAUDE_CODE_OAUTH_TOKEN.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Komodo service user probe-read: Read on Servers (+Inspect) and Stacks. LAN-only; pin to Caddy.
+          KOMODO_URL: https://komodo.example.com
+          KOMODO_RESOLVE: komodo.example.com:443:192.168.178.111
+          KOMODO_API_KEY: ${{ secrets.KOMODO_READ_API_KEY }}
+          KOMODO_API_SECRET: ${{ secrets.KOMODO_READ_API_SECRET }}
+          NAS_SSH_KEY_FILE: ${{ runner.temp }}/nas_health_ssh_key
+          # Read-only Grafana service account (Viewer), for the two Edge checks: the
+          # log and metric stores publish no host port, so the datasource proxy is the
+          # only way in. Unset → those checks SKIP, they do not fail the run. No URL
+          # variable: the checklist derives host + LAN IP from docs/network.md and
+          # --resolves, because the name resolves publicly to Cloudflare.
+          GRAFANA_TOKEN: ${{ secrets.GRAFANA_TOKEN }}
+          # Optional: weighted-token budget of one 5h session window (see below).
+          CLAUDE_SESSION_TOKEN_BUDGET: ${{ vars.CLAUDE_SESSION_TOKEN_BUDGET }}
+        run: |
+          set -euo pipefail
+          [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ] \
+            || { echo "::error::neither CLAUDE_CODE_OAUTH_TOKEN nor ANTHROPIC_API_KEY is set"; exit 1; }
+
+          set +e
+          # Terse register is a cost control, not a style choice: output is weighted 5x
+          # and every turn re-reads the whole context. See the Style/Cost sections there.
+          claude -p "Follow the instructions in .github/nas-health-check.md exactly and produce the report it specifies. That file is self-contained: ignore CLAUDE.md, do not read AGENTS.md, and do not look for a memory directory. Work and write tersely: no preamble, no narration of what you are about to do, no restating the checklist. Filter tool output at the source (jq/grep/head) instead of pulling whole listings into context, and never re-fetch what you already have. Evidence cells are one line; expand only failures. Keep exact strings, commands, digests and thresholds verbatim, and keep the final HEALTH: line exactly as specified." \
+            --model claude-sonnet-5 \
+            --allowedTools "Bash,Read,Glob,Grep" \
+            --output-format stream-json --verbose > "$RUNNER_TEMP/claude.jsonl"  # stream-json requires --verbose
+          claude_rc=$?
+          set -e
+
+          # The final result event carries the fields --output-format json used to.
+          jq -cR 'fromjson? | select(.type == "result")' "$RUNNER_TEMP/claude.jsonl" \
+            | tail -n 1 > "$RUNNER_TEMP/claude.json" || true
+          [ -s "$RUNNER_TEMP/claude.json" ] || echo '{}' > "$RUNNER_TEMP/claude.json"
+          jq -r '.result // "NO REPORT — claude returned no result"' "$RUNNER_TEMP/claude.json" \
+            > "$RUNNER_TEMP/report.md" 2>/dev/null \
+            || echo "NO REPORT — claude output was not valid JSON" > "$RUNNER_TEMP/report.md"
+          # Share of a Claude Pro 5h window, in input-token equivalents (cache-write 1.25x,
+          # cache-read 0.1x, output 5x). Same weighting as renovate-pr-review — keep in step.
+          budget=${CLAUDE_SESSION_TOKEN_BUDGET:-}
+          case "$budget" in ''|*[!0-9]*|0) budget=1500000 ;; esac
+          usage=$(jq -r --argjson budget "$budget" '
+            (.usage.input_tokens // 0)                  as $in
+            | (.usage.cache_read_input_tokens // 0)     as $cr
+            | (.usage.cache_creation_input_tokens // 0) as $cw
+            | (.usage.output_tokens // 0)               as $out
+            | (($in + $cw * 1.25 + $cr * 0.1 + $out * 5) / $budget * 1000 | round / 10) as $pct
+            | "\($in) in + \($cr) cache-read + \($cw) cache-write, \($out) out · \(.num_turns) turns · $\(.total_cost_usd) · ~\($pct)% of a 5h Pro session"
+          ' "$RUNNER_TEMP/claude.json" 2>/dev/null || echo "unavailable")
+          jq -nrR -f .github/scripts/claude-turn-meter.jq "$RUNNER_TEMP/claude.jsonl" \
+            > "$RUNNER_TEMP/meter.tsv" || echo "meter unavailable" > "$RUNNER_TEMP/meter.tsv"
+
+          cat "$RUNNER_TEMP/report.md"
+          echo
+          echo "Tokens: $usage"
+
+          {
+            echo "## NAS health check"
+            echo
+            cat "$RUNNER_TEMP/report.md"
+            echo
+            echo "**Tokens:** $usage"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$claude_rc" -ne 0 ]; then
+            echo "::error::claude exited non-zero ($claude_rc)"; exit 1
+          fi
+          # Verdict is the agent's final line. Blank lines and a wrapping code fence are
+          # tolerated; anything else fails loud rather than passing silently.
+          verdict=$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$RUNNER_TEMP/report.md" \
+            | grep -v -e '^$' -e '^```' | tail -n 1 | tr -d '`')
+          if [ "$verdict" != "HEALTH: OK" ]; then
+            echo "::error::health check did not end in 'HEALTH: OK' — see report above"
+            exit 1
+          fi
+          echo "NAS healthy."
+
+      # Raw claude.jsonl is not secret-masked the way the job log is; see the runbook's meter note.
+      - name: Upload per-turn token meter
+        if: always() && steps.guard.outputs.skip != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nas-health-meter
+          path: |
+            ${{ runner.temp }}/meter.tsv
+            ${{ runner.temp }}/claude.jsonl
+          retention-days: 14
+          overwrite: true
+          if-no-files-found: warn

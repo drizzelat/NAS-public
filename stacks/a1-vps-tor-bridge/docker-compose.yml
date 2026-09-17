@@ -1,0 +1,38 @@
+# Tor obfs4 bridge: unlisted, never an exit. Docs: docs/services/a1-vps-tor-bridge.md
+services:
+  obfs4-bridge:
+    image: ghcr.io/drizzelat/obfs4-bridge:0.8.1@sha256:12bf1333d9f329928cb48d782546e4d816581a45395f9bec3a3c8d35bc150f25
+    container_name: a1-tor-bridge
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    ports:
+      - "4443:4443"                 # obfs4, public — needs an Oracle Security List rule
+      - "9443:9443"                 # ORPort, public — needs an Oracle Security List rule
+      - "100.64.0.13:9035:9035"   # MetricsPort, tailnet only
+    environment:
+      - OR_PORT=9443
+      - PT_PORT=4443
+      - EMAIL=${TOR_BRIDGE_CONTACT:-}          # ContactInfo; Komodo Variable, never git
+      - OBFS4_ENABLE_ADDITIONAL_VARIABLES=1    # OBFS4V_<Option>=<value> becomes a torrc line
+      - OBFS4V_Address=198.51.100.20           # the container only sees its Docker IP
+      - OBFS4V_AddressDisableIPv6=1
+      - OBFS4V_AccountingMax=1 TBytes          # the WebTunnel bridge caps its own 1 TBytes: 2 TiB together
+      - OBFS4V_AccountingRule=out              # cap egress only — that is what Oracle bills
+      - OBFS4V_AccountingStart=month 1 00:00
+      - OBFS4V_RelayBandwidthRate=5 MBytes
+      - OBFS4V_RelayBandwidthBurst=10 MBytes
+      - OBFS4V_MaxMemInQueues=256 MB           # Tor sizes this from host RAM, not the limit below
+      - OBFS4V_MetricsPort=0.0.0.0:9035
+      # The NAS scrape arrives from its tailnet IP, or from the Docker gateway when Tailscale's
+      # FORWARD rules sit above Docker's; that order follows service start order, so accept both.
+      - OBFS4V_MetricsPortPolicy=accept 100.64.0.11,accept 172.16.0.0/12
+    volumes:
+      - /opt/tor-bridge/data:/var/lib/tor      # pre-create 101:101 mode 0700, see docs
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M

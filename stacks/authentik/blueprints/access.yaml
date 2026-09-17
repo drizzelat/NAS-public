@@ -1,0 +1,75 @@
+# The login allowlist for every application. Without a binding an application is
+# open to every active account; see docs/services/authentik.md -> Application access.
+version: 1
+metadata:
+  name: NAS - application access bindings
+entries:
+# Membership is git-owned, unlike the rest of the identity data: the bindings below
+# are worth exactly as much as this list, and an invisible one is what failed here.
+- model: authentik_core.group
+  identifiers:
+    name: nas-users
+  attrs:
+    is_superuser: false
+    parent: null
+    users:
+    - !Find [authentik_core.user, [username, stefan]]
+    - !Find [authentik_core.user, [username, diana]]
+  id: group
+
+# One binding per application. `policy_engine_mode: any` on all five means a second
+# binding would OR with this one, so narrowing an app = its own group, not an edit here.
+- model: authentik_policies.policybinding
+  identifiers:
+    target: !Find [authentik_core.application, [slug, files]]
+    group: !KeyOf group
+    order: 0
+  attrs:
+    enabled: true
+    negate: false
+    failure_result: false
+    timeout: 30
+
+- model: authentik_policies.policybinding
+  identifiers:
+    target: !Find [authentik_core.application, [slug, immich]]
+    group: !KeyOf group
+    order: 0
+  attrs:
+    enabled: true
+    negate: false
+    failure_result: false
+    timeout: 30
+
+- model: authentik_policies.policybinding
+  identifiers:
+    target: !Find [authentik_core.application, [slug, jellyfin]]
+    group: !KeyOf group
+    order: 0
+  attrs:
+    enabled: true
+    negate: false
+    failure_result: false
+    timeout: 30
+
+- model: authentik_policies.policybinding
+  identifiers:
+    target: !Find [authentik_core.application, [slug, mealie]]
+    group: !KeyOf group
+    order: 0
+  attrs:
+    enabled: true
+    negate: false
+    failure_result: false
+    timeout: 30
+
+- model: authentik_policies.policybinding
+  identifiers:
+    target: !Find [authentik_core.application, [slug, matrix]]
+    group: !KeyOf group
+    order: 0
+  attrs:
+    enabled: true
+    negate: false
+    failure_result: false
+    timeout: 30

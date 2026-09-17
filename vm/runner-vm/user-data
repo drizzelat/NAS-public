@@ -1,0 +1,64 @@
+#cloud-config
+# runner-vm: the TrueNAS VM the GitHub runner lives in (SEC-1 step 4). Seeded once as a NoCloud ISO;
+# rebuild steps and why each piece exists: docs/services/runner-vm.md
+hostname: runner-vm
+timezone: Etc/UTC
+ssh_pwauth: false
+disable_root: true
+users:
+  - name: ubuntu
+    shell: /bin/bash
+    groups: [sudo]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ssh-ed25519 <redacted> runner-vm (truenas VM, ubuntu)
+package_update: true
+package_upgrade: true
+packages: [ca-certificates, curl, qemu-guest-agent, unattended-upgrades]
+write_files:
+  # The three OS-update files every Ubuntu host in the estate carries (os-updates.md), on this VM's slot.
+  - path: /etc/apt/apt.conf.d/60nas-auto-updates
+    content: |
+      // Beyond Ubuntu's security-only default: the -updates pocket and Docker's repo, reboot when required.
+      // NAS repo: docs/runbooks/setup-operations/os-updates.md (Docker majors held in preferences.d)
+      Unattended-Upgrade::Allowed-Origins {
+              "${distro_id}:${distro_codename}-updates";
+      };
+      Unattended-Upgrade::Origins-Pattern {
+              "origin=Docker,archive=${distro_codename},label=Docker CE";
+      };
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "00:45";
+  - path: /etc/apt/preferences.d/docker-major-hold
+    content: |
+      Explanation: Unattended upgrades take Docker 29.x point releases only; a new major is a manual step.
+      Explanation: NAS repo: docs/runbooks/setup-operations/os-updates.md
+      Package: docker-ce docker-ce-cli docker-ce-rootless-extras
+      Pin: version 5:29.*
+      Pin-Priority: 900
+  - path: /etc/systemd/system/apt-daily-upgrade.timer.d/nas-night.conf
+    content: |
+      # Run updates (and any Docker restart) in the night window, shortly before the reboot slot.
+      # NAS repo: docs/runbooks/setup-operations/os-updates.md
+      [Timer]
+      OnCalendar=
+      OnCalendar=*-*-* 00:15
+      RandomizedDelaySec=10m
+  # Core's public key, trusted before the periphery's first start (komodo.md → Bootstrap).
+  - path: /etc/komodo/keys/core.pub
+    permissions: "0644"
+    content: |
+      -----BEGIN PUBLIC KEY-----
+      MCowBQYDK2VuAyEAF1/1rMzPl7ogpRN3mZopgRVYNZ/e+b9llPgz+3OfY1k=
+      -----END PUBLIC KEY-----
+runcmd:
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - chmod a+r /etc/apt/keyrings/docker.asc
+  - sh -c 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list'
+  - apt-get update
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+  - systemctl enable --now docker qemu-guest-agent
+  - systemctl daemon-reload
+  - install -d -m 0755 /home/ubuntu/periphery /home/ubuntu/github-runner

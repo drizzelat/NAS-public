@@ -1,0 +1,298 @@
+# The whole edge policy. Ports 80/443 are LAN/tailnet; :8443 is the VPS ingress
+# listener. Migration + rationale: docs/services/caddy.md, and the plan in
+# docs/runbooks/setup-operations/caddy-migration.md.
+{
+	# No ACME contact address, matching NPMplus: certificate expiry is watched by Kuma,
+	# not by a Let's Encrypt e-mail. See docs/services/caddy.md.
+
+	# Both are plugin directives, so Caddy has no built-in place for them in the
+	# handler order — without this they are only usable inside a `route`.
+	order crowdsec first
+	order appsec after crowdsec
+
+	# Only :8443 takes PROXY v1, and only from the ingress VPS. `proxy_protocol` MUST
+	# precede `tls`: it reads plaintext at the head of the connection.
+	servers :8443 {
+		listener_wrappers {
+			proxy_protocol {
+				allow 100.64.0.12/32
+				fallback_policy reject
+			}
+			tls
+		}
+
+		# auth/files/immich/mealie are orange-clouded, so the peer the PROXY header
+		# names is a CLOUDFLARENET edge address, not the visitor. Without this both
+		# halves of CrowdSec are aimed at Cloudflare: the hub parser reads
+		# `request.client_ip` and the bouncer reads Caddy's client-IP context var, so
+		# a local ban would take out an edge PoP — every legitimate user behind it —
+		# while the attacker just lands on the next one. The four
+		# `crowdsecurity/vpatch-env-access` alerts of 2026-09-04 are all recorded
+		# against CLOUDFLARENET for exactly this reason.
+		#
+		# Scoped to :8443 on purpose: LAN/tailnet :443 must trust no forwarding
+		# header. This changes `client_ip` ONLY — `remote_ip` stays the immediate
+		# peer (or the PROXY address), which is what every `@lan` matcher is written
+		# against, so the access-control model is untouched. Ranges are
+		# https://www.cloudflare.com/ips-v4 + ips-v6, verified 2026-09-09; they move
+		# rarely, and a static list keeps a failed fetch from being able to hold the
+		# edge down at startup. Re-check them when Cloudflare announces a change.
+		# Kept on one line: Caddyfile tokens are whitespace-separated and backslash
+		# continuation is undocumented.
+		trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+
+		# Cloudflare overwrites this on every request it proxies, so a client cannot
+		# forge it. X-Forwarded-For is deliberately NOT listed: naming it here would
+		# also honour it on the direct-to-origin path, where nothing rewrites it.
+		client_ip_headers CF-Connecting-IP
+	}
+
+	crowdsec {
+		api_url http://crowdsec:8080
+		api_key {env.CROWDSEC_API_KEY}
+		appsec_url http://crowdsec:7422
+		# Fail open: crowdsec stops with its own stack, and a restart must not take
+		# all 25 sites down with it. LAPI remediation is unaffected by this.
+		appsec_fail_open
+	}
+}
+
+# One shared access log; crowdsec parses this file. Caddy's default format is JSON.
+(edge_log) {
+	log {
+		output file /var/log/caddy/access.log
+	}
+}
+
+# LAN/tailnet, minus the ingress VPS. Order-independent by construction: the IP lists
+# OR, the two matchers AND, so the VPS exclusion cannot be reordered into a hole.
+(lan_only) {
+	@lan {
+		remote_ip 192.168.178.0/24 172.16.25.1 100.64.0.0/10
+		not remote_ip 100.64.0.12
+	}
+	handle @lan {
+		crowdsec
+		appsec
+		reverse_proxy {args[0]}
+	}
+	handle {
+		abort
+	}
+}
+
+# Same policy, for upstreams serving a self-signed certificate. Caddy verifies
+# upstream certs by default; nginx did not, so these two would 502 without it.
+(lan_only_insecure_tls) {
+	@lan {
+		remote_ip 192.168.178.0/24 172.16.25.1 100.64.0.0/10
+		not remote_ip 100.64.0.12
+	}
+	handle @lan {
+		crowdsec
+		appsec
+		reverse_proxy {args[0]} {
+			# TrueNAS builds its /ui/ redirect from $http_host: without this the
+			# browser is sent to the raw https://192.168.178.111:444.
+			header_up Host {host}
+			transport http {
+				tls_insecure_skip_verify
+			}
+		}
+	}
+	handle {
+		abort
+	}
+}
+
+# Same policy, but the backend is gone — args[0] is the status to answer.
+(lan_only_status) {
+	@lan {
+		remote_ip 192.168.178.0/24 172.16.25.1 100.64.0.0/10
+		not remote_ip 100.64.0.12
+	}
+	handle @lan {
+		respond {args[0]}
+	}
+	handle {
+		abort
+	}
+}
+
+# The managed wildcard, so the LAN-only hostnames stay out of Certificate
+# Transparency. Every site below reuses it; Caddy prefers it over per-subdomain
+# certs. It also default-denies any *.example.com name with no block of its own.
+*.example.com {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+	abort
+}
+
+# ---- LAN-only (21) ----
+
+adguard.example.com, https://adguard.example.com:8443 {
+	import edge_log
+	import lan_only http://adguard:30004
+}
+
+bazarr.example.com, https://bazarr.example.com:8443 {
+	import edge_log
+	import lan_only http://bazarr:6767
+}
+
+beszel.example.com, https://beszel.example.com:8443 {
+	import edge_log
+	import lan_only http://beszel:8090
+}
+
+games.example.com, https://games.example.com:8443 {
+	import edge_log
+	import lan_only http://gamevault-backend:8080
+}
+
+grafana.example.com, https://grafana.example.com:8443 {
+	import edge_log
+	import lan_only http://grafana:3000
+}
+
+homarr.example.com, https://homarr.example.com:8443 {
+	import edge_log
+	import lan_only http://homarr:7575
+}
+
+komodo.example.com, https://komodo.example.com:8443 {
+	import edge_log
+	import lan_only http://komodo-core:9120
+}
+
+kuma.example.com, https://kuma.example.com:8443 {
+	import edge_log
+	import lan_only http://uptime-kuma:31050
+}
+
+nas.example.com, https://nas.example.com:8443 {
+	import edge_log
+	import lan_only_insecure_tls https://192.168.178.111:444
+}
+
+paperless.example.com, https://paperless.example.com:8443 {
+	import edge_log
+	import lan_only http://paperless:8000
+}
+
+prowlarr.example.com, https://prowlarr.example.com:8443 {
+	import edge_log
+	import lan_only http://prowlarr:9696
+}
+
+qbittorrent.example.com, https://qbittorrent.example.com:8443 {
+	import edge_log
+	import lan_only http://gluetun:8082
+}
+
+questarr.example.com, https://questarr.example.com:8443 {
+	import edge_log
+	import lan_only http://questarr:5000
+}
+
+radarr.example.com, https://radarr.example.com:8443 {
+	import edge_log
+	import lan_only http://radarr:7878
+}
+
+romm.example.com, https://romm.example.com:8443 {
+	import edge_log
+	import lan_only http://romm:8080
+}
+
+sabnzbd.example.com, https://sabnzbd.example.com:8443 {
+	import edge_log
+	import lan_only http://gluetun:8080
+}
+
+seerr.example.com, https://seerr.example.com:8443 {
+	import edge_log
+	import lan_only http://seerr:5055
+}
+
+shelfmark.example.com, https://shelfmark.example.com:8443 {
+	import edge_log
+	import lan_only http://shelfmark:8084
+}
+
+sonarr.example.com, https://sonarr.example.com:8443 {
+	import edge_log
+	import lan_only http://sonarr:8989
+}
+
+# ---- Public (7 vhosts, 5 names) ----
+
+auth.example.com, https://auth.example.com:8443 {
+	import edge_log
+	crowdsec
+	appsec
+	reverse_proxy https://authentik-server-1:9443 {
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+
+# Straight to the app, not through the Authentik outpost: Quantum runs the OIDC flow
+# itself, so share and upload links resolve without skip_path_regex holes.
+files.example.com, https://files.example.com:8443 {
+	import edge_log
+	crowdsec
+	appsec
+	reverse_proxy http://files:30052
+}
+
+# Split like jellyfin below, for the same reason: LAN/tailnet :443 keeps Immich's
+# native password login, the public :8443 twin does not.
+immich.example.com {
+	import edge_log
+	crowdsec
+	appsec
+	reverse_proxy http://immich-server-1:30041
+}
+
+# Password login and admin sign-up are blocked at the public edge only. /api/oauth/*
+# (web and the mobile app) and anonymous /share/ links are not matched, so they stay open.
+https://immich.example.com:8443 {
+	import edge_log
+	crowdsec
+	appsec
+	@pw_login path_regexp (?i)^/api/auth/(login|admin-sign-up)$
+	respond @pw_login 403
+	reverse_proxy http://immich-server-1:30041
+}
+
+mealie.example.com, https://mealie.example.com:8443 {
+	import edge_log
+	crowdsec
+	appsec
+	reverse_proxy http://mealie:9000
+}
+
+# Jellyfin's public edge is a separate site block, not a conditional inside one, so
+# "am I on the public edge?" never has to be asked. LAN keeps native password login.
+jellyfin.example.com {
+	import edge_log
+	crowdsec
+	appsec
+	reverse_proxy http://jellyfin:8096
+}
+
+# Password endpoints are blocked at the public edge only; /sso/* and /QuickConnect/*
+# stay open by not being matched. See docs/runbooks/setup-operations/jellyfin-authentik-sso.md.
+https://jellyfin.example.com:8443 {
+	import edge_log
+	crowdsec
+	appsec
+	@pw_login path_regexp (?i)^/(emby/)?users/(authenticatebyname|public)$
+	@pw_login_byid path_regexp (?i)^/(emby/)?users/[^/]+/authenticate$
+	respond @pw_login 403
+	respond @pw_login_byid 403
+	reverse_proxy http://jellyfin:8096
+}

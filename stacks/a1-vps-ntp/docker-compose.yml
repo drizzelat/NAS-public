@@ -1,0 +1,61 @@
+# NTP Pool server on the A1: public UDP 123, never touches the host clock. Docs: docs/services/a1-vps-ntp.md
+services:
+  chrony:
+    image: dockurr/chrony:4.9@sha256:f584829f268b26b26b351000b60aa7c3507933873b6a6d77ffe9dcabcfdc7025
+    container_name: a1-ntp
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    cap_add:            # entrypoint fixes /run/chrony as root; chronyd then keeps only NET_BIND_SERVICE
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
+      - NET_BIND_SERVICE
+    ports:
+      - "123:123/udp"   # public — needs an Oracle Security List rule
+    environment:
+      # Pool rule: fixed upstreams, never pool.ntp.org itself.
+      - NTP_SERVERS=169.254.169.254,ptbtime1.ptb.de,ptbtime2.ptb.de,ptbtime3.ptb.de,time.cloudflare.com
+      - NTP_DIRECTIVES=ratelimit,clientloglimit 16777216   # ratelimit only sees clients in the log
+    volumes:
+      - chrony-run:/run/chrony   # command socket, shared with the exporter
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+
+  # serverstats (packets served/dropped) is refused over UDP ("501 Not authorised"): socket only.
+  chrony-exporter:
+    image: quay.io/superq/chrony-exporter:v0.14.0@sha256:74c7294e79dff4e6eaa48129a69a6da353a0d321f26bd315dcb682f6200c0fd1
+    container_name: a1-ntp-exporter
+    restart: unless-stopped
+    user: "100:101"     # chrony:chrony in the chrony image: /run/chrony is 0750 and chronyd must write back to our socket
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    command:
+      - "--chrony.address=unix:///run/chrony/chronyd.sock"
+      - "--collector.serverstats"
+      - "--collector.sources"
+      - "--no-collector.dns-lookups"
+    ports:
+      - "100.64.0.13:9037:9123"   # tailnet only, for the NAS victoriametrics scrape
+    volumes:
+      - chrony-run:/run/chrony
+    depends_on:
+      - chrony
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+
+volumes:
+  chrony-run:

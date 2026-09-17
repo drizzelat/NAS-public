@@ -1,0 +1,89 @@
+name: deploy-state-probe
+
+# Deterministic gate: every stack deployed, on its routed host, on the pinned digests, healthy.
+# What it asserts and why: docs/runbooks/setup-operations/deploy-state-probe.md
+
+on:
+  schedule:
+    # Fallback only, and clear of every host-cron slot in both DST offsets: GitHub
+    # drops most schedule events. Primary is scripts/deploy-state-trigger.sh (every 6h).
+    - cron: '47 10 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # The fallback reads this workflow's own run list to see if today already ran.
+  actions: read
+
+concurrency:
+  group: deploy-state-probe
+  cancel-in-progress: false
+
+env:
+  NAS_LAN_IP: 192.168.178.111
+  # Komodo Core is a LAN-only vhost and public DNS points the name at Cloudflare, so pin it to Caddy.
+  KOMODO_URL: https://komodo.example.com
+  KOMODO_RESOLVE: komodo.example.com:443:192.168.178.111
+
+jobs:
+  # The fallback must not duplicate the host cron's runs — it fires only on a day no
+  # dispatch landed. Docs: docs/runbooks/setup-operations/deploy-state-probe.md
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Skip the fallback if the host cron already ran today
+        id: check
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          today="$(date -u +%F)"
+          runs="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/deploy-state-probe.yml/runs"
+          ran="$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$runs?event=workflow_dispatch&per_page=50" \
+            | jq --arg today "$today" '[.workflow_runs[]
+                 | select(.created_at | startswith($today))
+                 | select(.conclusion != null)] | length')"
+          if [ "$ran" -gt 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "host cron already ran the probe today ($ran run(s)) - skipping"
+          else
+            echo "::warning::no dispatched run today - the host cron may be broken, running the fallback"
+          fi
+
+  probe:
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
+    # Komodo is LAN-only. Sharing the one runner with deploy-stacks also means a probe never
+    # reads a deploy halfway through.
+    runs-on: [self-hosted, nas]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0  # the drift script dates each drift with git log -S
+
+      - name: Write NAS SSH key
+        env:
+          # nashealth's forced-command key, shared with nas-health-check.
+          NAS_HEALTH_SSH_KEY: ${{ secrets.NAS_HEALTH_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$NAS_HEALTH_SSH_KEY" ] || { echo "::error::NAS_HEALTH_SSH_KEY secret not set — see the nas-health-check runbook"; exit 1; }
+          printf '%s\n' "$NAS_HEALTH_SSH_KEY" > "$RUNNER_TEMP/nas_health_ssh_key"
+          chmod 600 "$RUNNER_TEMP/nas_health_ssh_key"
+
+      - name: Assert deployed state
+        env:
+          # Komodo service user probe-read: Read on Servers (+Inspect) and Stacks. docs/services/komodo.md
+          KOMODO_API_KEY: ${{ secrets.KOMODO_READ_API_KEY }}
+          KOMODO_API_SECRET: ${{ secrets.KOMODO_READ_API_SECRET }}
+          NAS_SSH_KEY_FILE: ${{ runner.temp }}/nas_health_ssh_key
+        run: .github/scripts/deploy-state-probe.sh "$NAS_LAN_IP"

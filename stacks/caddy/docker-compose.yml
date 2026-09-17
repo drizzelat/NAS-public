@@ -1,0 +1,127 @@
+services:
+  caddy:
+    # Custom xcaddy build (Cloudflare DNS + CrowdSec bouncer), built by
+    # .github/workflows/build-caddy-image.yml. Digest pin is applied by hand.
+    image: ghcr.io/drizzelat/nas-caddy:2.11.4@sha256:2fbf7a38353cea01c030d2b0bf2feb4a288664a6b4ad930d8ff22c261ab0f50f
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      # PROXY-protocol listener the VPS ingress forwards to, so Caddy sees the real
+      # client IP. Only :8443 takes it — see docs/services/caddy.md.
+      - "8443:8443"
+    environment:
+      TZ: Europe/Vienna
+      # Both are runtime secrets from Komodo Variables, never committed.
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
+      CROWDSEC_API_KEY: ${CROWDSEC_API_KEY}
+    volumes:
+      # The DIRECTORY, not the Caddyfile: git replaces the file's inode on pull, and a
+      # single-file mount pins the old one forever. See docs/services/caddy.md.
+      - /mnt/apps/komodo/repos/nas/stacks/caddy:/etc/caddy:ro
+      - /mnt/apps/caddy/data:/data
+      - /mnt/apps/caddy/config:/config
+      - /mnt/apps/caddy/logs:/var/log/caddy
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+    # This stack DEFINES all 19 proxy_* networks; every other stack consumes them as
+    # external. Adding one is docs/network.md -> Adding a New Stack.
+    networks:
+      - proxy_network
+      - proxy_adguard
+      - proxy_authentik
+      - proxy_beszel
+      - proxy_files
+      - proxy_homarr
+      - proxy_immich
+      - proxy_komodo
+      - proxy_kuma
+      - proxy_mealie
+      - proxy_observability
+      - proxy_arr
+      - proxy_books
+      - proxy_downloads
+      - proxy_games
+      - proxy_jellyfin
+      - proxy_paperless
+      - proxy_romm
+
+  # Moved from stacks/npm at the cutover — stopping that stack stops it, and the
+  # bouncer it serves now lives in Caddy. See docs/services/caddy.md.
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.8.1@sha256:0f2523fa61ef507f15d953045cface490cc880670c62f2755ced17524107f71a
+    container_name: crowdsec
+    restart: unless-stopped
+    environment:
+      # caddy ships the parser for Caddy's JSON access log. The two appsec ones were
+      # dependencies of ZoeyVid/npmplus; local-nas.yaml needs them, so name them here.
+      - COLLECTIONS=crowdsecurity/caddy crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+    volumes:
+      - /mnt/apps/npm/crowdsec/data:/var/lib/crowdsec/data
+      - /mnt/apps/npm/crowdsec/config:/etc/crowdsec
+      - /mnt/apps/caddy/logs:/var/log/caddy:ro
+      # NPMplus's logs, static since the cutover. Kept mounted so a rollback still
+      # has its acquisition — see docs/services/caddy.md.
+      - /mnt/apps/npm/npm/data/nginx/logs:/var/log/npm:ro
+    networks:
+      - proxy_network
+
+networks:
+  proxy_network:
+    name: proxy_network
+  # The only proxy_* network with a pinned subnet, because AdGuard is static at
+  # 172.16.25.3; ip_range confines dynamic allocation to the top half.
+  proxy_adguard:
+    name: proxy_adguard
+    enable_ipv6: true
+    ipam:
+      config:
+        # gateway must be pinned, or Docker takes it from ip_range and hairpin traffic is
+        # SNAT'd to an address Caddy's @lan matcher does not allow.
+        - subnet: 172.16.25.0/24
+          ip_range: 172.16.25.128/25
+          gateway: 172.16.25.1
+        - subnet: fdd0:0:0:19::/64
+  proxy_authentik:
+    name: proxy_authentik
+  proxy_beszel:
+    name: proxy_beszel
+  proxy_files:
+    name: proxy_files
+  proxy_homarr:
+    name: proxy_homarr
+  proxy_immich:
+    name: proxy_immich
+  proxy_komodo:
+    name: proxy_komodo
+  proxy_kuma:
+    name: proxy_kuma
+  proxy_mealie:
+    name: proxy_mealie
+  proxy_observability:
+    name: proxy_observability
+  proxy_arr:
+    name: proxy_arr
+  proxy_books:
+    name: proxy_books
+  proxy_downloads:
+    name: proxy_downloads
+  proxy_games:
+    name: proxy_games
+  proxy_jellyfin:
+    name: proxy_jellyfin
+  proxy_paperless:
+    name: proxy_paperless
+  proxy_romm:
+    name: proxy_romm

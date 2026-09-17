@@ -1,0 +1,78 @@
+name: deploy-stacks
+
+# Deploy changed stacks through Komodo (creating new ones), verify, auto-roll-back.
+# See docs/runbooks/setup-operations/deploy-stacks.md
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'stacks/**'
+  # Manual deploy of named stacks. The hourly reconcile-owned Procedure is the drift backstop.
+  workflow_dispatch:
+    inputs:
+      stacks:
+        description: "Space-separated stack names to deploy."
+        required: false
+        type: string
+      komodo_dry_run:
+        description: "Do every Komodo read and log the create and DeployStack each stack would get, without sending them."
+        required: false
+        type: boolean
+        default: false
+
+# contents: write = the auto-rollback push to main, as ROLLBACK_TOKEN (admin PAT).
+# PAT pushes re-trigger workflows, so the rollback commit carries [skip ci].
+permissions:
+  contents: write
+
+# Serialize deploys; never cancel an in-flight health-check/rollback.
+concurrency:
+  group: deploy-stacks
+  cancel-in-progress: false
+
+env:
+  # Komodo Core. The vhost is LAN-only and public DNS points the name at Cloudflare, so pin it to
+  # Caddy on the NAS.
+  KOMODO_URL: https://komodo.example.com
+  KOMODO_RESOLVE: komodo.example.com:443:192.168.178.111
+
+jobs:
+  redeploy:
+    runs-on: [self-hosted, nas]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history so the whole pushed range is diffable.
+          fetch-depth: 0
+          # ROLLBACK_TOKEN: admin PAT so the rollback push passes branch protection.
+          # Falls back to GITHUB_TOKEN. Keep [skip ci] in the rollback commit.
+          token: ${{ secrets.ROLLBACK_TOKEN || github.token }}
+
+      - name: Deploy changed stacks through Komodo, creating new ones
+        id: fire
+        env:
+          # SHAs bounding this push: before..after covers every pushed commit.
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+          # workflow_dispatch input; empty on a push.
+          DISPATCH_STACKS: ${{ inputs.stacks }}
+          # Service user deploy-stacks: Execute+Inspect on Stacks, Execute on the komodo-resources sync. docs/services/komodo.md
+          KOMODO_API_KEY: ${{ secrets.KOMODO_DEPLOY_API_KEY }}
+          KOMODO_API_SECRET: ${{ secrets.KOMODO_DEPLOY_API_SECRET }}
+          KOMODO_DRY_RUN: ${{ inputs.komodo_dry_run }}
+        run: scripts/deploy/fire-webhooks.sh
+
+      - name: Verify redeployed stacks are healthy
+        if: ${{ steps.fire.outputs.changed != '' }}
+        env:
+          # Space-separated stack names.
+          STACKS: ${{ steps.fire.outputs.changed }}
+          # Pre-push ref for rollback; empty on workflow_dispatch.
+          BEFORE: ${{ steps.fire.outputs.before }}
+          # Stacks this PUSH changed — the only rollback candidates.
+          ROLLBACKABLE: ${{ steps.fire.outputs.rollbackable }}
+          KOMODO_API_KEY: ${{ secrets.KOMODO_DEPLOY_API_KEY }}
+          KOMODO_API_SECRET: ${{ secrets.KOMODO_DEPLOY_API_SECRET }}
+        run: scripts/deploy/verify-healthy.sh

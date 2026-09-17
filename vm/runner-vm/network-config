@@ -1,0 +1,13 @@
+version: 2
+ethernets:
+  primary:
+    match:
+      name: "en*"
+    dhcp4: true
+    dhcp6: false
+    # The NAS host's resolvers, in its order, not the FritzBox's DHCP answer (AdGuard only). The runner
+    # must still reach GitHub when AdGuard is broken, because CI is how AdGuard gets fixed (runner-vm.md).
+    dhcp4-overrides:
+      use-dns: false
+    nameservers:
+      addresses: [1.1.1.1, 192.168.178.111]

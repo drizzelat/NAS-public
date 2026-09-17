@@ -1,0 +1,340 @@
+{
+  "uid": "tor-traffic",
+  "title": "Tor — Bridges & Snowflake",
+  "tags": ["tor", "a1", "nas"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-7d", "to": "now" },
+  "description": "Traffic through the obfs4 and WebTunnel bridges on the A1 (MetricsPort, over the tailnet) and the Snowflake proxy on the NAS. UTC on purpose: Tor's AccountingStart and Oracle's egress billing both roll over at 00:00 UTC on the 1st. Counters reset when a container restarts; increase() absorbs that.",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Bridges",
+      "description": "UP only when both the obfs4 and the WebTunnel bridge answer their scrape.",
+      "gridPos": { "h": 5, "w": 3, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO TARGET",
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "victoriametrics" }, "expr": "min(up{job=~\"tor-bridge|tor-webtunnel\"})", "instant": true }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Snowflake",
+      "gridPos": { "h": 5, "w": 3, "x": 3, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO TARGET",
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "victoriametrics" }, "expr": "max(up{job=\"snowflake\"})", "instant": true }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "gauge",
+      "title": "Bridge egress, month to date",
+      "description": "Bytes both bridges wrote since 00:00 UTC on the 1st. Each has its own AccountingMax 1 TBytes (AccountingRule out), so the gauge tops out at the 2 TiB they add up to. A bridge that reaches its own cap hibernates until the next month.",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "timeFrom": "now/M",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 1,
+          "min": 0,
+          "max": 2199023255552,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1759218604441 }, { "color": "red", "value": 2089072092774 }]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "showThresholdMarkers": true, "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "sum(increase(tor_relay_traffic_bytes{direction=\"written\"}[$__range]))",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Bridge egress, projected month end",
+      "description": "Month-to-date egress of both bridges, extrapolated linearly to the end of the month. Above 2 TiB means at least one bridge hibernates before the month is over — sooner if one carries more than half. Noisy in the first hours of the month.",
+      "gridPos": { "h": 5, "w": 4, "x": 12, "y": 0 },
+      "timeFrom": "now/M",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1759218604441 }, { "color": "red", "value": 2199023255552 }]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "sum(increase(tor_relay_traffic_bytes{direction=\"written\"}[$__range])) * days_in_month() / clamp_min(day_of_month() - 1 + hour() / 24 + minute() / 1440, 0.25)",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Snowflake traffic, month to date",
+      "description": "Inbound + outbound. Every relayed byte is uploaded once, to the client or to the Snowflake bridge, so this is roughly what Snowflake adds to the home upload. The proxy's *_bytes_total counters are really KB (bytes / 1000), hence the × 1000.",
+      "gridPos": { "h": 5, "w": 4, "x": 16, "y": 0 },
+      "timeFrom": "now/M",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "bytes", "decimals": 1 }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "(sum(increase(tor_snowflake_proxy_traffic_inbound_bytes_total[$__range])) + sum(increase(tor_snowflake_proxy_traffic_outbound_bytes_total[$__range]))) * 1000",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Snowflake clients, last 24h",
+      "gridPos": { "h": 5, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "sum(increase(tor_snowflake_proxy_connections_total[24h]))",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Bridge throughput",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "sum by (job, direction) (rate(tor_relay_traffic_bytes[$__rate_interval]))",
+          "legendFormat": "{{job}} {{direction}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Snowflake throughput",
+      "description": "Hourly average. The proxy adds to its traffic counters once an hour, when it logs its summary, so a shorter rate() window turns each update into a spike. The proxy exports kilobytes, hence * 1000.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "sum(rate(tor_snowflake_proxy_traffic_inbound_bytes_total[1h])) * 1000",
+          "legendFormat": "inbound"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "sum(rate(tor_snowflake_proxy_traffic_outbound_bytes_total[1h])) * 1000",
+          "legendFormat": "outbound"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Bridge egress per day (Oracle-billed)",
+      "description": "Stacked per bridge. Red line: 2 TiB / 30 days — the combined daily pace that lands exactly on both monthly caps.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "timeFrom": "30d",
+      "interval": "1d",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "bars", "fillOpacity": 80, "stacking": { "mode": "normal" }, "thresholdsStyle": { "mode": "line" } },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "transparent", "value": null }, { "color": "red", "value": 73300775185 }] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "sum by (job) (increase(tor_relay_traffic_bytes{direction=\"written\"}[1d]))",
+          "interval": "1d",
+          "legendFormat": "{{job}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Snowflake traffic per day (home uplink)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "timeFrom": "30d",
+      "interval": "1d",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "drawStyle": "bars", "fillOpacity": 80 } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "(sum(increase(tor_snowflake_proxy_traffic_inbound_bytes_total[1d])) + sum(increase(tor_snowflake_proxy_traffic_outbound_bytes_total[1d]))) * 1000",
+          "interval": "1d",
+          "legendFormat": "snowflake in + out"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Bridge connections",
+      "description": "to relays = open connections the bridge dialed to Tor relays. new user connections / h = connections handed over by the transport, per rolling hour. Tor's open-connection counts for connections coming in are wrong (users only ever go up, incoming OR stays 0), so they are not shown.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 21 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "sum by (job) (tor_relay_connections{type=\"OR\",direction=\"initiated\",state=\"opened\"})",
+          "legendFormat": "{{job}} to relays"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "sum by (job) (increase(tor_relay_connections_total{type=\"Extended OR\",direction=\"received\",state=\"created\"}[1h]))",
+          "legendFormat": "{{job}} new user connections / h"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Bridge DoS mitigations firing",
+      "description": "Tor's built-in DoS defences. Empty is the normal state.",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 21 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "short", "noValue": "none firing" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "sum by (job, type) (increase(tor_relay_dos_total[$__interval])) > 0",
+          "legendFormat": "{{job}} {{type}}"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Bridge bandwidth limit reached",
+      "description": "Non-zero means RelayBandwidthRate (5 MBytes/s per bridge) is the bottleneck, not demand.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 21 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "sum by (job, side) (increase(tor_relay_load_global_rate_limit_reached_total[$__interval]))",
+          "legendFormat": "{{job}} {{side}}"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Snowflake clients per hour",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 29 },
+      "interval": "1h",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "custom": { "drawStyle": "bars", "fillOpacity": 80 } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "sum(increase(tor_snowflake_proxy_connections_total[1h]))",
+          "interval": "1h",
+          "legendFormat": "clients"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "bargauge",
+      "title": "Snowflake clients by country, last 7d",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 29 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "min": 0 }, "overrides": [] },
+      "options": { "orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true, "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "sort_desc(topk(10, sum by (country) (increase(tor_snowflake_proxy_connections_total[7d]))))",
+          "instant": true,
+          "legendFormat": "{{country}}"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "text",
+      "title": "Caps",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 29 },
+      "options": {
+        "mode": "markdown",
+        "content": "- **Bridges** — obfs4 and WebTunnel, each `AccountingMax 1 TBytes`, `AccountingRule out`, resetting 00:00 UTC on the 1st: 2 TiB together. A bridge at its cap hibernates until the next month. `RelayBandwidthRate 5 MBytes` each.\n- **Oracle** — 10 TB of free egress per month covers the whole tenancy (ingress VPS, Matrix, backups, NTP). The tenancy is Pay-As-You-Go, so anything above is billed. The bridges' 2 TiB comes out of that pool.\n- **Snowflake** — no client cap (`-capacity` deadlocks the proxy). Every byte goes through the home uplink, which remote Jellyfin/Immich and Conduit use too.\n\nDocs: `docs/services/a1-vps-tor-bridge.md`, `docs/services/a1-vps-webtunnel.md`, `docs/services/snowflake.md`"
+      }
+    }
+  ]
+}

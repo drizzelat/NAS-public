@@ -1,0 +1,167 @@
+# Everything behind the gluetun VPN killswitch. These MUST stay one stack:
+# `network_mode: service:gluetun` shares gluetun's network namespace.
+services:
+  gluetun:
+    image: qmcgaw/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
+    container_name: gluetun
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    # No host `ports:` for torrent traffic — inbound P2P arrives through the VPN on
+    # ProtonVPN's forwarded port, which gluetun opens in its own firewall.
+    networks:
+      - default
+      - media_net
+      - proxy_downloads
+    environment:
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=${WG_KEY}
+      - FIREWALL_OUTBOUND_SUBNETS=192.168.178.0/24
+      # ProtonVPN blocks third-party DoT, which broke DNS and restart-looped the tunnel.
+      # Off means gluetun uses Proton's own resolver.
+      - DOT=off
+      # ProtonVPN NAT-PMP forwarding; UP_COMMAND pushes the dynamic port into qBittorrent, retrying for 2 min
+      # because the port arrives before its Web API listens. REQUIRES "Bypass authentication for localhost".
+      - VPN_PORT_FORWARDING=on
+      - VPN_PORT_FORWARDING_PROVIDER=protonvpn
+      - PORT_FORWARD_ONLY=on   # P2P servers only: the others refuse NAT-PMP
+      - VPN_PORT_FORWARDING_UP_COMMAND=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10 11 12; do wget -qO- --post-data "json={\"listen_port\":{{PORTS}}}" http://127.0.0.1:8082/api/v2/app/setPreferences && exit 0; sleep 10; done; exit 1'
+    volumes:
+      - /mnt/apps/mediaserver/config/gluetun:/gluetun
+    healthcheck:
+      # gluetun ships its own healthcheck binary; failure marks the container
+      # unhealthy so depends_on gates the VPN-bound services until the tunnel is up.
+      test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:5.2.2_v2.0.13-ls463@sha256:abbf2aeeb58b641977a012d0ab69939eb277cb827078450b142f782b1cd6893c
+    container_name: qbittorrent
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+    environment:
+      - PUID=950
+      - PGID=950
+      - TZ=Europe/Vienna
+      - WEBUI_PORT=8082
+    volumes:
+      - /mnt/apps/mediaserver/config/qbittorrent:/config
+      - /mnt/data/mediaserver/data:/data
+      - /mnt/data/romm/roms:/roms
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    restart: unless-stopped
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:5.0.4-ls260@sha256:3df6abbd61d82710f91997b66178405862939a4009e8db212fa4f0a7a65f2047
+    container_name: sabnzbd
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+    environment:
+      - PUID=950
+      - PGID=950
+      - TZ=Europe/Vienna
+    volumes:
+      - /mnt/apps/mediaserver/config/sabnzbd:/config
+      - /mnt/data/mediaserver/data:/data
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    restart: unless-stopped
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2@sha256:c80ae007ce2ccdcd217a12426e4f039ef763ff90738c808d38810c3e59323767
+    container_name: flaresolverr
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    environment:
+      - LOG_LEVEL=info
+      - TZ=Europe/Vienna
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    restart: unless-stopped
+  # Prometheus metrics for qBittorrent (Kiwix seeding panels), scraped as gluetun:9022 over proxy_downloads.
+  # In gluetun's namespace so it logs in through "Bypass authentication for localhost": no password to store.
+  qbittorrent-exporter:
+    image: ghcr.io/martabal/qbittorrent-exporter:v2.0.3@sha256:bc4fa09481634ee894ebfb4d47c8aa239a32a12567b043afa01fa42a3075d1a5
+    container_name: qbittorrent-exporter
+    user: "65534:65534"
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+    environment:
+      - QBITTORRENT_BASE_URL=http://127.0.0.1:8082
+      - QBITTORRENT_COOKIE_NAME=QBT_SID_8082   # qBittorrent names the cookie after its port; reuses one session
+      - EXPORTER_PORT=9022
+      - ENABLE_TRACKER=false                   # one extra API call per torrent per scrape, for nothing we chart
+    network_mode: service:gluetun
+    depends_on:
+      qbittorrent:
+        condition: service_started
+    restart: unless-stopped
+  # SABnzbd metrics for the Media stack dashboard, scraped as gluetun:9023 over proxy_downloads.
+  # PORT must not collide with anything else in gluetun's namespace (9022 is the qBittorrent exporter).
+  exportarr-sabnzbd:
+    image: ghcr.io/onedr0p/exportarr:v2.3.0@sha256:af535d94061cf97a52e1661945ffba78c03f9443eae7c0da1a80a5a4be56b520
+    container_name: exportarr-sabnzbd
+    command: ["sabnzbd"]
+    user: "65534:65534"
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+    environment:
+      - PORT=9023
+      - URL=http://127.0.0.1:8080
+      - API_KEY=${SABNZBD_KEY}
+    network_mode: service:gluetun
+    depends_on:
+      sabnzbd:
+        condition: service_started
+    restart: unless-stopped
+networks:
+  proxy_downloads:
+    external: true
+  media_net:
+    external: true

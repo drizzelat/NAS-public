@@ -1,0 +1,44 @@
+services:
+  files:
+    # FileBrowser Quantum — the maintained fork; filebrowser/filebrowser was archived
+    # 2026-09-01. Tag line is `<x.y.z>-stable`; `beta` is the 2.x line, do not follow it.
+    image: gtstef/filebrowser:1.5.6-stable@sha256:7c5d7ac8ffda31294d278063cf9d2e04303b39e6dce1f4c691342240ca7703b8
+    container_name: files
+    restart: unless-stopped
+    # Matches /mnt/data/smb_share ownership; the image's own user is 1000.
+    user: 568:568
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:30052/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+    networks:
+      - default
+      - proxy_files
+    volumes:
+      # The DIRECTORY, not config.yaml: git replaces the file's inode on pull and a
+      # single-file mount pins the old one forever. Same reason as caddy.
+      - /mnt/apps/komodo/repos/nas/stacks/files:/config:ro
+      - /mnt/apps/files:/state
+      - /mnt/data/smb_share:/srv/smb_share
+    environment:
+      TZ: Europe/Vienna
+      FILEBROWSER_CONFIG: /config/config.yaml
+      FILEBROWSER_DATABASE: /state/database.db
+      # OIDC credentials are Komodo Variables — config.yaml is committed.
+      FILEBROWSER_OIDC_CLIENT_ID: ${FILES_OIDC_CLIENT_ID}
+      FILEBROWSER_OIDC_CLIENT_SECRET: ${FILES_OIDC_CLIENT_SECRET}
+
+networks:
+  proxy_files:
+    external: true

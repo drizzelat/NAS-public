@@ -1,0 +1,2 @@
+# Shell scripts run on the TrueNAS (Linux) host — keep LF regardless of checkout OS.
+*.sh text eol=lf

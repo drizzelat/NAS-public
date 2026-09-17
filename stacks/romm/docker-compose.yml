@@ -1,0 +1,88 @@
+services:
+  romm-db:
+    labels:
+      nas.backup.dump: "true"
+      nas.backup.user: romm
+      nas.backup.db: romm
+      nas.backup.dir: /mnt/apps/romm/dumps
+      nas.backup.engine: mariadb
+    image: docker.io/library/mariadb:12.3@sha256:adbf5727f3d6ffa0ea11109f948247d88d110edd3f43f8d4c134c0a09060c5f3
+    container_name: romm-db
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    volumes:
+      - /mnt/apps/romm/db:/var/lib/mysql
+    environment:
+      MARIADB_ROOT_PASSWORD: ${ROMM_DB_ROOT_PW}
+      MARIADB_DATABASE: romm
+      MARIADB_USER: romm
+      MARIADB_PASSWORD: ${ROMM_DB_PW}
+
+  romm:
+    image: docker.io/rommapp/romm:5.2.0@sha256:3512f2ca455782f90247271bed23116e6bc675bc74e379be2c41696e607ab11e
+    container_name: romm
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    healthcheck:
+      # nginx:alpine base — busybox wget, no curl. /api/heartbeat is unauthenticated.
+      test:
+        ["CMD-SHELL", "wget -qO- http://localhost:8080/api/heartbeat || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      romm-db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+    networks:
+      - default
+      - proxy_romm
+    volumes:
+      - /mnt/apps/romm/resources:/romm/resources
+      - /mnt/apps/romm/assets:/romm/assets
+      - /mnt/apps/romm/config:/romm/config
+      - /mnt/apps/romm/redis:/redis-data
+      # RomM "Structure A": roms/ and bios/ are siblings under /romm/library. Split into
+      # two mounts because ROMs are bulk (data pool) and the rest is precious (apps pool).
+      - /mnt/data/romm/roms:/romm/library/roms
+      - /mnt/data/romm/bios:/romm/library/bios
+    environment:
+      TZ: Europe/Vienna
+      ROMM_BASE_URL: https://romm.example.com
+      # DB (MariaDB — RomM does not run on plain MySQL)
+      DB_HOST: romm-db
+      DB_PORT: 3306
+      DB_NAME: romm
+      DB_USER: romm
+      DB_PASSWD: ${ROMM_DB_PW}
+      # Auth
+      ROMM_AUTH_SECRET_KEY: ${ROMM_AUTH_SECRET_KEY}
+      # Hasheous matches ROMs by hash and needs no key. IGDB can be added later for
+      # wider coverage of obscure titles.
+      HASHEOUS_API_ENABLED: "true"
+      # The inotify watcher is a convenience: a bulk import can fire it mid-copy. Run a
+      # manual Scan after any bulk import.
+      ENABLE_RESCAN_ON_FILESYSTEM_CHANGE: "true"
+      ENABLE_SCHEDULED_RESCAN: "true"
+
+networks:
+  proxy_romm:
+    external: true

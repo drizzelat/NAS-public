@@ -1,0 +1,52 @@
+# Komodo Periphery on the NAS, the transport Core deploys through. Applied by hand as project `periphery`
+# from the on-NAS clone, never by Komodo (komodo-migration.md F12). Docs: docs/services/nas-periphery.md
+services:
+  periphery:
+    # Same multi-arch manifest list as both VPS peripheries. Core and every periphery move together (F2).
+    image: ghcr.io/moghtech/komodo-periphery:2.3.3@sha256:fa3f1a641a265216066676950d5eecdf506955a7bafe2f01996135ae93115cd5
+    container_name: komodo-periphery
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    ports:
+      # LAN IP only. Core reaches it as https://192.168.178.111:8120 (komodo/resources.toml).
+      - "192.168.178.111:8120:8120"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /proc:/proc
+      # Identical path inside and out, on the apps pool: /etc/komodo goes with the boot
+      # environment on a TrueNAS update and would orphan every stack's working directory (F4).
+      - /mnt/apps/komodo:/mnt/apps/komodo
+      # The host's own compose plugin, not the 5.5.0 the image bundles: that one cannot parse the IPv6
+      # gateway TrueNAS's Docker 27.5.0 reports for newer networks (`fdd0:0:0:1b::1/64`) and fails every
+      # `up` touching one (F18). A file mount is safe here: the binary only changes with a TrueNAS
+      # update, which reboots, and the container binds the new file when it restarts.
+      - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
+    environment:
+      TZ: Europe/Vienna
+      PERIPHERY_ROOT_DIRECTORY: /mnt/apps/komodo
+      PERIPHERY_PRIVATE_KEY: file:/mnt/apps/komodo/periphery/periphery.key
+      # Core's own public key file, written by Core at first start. Never unset: without it an
+      # inbound periphery is an unauthenticated Docker socket (F15).
+      PERIPHERY_CORE_PUBLIC_KEYS: file:/mnt/apps/komodo/keys/core.pub
+      # Core reaches the published port from another bridge, so Docker MASQUERADEs it to this
+      # project's gateway (measured 2026-09-15). That admits NAS-local containers only and refuses
+      # the LAN; the key above is what actually authenticates Core. Pinned subnet below.
+      PERIPHERY_ALLOWED_IPS: 172.31.120.1
+      PERIPHERY_DISABLE_TERMINALS: "true"
+      PERIPHERY_INCLUDE_DISK_MOUNTS: /mnt/apps
+
+networks:
+  default:
+    ipam:
+      config:
+        # Pinned so the gateway PERIPHERY_ALLOWED_IPS names cannot move. Far above the pool's
+        # low end, where Docker allocates automatically.
+        - subnet: 172.31.120.0/24
+          gateway: 172.31.120.1

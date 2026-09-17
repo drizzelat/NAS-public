@@ -1,0 +1,65 @@
+# Generated from `ak export_blueprint`; see docs/services/authentik.md.
+# client_secret is deliberately absent - it stays DB state, never git.
+version: 1
+metadata:
+  name: NAS - mealie OIDC provider
+entries:
+- model: authentik_providers_oauth2.oauth2provider
+  identifiers:
+    name: mealie
+  attrs:
+    access_code_validity: minutes=1
+    access_token_validity: minutes=5
+    authentication_flow: null
+    authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+    client_id: ryiDVERWh3YjNue99Zh2lWp0tWbLbE3k1FgjegdW
+    client_type: confidential
+    encryption_key: null
+    grant_types:
+    - authorization_code
+    - hybrid
+    - implicit
+    - client_credentials
+    - password
+    - urn:ietf:params:oauth:grant-type:device_code
+    - refresh_token
+    include_claims_in_id_token: true
+    invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+    issuer_mode: per_provider
+    jwt_federation_providers: []
+    jwt_federation_sources: []
+    logout_method: backchannel
+    logout_uri: ''
+    name: mealie
+    property_mappings:
+    - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
+    - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-email]]
+    - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
+    redirect_uris:
+    - matching_mode: strict
+      redirect_uri_type: authorization
+      url: https://mealie.example.com/login
+    - matching_mode: strict
+      redirect_uri_type: authorization
+      url: https://mealie.example.com/login?direct=1
+    refresh_token_threshold: hours=1
+    refresh_token_validity: days=30
+    signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+    sub_mode: hashed_user_id
+  id: provider
+- model: authentik_core.application
+  identifiers:
+    slug: mealie
+  attrs:
+    backchannel_providers: []
+    group: ''
+    meta_description: ''
+    meta_hide: false
+    meta_icon: ''
+    meta_launch_url: ''
+    meta_publisher: ''
+    name: mealie
+    open_in_new_tab: false
+    policy_engine_mode: any
+    provider: !KeyOf provider
+    slug: mealie

@@ -1,0 +1,34 @@
+# External watchdog, deliberately on the A1 and NOT on the ingress VPS it watches.
+# Docs: docs/services/a1-vps-kuma.md
+services:
+  uptime-kuma:
+    image: ghcr.io/louislam/uptime-kuma:2.5.5@sha256:c74379ac4509ce2d2c2633f509e67003ee2e45b6e995c5e43fc101f45a0e1fbe
+    container_name: a1-uptime-kuma
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    cap_add:
+      - NET_RAW
+    cap_drop:
+      - ALL
+    ports:
+      - "100.64.0.13:3001:3001"
+    environment:
+      - TZ=Etc/UTC
+    volumes:
+      # Host bind, not a named volume: the named volume on the old VPS instance had no
+      # backup path. Synced to the NAS nightly, see docs/runbooks/backup-restore/a1-matrix-backup.md
+      - /opt/kuma/data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - extra/healthcheck
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M

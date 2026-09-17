@@ -1,0 +1,40 @@
+services:
+  homarr:
+    container_name: homarr
+    # Upstream image (homarr-labs); v1 is a rewrite with a single /appdata volume.
+    image: ghcr.io/homarr-labs/homarr:v1.77.1@sha256:1f5b892aeef4ad0a4907f075777bbd0ce7120f4cdc53b9f3f028519250421aed
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          # 512M starved Node (heap cap ~256M): the iconsUpdater job OOM-crashed the backend.
+          memory: 1G
+    environment:
+      # 64-char hex, `openssl rand -hex 32`. Losing it makes stored integration
+      # credentials unrecoverable.
+      - SECRET_ENCRYPTION_KEY=${HOMARR_SECRET_ENCRYPTION_KEY}
+      - TZ=Europe/Vienna
+    volumes:
+      - /mnt/apps/homarr/appdata:/appdata
+    # Split-horizon DNS: homarr resolves via c-ares, which skips /etc/hosts, so point
+    # it at AdGuard directly. AdGuard's wildcard covers every *.example.com name.
+    dns:
+      - 172.16.25.3
+    networks:
+      - default
+      - proxy_homarr
+      - proxy_adguard
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:7575 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  proxy_homarr:
+    external: true
+  proxy_adguard:
+    external: true

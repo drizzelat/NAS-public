@@ -1,0 +1,44 @@
+name: public-mirror
+
+# Publish a sanitized copy of main to the public mirror repo: docs/runbooks/setup-operations/public-mirror.md
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Export and run the gates, but do not push
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Each run exports its own HEAD, so a newer pending run replacing an older one loses nothing.
+concurrency:
+  group: public-mirror
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest   # GitHub-hosted ONLY: the mirror's deploy key must never reach the self-hosted runner.
+    timeout-minutes: 10
+    env:
+      MIRROR_REPO: drizzelat/NAS-public
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install gitleaks
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz -C "$RUNNER_TEMP" gitleaks
+          echo "$RUNNER_TEMP" >>"$GITHUB_PATH"
+
+      - name: Export and gate
+        run: scripts/public-mirror/export.sh "$RUNNER_TEMP/export"
+
+      - name: Push to the mirror
+        if: ${{ !inputs.dry_run }}
+        env:
+          MIRROR_DEPLOY_KEY: ${{ secrets.PUBLIC_MIRROR_DEPLOY_KEY }}
+        run: scripts/public-mirror/push.sh "$RUNNER_TEMP/export"

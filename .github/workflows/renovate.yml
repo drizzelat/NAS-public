@@ -1,0 +1,53 @@
+name: renovate
+
+# Self-hosted Renovate: the hosted app runs on Mend's cadence, which may never
+# land in renovate.json's 05:00-06:00 automerge window. Keep it OFF the NAS runner.
+
+on:
+  schedule:
+    # Hourly, so some run always lands in the merge window whatever the DST offset.
+    # Renovate merges at most ONE PR per run — see scripts/renovate-trigger.sh.
+    - cron: '0 * * * *'    # every hour, on the hour (UTC)
+  workflow_dispatch:        # manual trigger (Actions tab → Run workflow)
+
+permissions:
+  contents: read   # GITHUB_TOKEN only checks out; Renovate itself runs on the App token.
+
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest   # GitHub-hosted ONLY — do not change to self-hosted.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # A GitHub App can hold `Checks: read` scoped to ONE repo; a fine-grained PAT cannot.
+      # Permissions + setup: docs/runbooks/setup-operations/renovate-github-app.md
+      - name: Mint the App installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.RENOVATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          # No `owner`/`repositories`: the token defaults to this repository alone.
+
+      - name: Run Renovate
+        uses: renovatebot/github-action@dcfba84a42d1b5d5e49bf131b1bf53511851a123 # v46.3.1
+        with:
+          # Expires in 1 h and is revoked when the job ends. Renovate detects the `ghs_`
+          # prefix itself — no `x-access-token:` prefix, no `username`/`gitAuthor` config.
+          token: ${{ steps.app-token.outputs.token }}
+        env:
+          # Only this repo; do not scan the whole account.
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_PLATFORM: github
+          # Match Renovate's own PRs by branch name, not by PR author. GLOBAL-only option:
+          # Renovate rejects it inside renovate.json ("cannot be configured within a
+          # repository's config file") and silently ignores it, so it lives here.
+          # See the note in renovate.json for what it protects against.
+          RENOVATE_IGNORE_PR_AUTHOR: "true"
+          # renovate.json is picked up automatically. Bump to debug only while troubleshooting.
+          LOG_LEVEL: info

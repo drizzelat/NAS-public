@@ -1,0 +1,25 @@
+services:
+  github-runner:
+    image: myoung34/github-runner:2.337.0-ubuntu-focal@sha256:5b46d560e77f6149cefc159a11570970f18946ff55035e01fad0f32caf554f72
+    container_name: github-runner
+    restart: unless-stopped
+    # This container EXECUTES workflow code, on the runner VM (Komodo Server runner-vm). Safe only while
+    # the repo is private, no docker.sock is mounted, and no pull_request workflows run here.
+    # Deployed by Komodo's deploy-runner Procedure between jobs, never by CI. Docs: docs/services/github-runner.md
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    environment:
+      - REPO_URL=https://github.com/drizzelat/NAS
+      - RUNNER_SCOPE=repo
+      - RUNNER_NAME=runner-vm
+      # Every self-hosted workflow's runs-on names this label; renaming it strands them all.
+      - LABELS=nas
+      - EPHEMERAL=true
+      # GitHub PAT for runner registration tokens (classic: `repo`). From the Komodo Variable
+      # GITHUB_RUNNER__RUNNER_PAT (scripts/secrets.sh komodo-vars github-runner); never commit it.
+      - ACCESS_TOKEN=${RUNNER_PAT}

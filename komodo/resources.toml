@@ -1,0 +1,540 @@
+# Komodo ResourceSync `komodo-resources`: Servers, the Repo, the reconcile Procedure and all 30 Stacks. Applied
+# by hand after reading the pending diff (docs/services/komodo.md). Entry rules and absences: komodo-migration.md §4.
+
+[[server]]
+name = "nas"
+[server.config]
+address = "https://192.168.178.111:8120"  # periphery root /mnt/apps/komodo, not /etc (F4)
+enabled = true
+auto_prune = false  # decided 2026-09-15: no image prune before Komodo owns the stacks
+
+[[server]]
+name = "micro-vps"
+[server.config]
+address = "https://100.64.0.12:8120"  # inbound over the tailnet (F6)
+enabled = true
+auto_prune = false  # decided 2026-09-15: no image prune before Komodo owns the stacks
+
+[[server]]
+name = "a1-vps"
+[server.config]
+address = "https://100.64.0.13:8120"
+enabled = true
+auto_prune = false  # decided 2026-09-15: no image prune before Komodo owns the stacks
+
+[[server]]
+name = "runner-vm"
+[server.config]
+address = "https://192.168.178.34:8120"  # the TrueNAS VM on br0; FritzBox reservation for its MAC
+enabled = true
+auto_prune = false
+
+[[repo]]
+name = "nas"
+[repo.config]
+git_provider = "github.com"
+repo = "drizzelat/NAS"
+branch = "main"
+git_account = "drizzelat"  # read-only token, created in the UI at bootstrap
+
+# The reconcile backstop for Komodo-owned stacks (F10, F16): a deploy-stacks run GitHub evicted, or a
+# DeployStack dropped because the stack was busy, is picked up within the hour. With nothing pending
+# DeployStackIfChanged recreates nothing. Deploys from here get no health gate; the §1 probe sees them.
+[[procedure]]
+name = "reconcile-owned"
+description = "Deploys each Komodo-owned stack whose compose changed since its last deploy. Backstop for lost deploy-stacks runs."
+[procedure.config]
+schedule_format = "Cron"
+schedule = "0 23 * * * *"  # sec min hour dom month dow: hourly at :23, clear of the :47 probe slots
+schedule_timezone = "UTC"
+schedule_enabled = true
+webhook_enabled = false
+
+[[procedure.config.stage]]
+name = "Deploy owned stacks if changed"
+# Plain names only, exactly komodo/owned-stacks (scripts/komodo/check-owned.sh enforces both). Never a
+# wildcard or a regex: a Stack that was never deployed counts as changed, so "*" would adopt all 29.
+executions = [
+  { execution.type = "BatchDeployStackIfChanged", execution.params.pattern = "a1-vps-beszel-agent, a1-vps-ntp, a1-vps-tor-bridge, a1-vps-webtunnel, a1-vps-matrix, a1-vps-kuma, micro-vps-beszel-agent, micro-vps-ingress, beszel, homarr, mealie, romm, books, games, files, paperless, immich, arr, downloads, jellyfin, conduit, snowflake, observability, kuma, authentik, adguard, tailscale, caddy" },
+]
+
+# The runner's own deploy path (plan F27): no CI job deploys the runner it runs on. Hourly, and the
+# Stack's pre_deploy waits until no job is running, so the recreate lands between jobs.
+[[procedure]]
+name = "deploy-runner"
+description = "Deploys github-runner on runner-vm when its compose changed, between jobs. The Stack's pre_deploy waits for an idle runner."
+[procedure.config]
+schedule_format = "Cron"
+schedule = "0 53 * * * *"  # hourly at :53, clear of reconcile-owned at :23 and the :47 probe slots
+schedule_timezone = "UTC"
+schedule_enabled = true
+webhook_enabled = false
+
+[[procedure.config.stage]]
+name = "Deploy github-runner if changed"
+executions = [
+  { execution.type = "DeployStackIfChanged", execution.params.stack = "github-runner" },
+]
+
+[[stack]]
+name = "a1-vps-beszel-agent"
+[stack.config]
+server = "a1-vps"
+linked_repo = "nas"
+run_directory = "stacks/a1-vps-beszel-agent"
+file_paths = ["docker-compose.yml"]
+project_name = "a1-vps-beszel-agent"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+BESZEL_VPS_AGENT_KEY=[[A1_VPS_BESZEL_AGENT__BESZEL_VPS_AGENT_KEY]]
+BESZEL_VPS_AGENT_TOKEN=[[A1_VPS_BESZEL_AGENT__BESZEL_VPS_AGENT_TOKEN]]
+"""
+
+[[stack]]
+name = "a1-vps-ntp"
+[stack.config]
+server = "a1-vps"
+linked_repo = "nas"
+run_directory = "stacks/a1-vps-ntp"
+file_paths = ["docker-compose.yml"]
+project_name = "a1-vps-ntp"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+
+[[stack]]
+name = "a1-vps-tor-bridge"
+[stack.config]
+server = "a1-vps"
+linked_repo = "nas"
+run_directory = "stacks/a1-vps-tor-bridge"
+file_paths = ["docker-compose.yml"]
+project_name = "a1-vps-tor-bridge"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+TOR_BRIDGE_CONTACT=[[A1_VPS_TOR_BRIDGE__TOR_BRIDGE_CONTACT]]
+"""
+
+[[stack]]
+name = "a1-vps-webtunnel"
+[stack.config]
+server = "a1-vps"
+linked_repo = "nas"
+run_directory = "stacks/a1-vps-webtunnel"
+file_paths = ["docker-compose.yml"]
+project_name = "a1-vps-webtunnel"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+WEBTUNNEL_URL=[[A1_VPS_WEBTUNNEL__WEBTUNNEL_URL]]
+TOR_BRIDGE_CONTACT=[[A1_VPS_WEBTUNNEL__TOR_BRIDGE_CONTACT]]
+"""
+
+[[stack]]
+name = "a1-vps-matrix"
+[stack.config]
+server = "a1-vps"
+linked_repo = "nas"
+run_directory = "stacks/a1-vps-matrix"
+file_paths = ["docker-compose.yml"]
+project_name = "a1-vps-matrix"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+PG_PASS=[[A1_VPS_MATRIX__PG_PASS]]
+REGISTRATION_SHARED_SECRET=[[A1_VPS_MATRIX__REGISTRATION_SHARED_SECRET]]
+MACAROON_SECRET_KEY=[[A1_VPS_MATRIX__MACAROON_SECRET_KEY]]
+FORM_SECRET=[[A1_VPS_MATRIX__FORM_SECRET]]
+OIDC_CLIENT_SECRET=[[A1_VPS_MATRIX__OIDC_CLIENT_SECRET]]
+WHATSAPP_AS_TOKEN=[[A1_VPS_MATRIX__WHATSAPP_AS_TOKEN]]
+WHATSAPP_HS_TOKEN=[[A1_VPS_MATRIX__WHATSAPP_HS_TOKEN]]
+DOUBLEPUPPET_AS_TOKEN=[[A1_VPS_MATRIX__DOUBLEPUPPET_AS_TOKEN]]
+DOUBLEPUPPET_HS_TOKEN=[[A1_VPS_MATRIX__DOUBLEPUPPET_HS_TOKEN]]
+WEBTUNNEL_DOMAIN=[[A1_VPS_MATRIX__WEBTUNNEL_DOMAIN]]
+WEBTUNNEL_PATH=[[A1_VPS_MATRIX__WEBTUNNEL_PATH]]
+"""
+
+[[stack]]
+name = "a1-vps-kuma"
+[stack.config]
+server = "a1-vps"
+linked_repo = "nas"
+run_directory = "stacks/a1-vps-kuma"
+file_paths = ["docker-compose.yml"]
+project_name = "a1-vps-kuma"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+
+[[stack]]
+name = "micro-vps-beszel-agent"
+[stack.config]
+server = "micro-vps"
+linked_repo = "nas"
+run_directory = "stacks/micro-vps-beszel-agent"
+file_paths = ["docker-compose.yml"]
+project_name = "micro-vps-beszel-agent"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+BESZEL_VPS_AGENT_KEY=[[MICRO_VPS_BESZEL_AGENT__BESZEL_VPS_AGENT_KEY]]
+BESZEL_VPS_AGENT_TOKEN=[[MICRO_VPS_BESZEL_AGENT__BESZEL_VPS_AGENT_TOKEN]]
+"""
+
+[[stack]]
+name = "micro-vps-ingress"
+[stack.config]
+server = "micro-vps"
+linked_repo = "nas"
+run_directory = "stacks/micro-vps-ingress"
+file_paths = ["docker-compose.yml"]
+project_name = "micro-vps-ingress"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+
+[[stack]]
+name = "beszel"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/beszel"
+file_paths = ["docker-compose.yml"]
+project_name = "beszel"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+BESZEL_ENVIRONMENT_AGENT_KEY=[[BESZEL__BESZEL_ENVIRONMENT_AGENT_KEY]]
+"""
+
+[[stack]]
+name = "homarr"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/homarr"
+file_paths = ["docker-compose.yml"]
+project_name = "homarr"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+HOMARR_SECRET_ENCRYPTION_KEY=[[HOMARR__HOMARR_SECRET_ENCRYPTION_KEY]]
+"""
+
+[[stack]]
+name = "mealie"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/mealie"
+file_paths = ["docker-compose.yml"]
+project_name = "mealie"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+MEALIE_DB_PW=[[MEALIE__MEALIE_DB_PW]]
+MEALIE_ADMIN_EMAIL=[[MEALIE__MEALIE_ADMIN_EMAIL]]
+MEALIE_OIDC_CLIENT_ID=[[MEALIE__MEALIE_OIDC_CLIENT_ID]]
+MEALIE_OIDC_CLIENT_SECRET=[[MEALIE__MEALIE_OIDC_CLIENT_SECRET]]
+"""
+
+[[stack]]
+name = "romm"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/romm"
+file_paths = ["docker-compose.yml"]
+project_name = "romm"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+ROMM_AUTH_SECRET_KEY=[[ROMM__ROMM_AUTH_SECRET_KEY]]
+ROMM_DB_PW=[[ROMM__ROMM_DB_PW]]
+ROMM_DB_ROOT_PW=[[ROMM__ROMM_DB_ROOT_PW]]
+"""
+
+[[stack]]
+name = "books"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/books"
+file_paths = ["docker-compose.yml"]
+project_name = "books"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+
+[[stack]]
+name = "games"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/games"
+file_paths = ["docker-compose.yml"]
+project_name = "games"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+GAMEVAULT_DB_PW=[[GAMES__GAMEVAULT_DB_PW]]
+"""
+
+[[stack]]
+name = "files"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/files"
+file_paths = ["docker-compose.yml"]
+project_name = "files"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+# Fails the deploy unless /config shows the clone's files; a re-clone orphans the mount (F28).
+post_deploy.command = "sh ../../scripts/komodo/mount-matches.sh files /config ."
+environment = """
+FILES_OIDC_CLIENT_ID=[[FILES__FILES_OIDC_CLIENT_ID]]
+FILES_OIDC_CLIENT_SECRET=[[FILES__FILES_OIDC_CLIENT_SECRET]]
+"""
+
+[[stack]]
+name = "paperless"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/paperless"
+file_paths = ["docker-compose.yml"]
+project_name = "paperless"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+PAPERLESS_DB_PW=[[PAPERLESS__PAPERLESS_DB_PW]]
+PAPERLESS_SECRET_KEY=[[PAPERLESS__PAPERLESS_SECRET_KEY]]
+"""
+
+[[stack]]
+name = "immich"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/immich"
+file_paths = ["docker-compose.yml"]
+project_name = "immich"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+REDIS_PW=[[IMMICH__REDIS_PW]]
+POSTGRES_PW=[[IMMICH__POSTGRES_PW]]
+"""
+
+[[stack]]
+name = "arr"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/arr"
+file_paths = ["docker-compose.yml"]
+project_name = "arr"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+SONARR_KEY=[[ARR__SONARR_KEY]]
+RADARR_KEY=[[ARR__RADARR_KEY]]
+PROWLARR_KEY=[[ARR__PROWLARR_KEY]]
+BAZARR_KEY=[[ARR__BAZARR_KEY]]
+"""
+
+[[stack]]
+name = "downloads"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/downloads"
+file_paths = ["docker-compose.yml"]
+project_name = "downloads"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+WG_KEY=[[DOWNLOADS__WG_KEY]]
+SABNZBD_KEY=[[DOWNLOADS__SABNZBD_KEY]]
+"""
+
+[[stack]]
+name = "jellyfin"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/jellyfin"
+file_paths = ["docker-compose.yml"]
+project_name = "jellyfin"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+JELLYFIN_EXPORTER_TOKEN=[[JELLYFIN__JELLYFIN_EXPORTER_TOKEN]]
+"""
+
+[[stack]]
+name = "conduit"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/conduit"
+file_paths = ["docker-compose.yml"]
+project_name = "conduit"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+
+[[stack]]
+name = "snowflake"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/snowflake"
+file_paths = ["docker-compose.yml"]
+project_name = "snowflake"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+
+[[stack]]
+name = "observability"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/observability"
+file_paths = ["docker-compose.yml"]
+project_name = "observability"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+# Fails the deploy unless each config mount shows the clone's files; a re-clone orphans them (F28).
+post_deploy.command = """
+sh ../../scripts/komodo/mount-matches.sh vector /etc/vector vector
+sh ../../scripts/komodo/mount-matches.sh victoriametrics /etc/victoriametrics victoriametrics
+sh ../../scripts/komodo/mount-matches.sh grafana /etc/grafana/provisioning grafana/provisioning
+sh ../../scripts/komodo/mount-matches.sh grafana /etc/grafana/dashboards grafana/dashboards
+"""
+environment = """
+GRAFANA_ADMIN_PASSWORD=[[OBSERVABILITY__GRAFANA_ADMIN_PASSWORD]]
+MAXMIND_ACCOUNT_ID=[[OBSERVABILITY__MAXMIND_ACCOUNT_ID]]
+MAXMIND_LICENSE_KEY=[[OBSERVABILITY__MAXMIND_LICENSE_KEY]]
+"""
+
+[[stack]]
+name = "kuma"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/kuma"
+file_paths = ["docker-compose.yml"]
+project_name = "kuma"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+
+[[stack]]
+name = "authentik"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/authentik"
+file_paths = ["docker-compose.yml"]
+project_name = "authentik"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+# Fails the deploy if the worker's blueprints are not the clone's: a re-clone orphans the mount (F28).
+post_deploy.command = "sh ../../scripts/komodo/mount-matches.sh authentik-worker-1 /blueprints/nas blueprints"
+environment = """
+PG_PASS=[[AUTHENTIK__PG_PASS]]
+AUTHENTIK_SECRET_KEY=[[AUTHENTIK__AUTHENTIK_SECRET_KEY]]
+AUTHENTIK_IMAGE=[[AUTHENTIK__AUTHENTIK_IMAGE]]
+AUTHENTIK_TAG=[[AUTHENTIK__AUTHENTIK_TAG]]
+COMPOSE_PORT_HTTP=[[AUTHENTIK__COMPOSE_PORT_HTTP]]
+COMPOSE_PORT_HTTPS=[[AUTHENTIK__COMPOSE_PORT_HTTPS]]
+"""
+
+[[stack]]
+name = "adguard"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/adguard"
+file_paths = ["docker-compose.yml"]
+project_name = "adguard"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+
+[[stack]]
+name = "tailscale"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/tailscale"
+file_paths = ["docker-compose.yml"]
+project_name = "tailscale"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+environment = """
+TS_AUTHKEY=[[TAILSCALE__TS_AUTHKEY]]
+"""
+
+[[stack]]
+name = "caddy"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/caddy"
+file_paths = ["docker-compose.yml"]
+project_name = "caddy"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+# A Caddyfile-only change leaves the container Running, so the reload is the deploy. Lines chain with &&:
+# a mounted Caddyfile that is not the clone's (a re-clone orphans the mount, F28) fails before reloading.
+post_deploy.command = """
+docker exec caddy cat /etc/caddy/Caddyfile | cmp - Caddyfile
+docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+"""
+environment = """
+CROWDSEC_API_KEY=[[CADDY__CROWDSEC_API_KEY]]
+CLOUDFLARE_API_TOKEN=[[CADDY__CLOUDFLARE_API_TOKEN]]
+"""
+
+[[stack]]
+name = "github-runner"
+[stack.config]
+server = "runner-vm"
+linked_repo = "nas"
+run_directory = "stacks/github-runner"
+file_paths = ["docker-compose.yml"]
+project_name = "github-runner"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+# Any deploy, from deploy-runner or the UI, waits for the job in progress to finish (up to an hour).
+pre_deploy.command = "sh ../../scripts/komodo/runner-idle.sh github-runner 3600"
+environment = """
+RUNNER_PAT=[[GITHUB_RUNNER__RUNNER_PAT]]
+"""

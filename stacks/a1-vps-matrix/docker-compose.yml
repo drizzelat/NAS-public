@@ -1,0 +1,359 @@
+# Matrix homeserver (Synapse) on the Ampere A1, not the NAS. Config is inline `configs:`;
+# only state stays on the host under /opt/matrix. Docs: docs/services/a1-vps-matrix.md
+services:
+  postgres:
+    # Patch-level tag, NOT floating `18-alpine`: on a floating tag a digest update can
+    # silently carry 18.4 -> 18.5 with no release notes in the PR.
+    image: postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    container_name: matrix-postgres
+    restart: unless-stopped
+    # Nightly logical dump, pulled from the NAS over the tailnet. nas.backup.dir is a
+    # path on the NAS. Docs: docs/runbooks/backup-restore/postgres-dump.md
+    labels:
+      nas.backup.dump: "true"
+      nas.backup.user: synapse
+      nas.backup.db: synapse,mautrix_whatsapp
+      nas.backup.dir: /mnt/apps/a1-matrix/dumps
+    environment:
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: ${PG_PASS}
+      POSTGRES_DB: synapse
+      # Synapse REQUIRES C locale on its DB — set at initdb time only (first boot).
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      # postgres 18+ layout: mount the PARENT dir, not the versioned PGDATA subdir,
+      # so a future in-place pg_upgrade works.
+      - /opt/matrix/postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    networks: [matrix_net]
+
+  synapse:
+    image: ghcr.io/element-hq/synapse:v1.161.0@sha256:6b95dd129e35e97e8032cb759e5db4a516a5f7ef6c98d34d716fea1ae239b62a
+    container_name: matrix-synapse
+    restart: unless-stopped
+    environment:
+      # CONFIG_DIR stays on the writable bind; only CONFIG_PATH moves to the read-only
+      # /config mount, so anything the entrypoint writes still lands in /data.
+      SYNAPSE_CONFIG_DIR: /data
+      SYNAPSE_CONFIG_PATH: /config/homeserver.yaml
+    # Bump `config-rev` whenever an inlined config changes — a `configs.*.content`
+    # change alone does not always recreate the container.
+    labels:
+      - "config-rev=2026-08-21"
+    volumes:
+      # State only: signing key, media_store, homeserver.pid.
+      - /opt/matrix/synapse:/data
+    # Targets MUST stay outside /data: a config whose target lands inside a bind-mounted
+    # directory is written through onto the host, destroying the file there.
+    configs:
+      - source: homeserver_yaml
+        target: /config/homeserver.yaml
+      - source: synapse_log_config
+        target: /config/example.com.log.config
+      - source: appservice_whatsapp
+        target: /config/appservices/mautrix-whatsapp.yaml
+      - source: appservice_doublepuppet
+        target: /config/appservices/doublepuppet.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [matrix_net]
+
+  caddy:
+    image: caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    container_name: matrix-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    labels:
+      - "config-rev=2026-09-11"
+    volumes:
+      - /opt/matrix/caddy/data:/data
+      - /opt/matrix/caddy/config:/config
+    # /etc/caddy is not a bind mount, so this target is safe.
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    depends_on:
+      - synapse
+    networks: [matrix_net, proxy_a1-vps-webtunnel]
+
+  # mautrix-whatsapp bridge; config/registration/data under /opt/matrix/bridges/
+  # whatsapp/, generated on first run. See Phase 6 of the matrix-deploy runbook.
+  mautrix-whatsapp:
+    image: dock.mau.dev/mautrix/whatsapp:v0.2609.0@sha256:e92b5217929622aabfea3cf72b279d1b73790a035a293d7149bcce7ae220b86f
+    container_name: matrix-mautrix-whatsapp
+    restart: unless-stopped
+    volumes:
+      - /opt/matrix/bridges/whatsapp:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [matrix_net]
+
+  # Element Web, served by Caddy. Config is the inline element_config below.
+  element:
+    image: vectorim/element-web:v1.12.28@sha256:a8f415462ab8d2600a592ba1b92bea51efe5a4d10eb738aab9bed769f7099613
+    container_name: matrix-element
+    restart: unless-stopped
+    labels:
+      - "config-rev=2026-08-21"
+    configs:
+      - source: element_config
+        target: /app/config.json
+    networks: [matrix_net]
+
+configs:
+  homeserver_yaml:
+    content: |
+      # Configuration file for Synapse.
+      #
+      # This is a YAML file: see [1] for a quick introduction. Note in particular
+      # that *indentation is important*: all the elements of a list or dictionary
+      # should have the same indentation.
+      #
+      # [1] https://docs.ansible.com/ansible/latest/reference_appendices/YAMLSyntax.html
+      #
+      # For more information on how to configure Synapse, including a complete accounting of
+      # each option, go to docs/usage/configuration/config_documentation.md or
+      # https://element-hq.github.io/synapse/latest/usage/configuration/config_documentation.html
+      server_name: "example.com"
+      public_baseurl: "https://matrix.example.com/"
+      pid_file: /data/homeserver.pid
+      listeners:
+        - port: 8008
+          resources:
+          - compress: false
+            names:
+            - client
+            - federation
+          tls: false
+          type: http
+          x_forwarded: true          # behind Caddy
+      database:
+        name: psycopg2
+        args:
+          user: synapse
+          password: "${PG_PASS}"  # = PG_PASS; Synapse does NOT expand env vars here, and this file lives only on the host (never git)
+          dbname: synapse
+          host: postgres
+          cp_min: 5
+          cp_max: 10
+      log_config: "/config/example.com.log.config"
+      media_store_path: /data/media_store
+
+      # Registration: closed. Accounts come from SSO (Phase 4) or the break-glass admin.
+      enable_registration: false
+      registration_shared_secret: "${REGISTRATION_SHARED_SECRET}"
+      report_stats: false
+
+      # Password login OFF for humans (SSO only). Break-glass: flip enabled: true + restart.
+      password_config:
+        enabled: false
+
+      # Media
+      max_upload_size: 100M
+      url_preview_enabled: true
+
+      # Federation is ON by default (open). Delegated to :443 via .well-known (Phase 2).
+      suppress_key_server_warning: true
+
+      # Appservices — bridges register here (Phase 6):
+      app_service_config_files:
+        - /config/appservices/doublepuppet.yaml
+        - /config/appservices/mautrix-whatsapp.yaml
+
+      macaroon_secret_key: "${MACAROON_SECRET_KEY}"
+      form_secret: "${FORM_SECRET}"
+      signing_key_path: "/data/example.com.signing.key"
+      trusted_key_servers:
+        - server_name: "matrix.org"
+
+
+      # vim:ft=yaml
+
+      # Required whenever url_preview_enabled is true — block SSRF to internal ranges.
+      url_preview_ip_range_blacklist:
+        - "127.0.0.0/8"
+        - "10.0.0.0/8"
+        - "172.16.0.0/12"
+        - "192.168.0.0/16"
+        - "100.64.0.0/10"
+        - "192.0.0.0/24"
+        - "169.254.0.0/16"
+        - "198.18.0.0/15"
+        - "192.0.2.0/24"
+        - "198.51.100.0/24"
+        - "203.0.113.0/24"
+        - "224.0.0.0/4"
+        - "::1/128"
+        - "fe80::/10"
+        - "fc00::/7"
+        - "2001:db8::/32"
+        - "ff00::/8"
+        - "fec0::/10"
+
+      # --- Authentik SSO (OIDC) — Phase 4 ---
+      oidc_providers:
+        - idp_id: authentik
+          idp_name: "Authentik"
+          issuer: "https://auth.example.com/application/o/matrix/"
+          client_id: "8KjrtzMu2nUnyQNYs9hduU6uEiXhATAZ9I84QEow"
+          client_secret: "${OIDC_CLIENT_SECRET}"
+          scopes: ["openid", "profile", "email"]
+          user_mapping_provider:
+            config:
+              localpart_template: "{{ user.preferred_username }}"
+              display_name_template: "{{ user.name }}"
+              email_template: "{{ user.email }}"
+
+      # Appservice E2EE transport (mautrix bridges) — deliver device lists / OTK / to-device
+      # over appservice transactions instead of /sync (AS users cannot use /sync).
+      experimental_features:
+        msc3202_transaction_extensions: true
+        msc2409_to_device_messages_enabled: true
+        msc3983_appservice_otk_claims: true
+        msc3202_device_masquerading: true
+        msc3984_appservice_key_query: true
+  synapse_log_config:
+    content: |
+      version: 1
+
+      formatters:
+        precise:
+          
+          format: '%(asctime)s - %(name)s - %(lineno)d - %(levelname)s - %(request)s - %(message)s'
+          
+
+      handlers:
+
+
+        console:
+          class: logging.StreamHandler
+          formatter: precise
+
+      loggers:
+          # This is just here so we can leave `loggers` in the config regardless of whether
+          # we configure other loggers below (avoid empty yaml dict error).
+          _placeholder:
+              level: "INFO"
+
+          
+          
+          synapse.storage.SQL:
+              # beware: increasing this to DEBUG will make synapse log sensitive
+              # information such as access tokens.
+              level: INFO
+          
+
+          
+
+      root:
+          level: INFO
+
+
+          handlers: [console]
+
+
+      disable_existing_loggers: false
+  appservice_whatsapp:
+    content: |
+      id: whatsapp
+      url: http://mautrix-whatsapp:29318
+      as_token: "${WHATSAPP_AS_TOKEN}"
+      hs_token: "${WHATSAPP_HS_TOKEN}"
+      sender_localpart: whatsappbot
+      rate_limited: false
+      namespaces:
+          users:
+              - regex: ^@whatsappbot:example\.com$$
+                exclusive: true
+              - regex: ^@whatsapp_.*:example\.com$$
+                exclusive: true
+      de.sorunome.msc2409.push_ephemeral: true
+      receive_ephemeral: true
+      org.matrix.msc3202: true
+  appservice_doublepuppet:
+    content: |
+      id: doublepuppet
+      url:
+      as_token: "${DOUBLEPUPPET_AS_TOKEN}"
+      hs_token: "${DOUBLEPUPPET_HS_TOKEN}"
+      sender_localpart: doublepuppet-unused
+      rate_limited: false
+      namespaces:
+        users:
+          - regex: '@.*:example\.com'
+            exclusive: false
+  caddyfile:
+    content: |
+      matrix.example.com {
+          # Federation delegation target + client discovery (also reached via the apex CF redirect)
+          handle /.well-known/matrix/server {
+              header Content-Type application/json
+              respond `{"m.server": "matrix.example.com:443"}`
+          }
+          handle /.well-known/matrix/client {
+              header Content-Type application/json
+              header Access-Control-Allow-Origin *
+              respond `{"m.homeserver": {"base_url": "https://matrix.example.com"}}`
+          }
+          # Synapse client-server + server-server API
+          handle /_matrix/* {
+              reverse_proxy synapse:8008
+          }
+          handle /_synapse/client/* {
+              reverse_proxy synapse:8008
+          }
+      }
+
+      element.example.com {
+          reverse_proxy element:80
+      }
+
+      # Tor WebTunnel bridge (docs/services/a1-vps-webtunnel.md): only the secret path reaches it.
+      # Unset env renders a plain-HTTP placeholder site, which never attempts a certificate.
+      ${WEBTUNNEL_DOMAIN:-http://webtunnel.invalid} {
+          handle ${WEBTUNNEL_PATH:-/webtunnel-path-unset} {
+              reverse_proxy a1-webtunnel:15000
+          }
+          handle {
+              header Content-Type "text/html; charset=utf-8"
+              respond `<!doctype html><meta charset="utf-8"><title>Notes</title><p>Nothing here yet.</p>` 200
+          }
+      }
+  element_config:
+    content: |
+      {
+          "default_server_config": {
+              "m.homeserver": {
+                  "base_url": "https://matrix.example.com",
+                  "server_name": "example.com"
+              }
+          },
+          "brand": "Element",
+          "disable_custom_urls": false,
+          "disable_guests": true,
+          "disable_login_language_selector": false,
+          "disable_3pid_login": false,
+          "default_country_code": "DE",
+          "show_labs_settings": true,
+          "room_directory": {
+              "servers": ["example.com", "matrix.org"]
+          },
+          "setting_defaults": {
+              "breadcrumbs": true
+          }
+      }
+
+networks:
+  matrix_net:
+    name: matrix_net
+  # Caddy's leg to the WebTunnel bridge, which joins it as external: this stack deploys first.
+  proxy_a1-vps-webtunnel:
+    name: proxy_a1-vps-webtunnel

@@ -1,0 +1,41 @@
+# Tor WebTunnel bridge behind the matrix stack's Caddy: unlisted, never an exit. Docs: docs/services/a1-vps-webtunnel.md
+services:
+  webtunnel-bridge:
+    image: ghcr.io/drizzelat/webtunnel-bridge:0.0.7@sha256:886c2cc53e1ac743c083467f4d50f75d2c33cfae987df5f3849b734d983bec9e
+    container_name: a1-webtunnel
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    networks:
+      - proxy_a1-vps-webtunnel
+    ports:
+      - "100.64.0.13:9036:9036"   # MetricsPort, tailnet only
+    environment:
+      - OR_PORT=9444                            # never published: torrc has AssumeReachable 1
+      - PT_PORT=15000                           # reached only by matrix-caddy over proxy_a1-vps-webtunnel
+      - EMAIL=${TOR_BRIDGE_CONTACT:-}           # ContactInfo; Komodo Variable, never git
+      - WEBTUNNEL_URL=${WEBTUNNEL_URL:-}        # https://<domain>/<secret path>; the image refuses an empty one
+      - WEBTUNNEL_ENABLE_ADDITIONAL_VARIABLES=1 # WEBTUNNELV_<Option>=<value> becomes a torrc line
+      - WEBTUNNELV_Address=198.51.100.20        # the container only sees its Docker IP
+      - WEBTUNNELV_AddressDisableIPv6=1
+      - WEBTUNNELV_AccountingMax=1 TBytes       # with the obfs4 bridge's 1 TBytes: 2 TiB of Oracle egress
+      - WEBTUNNELV_AccountingRule=out
+      - WEBTUNNELV_AccountingStart=month 1 00:00
+      - WEBTUNNELV_RelayBandwidthRate=5 MBytes
+      - WEBTUNNELV_RelayBandwidthBurst=10 MBytes
+      - WEBTUNNELV_MaxMemInQueues=256 MB
+      - WEBTUNNELV_MetricsPort=0.0.0.0:9036
+      - WEBTUNNELV_MetricsPortPolicy=accept 100.64.0.11,accept 172.16.0.0/12   # NAS or Docker gateway, see a1-vps-tor-bridge
+    volumes:
+      - /opt/tor-webtunnel/data:/var/lib/tor    # pre-create 101:101 mode 0700, see docs
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+
+networks:
+  proxy_a1-vps-webtunnel:
+    external: true

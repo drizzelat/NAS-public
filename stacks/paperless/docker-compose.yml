@@ -1,0 +1,95 @@
+services:
+  broker:
+    image: docker.io/library/redis:8.10.1@sha256:298e5b3bc566bade82f46ad5511777a4a07a294097ce16ada2f6a42be5239df5
+    container_name: paperless-redis
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    volumes:
+      - /mnt/apps/paperless/redis:/data
+
+  db:
+    labels:
+      nas.backup.dump: "true"
+      nas.backup.user: paperless
+      nas.backup.db: paperless
+      nas.backup.dir: /mnt/apps/paperless/dumps
+    image: docker.io/library/postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
+    container_name: paperless-db
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperless -d paperless"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    volumes:
+      # postgres:18+ stores data in a version-specific subdir; mount the parent.
+      - /mnt/apps/paperless/db:/var/lib/postgresql
+    environment:
+      POSTGRES_DB: paperless
+      POSTGRES_USER: paperless
+      POSTGRES_PASSWORD: ${PAPERLESS_DB_PW}
+      PGDATA: /var/lib/postgresql/18/docker
+
+  webserver:
+    image: ghcr.io/paperless-ngx/paperless-ngx:3.1.3@sha256:aa810a36942c63d4ee70d00eda7236cd3d6acfb7eb3f7987fb568ed14df8817a
+    container_name: paperless
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    healthcheck:
+      # paperless-ngx image ships curl; web UI answers on 8000 once migrations finish.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+    depends_on:
+      - db
+      - broker
+    networks:
+      - default
+      - proxy_paperless
+    volumes:
+      - /mnt/apps/paperless/data:/usr/src/paperless/data
+      - /mnt/data/paperless/media:/usr/src/paperless/media
+      - /mnt/data/paperless/export:/usr/src/paperless/export
+      - /mnt/data/paperless/consume:/usr/src/paperless/consume
+    environment:
+      # Mandatory since paperless-ngx 3.0. Value lives in the encrypted stack env and is
+      # written to Komodo with `scripts/secrets.sh push paperless`.
+      PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY}
+      PAPERLESS_REDIS: redis://broker:6379
+      PAPERLESS_DBHOST: db
+      PAPERLESS_DBUSER: paperless
+      PAPERLESS_DBPASS: ${PAPERLESS_DB_PW}
+      PAPERLESS_URL: https://paperless.example.com
+      PAPERLESS_CSRF_TRUSTED_ORIGINS: https://paperless.example.com
+
+networks:
+  proxy_paperless:
+    external: true

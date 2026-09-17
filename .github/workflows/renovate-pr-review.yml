@@ -1,0 +1,278 @@
+name: renovate-pr-review
+
+# Review every Renovate stack PR (image delta + a Claude risk pass), publish the
+# `renovate-review` commit status, merge cleared ones at 05:00 Berlin. Docs: docs/runbooks/setup-operations/renovate-pr-review.md
+
+on:
+  pull_request:
+    # Every stack PR gets both layers now, so no `labeled` trigger.
+    types: [opened, synchronize, reopened]
+  schedule:
+    # MERGE SWEEP fallback only — GitHub cron fires late or not at all. Primary
+    # trigger is a TrueNAS cron hitting workflow_dispatch (scripts/merge-sweep-trigger.sh).
+    - cron: "0,10,20,30,40,50 3,4 * * *"
+    # STALE-CLEARANCE ALARM: goes red if a cleared PR sits open >1 day. Once a day,
+    # because silence is otherwise indistinguishable from a dead sweep.
+    - cron: "30 8 * * *"
+  # Manual re-run: a pull_request run uses the workflow file from the PR's HEAD
+  # branch, so older branches need a dispatch. No `pr` input = merge sweep.
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to analyse. Leave empty to run the merge sweep instead."
+        required: false
+        type: string
+      ignore_window:
+        description: "Sweep only: merge cleared PRs even outside 05:00-06:00 Berlin."
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: "Sweep only: report what would merge, merge nothing. Combine with ignore_window to test the sweep at any hour."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write   # the `renovate-review` verdict, posted on the PR head SHA.
+  # Check runs are a separate resource from commit statuses; the sweep reads both.
+  checks: read
+  # The sweep polls deploy-stacks between merges (wait_for_deploy).
+  actions: read
+
+concurrency:
+  # Per PR for reviews, one shared lane for sweeps — a sweep must never be
+  # cancelled mid-merge.
+  group: renovate-pr-review-${{ github.event.pull_request.number || inputs.pr || 'sweep' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  review:
+    # Only Renovate branches; a dispatch with a PR number is explicit and trusted.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.pr != '') ||
+      startsWith(github.event.pull_request.head.ref, 'renovate/')
+    runs-on: ubuntu-latest   # GitHub-hosted ONLY — do not change to self-hosted.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0   # need base..head history to diff the PR range.
+
+      # One place that knows which PR we are on, whichever event started us.
+      - name: Resolve PR context
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          INPUT_PR: ${{ inputs.pr }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+          EVENT_BASE: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+          EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          EVENT_HEADREF: ${{ github.event.pull_request.head.ref }}
+        run: scripts/review/pr-context.sh
+
+      - name: Resolve image delta
+        id: delta
+        env:
+          BASE: ${{ steps.pr.outputs.base }}
+          HEAD: ${{ steps.pr.outputs.head }}
+        run: scripts/review/image-delta.sh
+
+      # Layer 2 runs on every stack PR whose content actually changed. A no-op or an
+      # unresolvable delta pays for no assessment.
+      - name: Should run the agent?
+        id: gate
+        env:
+          DELTA_VERDICT: ${{ steps.delta.outputs.verdict }}
+          STACK: ${{ steps.delta.outputs.stack }}
+          HAVE_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' || secrets.ANTHROPIC_API_KEY != '' }}
+        run: |
+          set -uo pipefail
+          run=false
+          if [ "$STACK" = "true" ] && [ "$DELTA_VERDICT" = "CHANGED" ] && [ "$HAVE_TOKEN" = "true" ]; then
+            run=true
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "have_token=$HAVE_TOKEN" >> "$GITHUB_OUTPUT"
+          echo "agent pass: $run (stack=$STACK delta=$DELTA_VERDICT token=$HAVE_TOKEN)"
+
+      - name: Install Claude Code CLI
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Assess upstream risk
+        id: agent
+        if: steps.gate.outputs.run == 'true'
+        env:
+          # Same auth as nas-health-check: `claude setup-token` -> CLAUDE_CODE_OAUTH_TOKEN.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DELTA_REPORT: ${{ steps.delta.outputs.report }}
+          PR: ${{ steps.pr.outputs.pr }}
+          BASE_SHA: ${{ steps.pr.outputs.base }}
+          HEAD_SHA: ${{ steps.pr.outputs.head }}
+          # Optional: weighted-token budget of one 5h session window (see below).
+          CLAUDE_SESSION_TOKEN_BUDGET: ${{ vars.CLAUDE_SESSION_TOKEN_BUDGET }}
+        run: scripts/review/assess-risk.sh
+
+      # One place decides. `automerge` = may the sweep merge it; `gate` = the status
+      # state. They differ for PRs with nothing to review, which still need green.
+      - name: Decide the verdict
+        id: decide
+        env:
+          HEADREF: ${{ steps.pr.outputs.headref }}
+          STACK: ${{ steps.delta.outputs.stack }}
+          HAVE_TOKEN: ${{ steps.gate.outputs.have_token }}
+          DELTA_VERDICT: ${{ steps.delta.outputs.verdict }}
+          RISK: ${{ steps.agent.outputs.risk }}
+        run: scripts/review/decide-verdict.sh
+
+      # THE deliverable. The sweep, the required check and the stale alarm read this.
+      - name: Publish the renovate-review status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD: ${{ steps.pr.outputs.head }}
+          STATE: ${{ steps.decide.outputs.gate }}
+          REASON: ${{ steps.decide.outputs.reason }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          # A status description is capped at 140 characters.
+          gh api -X POST "repos/$REPO/statuses/$HEAD" \
+            -f state="$STATE" \
+            -f context="renovate-review" \
+            -f target_url="$RUN_URL" \
+            -f description="$(printf '%.139s' "$REASON")" >/dev/null \
+            && echo "renovate-review=$STATE on $HEAD" \
+            || echo "::error::could not post the renovate-review status on $HEAD"
+
+      # A NEW comment emails you, so post one only when the PR needs you.
+      - name: Comment, but only if this needs you
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.pr.outputs.pr }}
+          REPO: ${{ github.repository }}
+          DELTA_REPORT: ${{ steps.delta.outputs.report }}
+          AGENT_REPORT: ${{ steps.agent.outputs.report }}
+          AGENT_USAGE: ${{ steps.agent.outputs.usage }}
+          GATE: ${{ steps.gate.outputs.run }}
+          STATE: ${{ steps.decide.outputs.gate }}
+          AUTOMERGE: ${{ steps.decide.outputs.automerge }}
+          REASON: ${{ steps.decide.outputs.reason }}
+        run: scripts/review/comment.sh
+
+  # A required status *context* has no "skipped" state, so a PR that never gets one
+  # is blocked forever. Non-Renovate PRs get their green status here.
+  gate-passthrough:
+    if: >-
+      github.event_name == 'pull_request' &&
+      !startsWith(github.event.pull_request.head.ref, 'renovate/')
+    runs-on: ubuntu-latest   # GitHub-hosted ONLY — do not change to self-hosted.
+    timeout-minutes: 5
+    steps:
+      - name: Post a passing renovate-review status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh api -X POST "repos/$REPO/statuses/$HEAD" \
+            -f state=success \
+            -f context="renovate-review" \
+            -f target_url="$RUN_URL" \
+            -f description="not a Renovate PR — nothing to review" >/dev/null
+          echo "renovate-review=success on $HEAD (passthrough)"
+
+  # Merges every cleared PR inside the 05:00-06:00 Berlin window; the only path
+  # from a cleared PR to a running container. Separate job: it holds the merge credential.
+  window-merge:
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule != '30 8 * * *') ||
+      (github.event_name == 'workflow_dispatch' && inputs.pr == '')
+    runs-on: ubuntu-latest   # GitHub-hosted ONLY — do not change to self-hosted.
+    # Was 20. The sweep now waits for each merge's deploy to finish (wait_for_deploy).
+    timeout-minutes: 45
+    steps:
+      # The scripts below live in the repo, so this job needs the checkout that the
+      # inline version never did. Shallow: only scripts/review/ is read.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Same Renovate App that opens the PRs, so the merge push triggers deploy-stacks
+      # (a GITHUB_TOKEN push would not). Narrowed: this token cannot touch workflows.
+      - name: Mint the App installation token
+        id: app-token
+        continue-on-error: true   # no App secrets ⇒ empty token ⇒ the sweep warns and merges nothing.
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.RENOVATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          permission-contents: write        # merge commit + --delete-branch
+          permission-pull-requests: write   # the merge itself
+
+      - name: Merge the PRs the review cleared
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}              # reads only
+          MERGE_TOKEN: ${{ steps.app-token.outputs.token }}  # the merge itself
+          REPO: ${{ github.repository }}
+          IGNORE_WINDOW: ${{ inputs.ignore_window }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          # Seconds to let one merge's deploy-stacks run finish before merging the next.
+          DEPLOY_WAIT: 420
+          # Stack folders never swept up, however the review graded them — merge by hand. None today.
+          MERGE_SKIP: ""
+          # Same, but matched on the IMAGE a PR bumps rather than the stack folder, so an
+          # app bump still sweeps while its database does not. Keep in sync with renovate.json.
+          MERGE_SKIP_IMAGES: >-
+            postgres
+            valkey/valkey
+            redis
+            mariadb
+            ghcr.io/goauthentik/server
+            ghcr.io/immich-app/postgres
+            ghcr.io/drizzelat/nas-caddy
+            mongo
+            ghcr.io/moghtech/komodo-core
+            ghcr.io/moghtech/komodo-periphery
+        run: scripts/review/merge-sweep.sh
+
+  # DEAD-MAN'S SWITCH: cleared PRs merge silently, so a dead sweep looks like a
+  # quiet week. Goes red once a day if a clearance sat unmerged >24h.
+  stale-clearance:
+    if: github.event.schedule == '30 8 * * *'
+    runs-on: ubuntu-latest   # GitHub-hosted ONLY — do not change to self-hosted.
+    timeout-minutes: 15
+    steps:
+      # The scripts below live in the repo, so this job needs the checkout that the
+      # inline version never did. Shallow: only scripts/review/ is read.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Alarm on clearances the sweep never acted on
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          MERGE_SKIP: ""
+          # Must mirror the sweep's list, or every held stateful bump alarms as "cleared
+          # but never merged" — which is by design, not a broken sweep.
+          MERGE_SKIP_IMAGES: >-
+            postgres
+            valkey/valkey
+            redis
+            mariadb
+            ghcr.io/goauthentik/server
+            ghcr.io/immich-app/postgres
+            ghcr.io/drizzelat/nas-caddy
+            mongo
+            ghcr.io/moghtech/komodo-core
+            ghcr.io/moghtech/komodo-periphery
+          MAX_AGE_HOURS: 24
+        run: scripts/review/stale-alarm.sh

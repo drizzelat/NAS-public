@@ -1,0 +1,14 @@
+# gitleaks config for the secret-scan workflow (.github/workflows/secret-scan.yml).
+# Keep ALL default rules, and allowlist only the encrypted secret vault: everything
+# under secrets.enc/ is age ciphertext + a public key + a passphrase-wrapped private
+# key — safe to commit by design (see docs/runbooks/setup-operations/secret-sync.md).
+# Plaintext secrets are gitignored and never reach a scan.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Encrypted secret vault (age) — ciphertext is safe to commit"
+paths = [
+  '''secrets\.enc/.*''',
+]

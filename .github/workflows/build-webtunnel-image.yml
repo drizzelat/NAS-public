@@ -1,0 +1,127 @@
+name: build-webtunnel-image
+
+# The A1 is arm64 and Tor publishes its WebTunnel image for amd64 only, so this repo builds its own
+# and rebuilds it whenever Tor, Debian or Go has an update. Model: docs/services/a1-vps-webtunnel.md
+
+on:
+  push:
+    # main only: the tag is what Renovate watches, so a branch build would become a digest PR.
+    branches: [main]
+    paths:
+      - stacks/a1-vps-webtunnel/Dockerfile
+      - .github/workflows/build-webtunnel-image.yml
+  # Daily primary trigger: scripts/webtunnel-build-trigger.sh (host cron). schedule: is the late fallback.
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Rebuild and push even if nothing upstream changed."
+        type: boolean
+        default: false
+  schedule:
+    - cron: "10 3 * * *"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-webtunnel-image
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/webtunnel-bridge
+  CONTEXT: stacks/a1-vps-webtunnel
+
+jobs:
+  build:
+    # Also refuses a dispatch from another branch, which would push the same tag.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest   # GitHub-hosted: the NAS runner has no docker socket.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+
+      - name: Decide whether a rebuild is due
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          wt=$(sed -n 's/^ARG WEBTUNNEL_VERSION=v\([0-9.]*\)$/\1/p' "$CONTEXT/Dockerfile")
+          golang=$(sed -n 's/^FROM .* \(golang:[^ ]*\) AS build$/\1/p' "$CONTEXT/Dockerfile")
+          [ -n "$wt" ] && [ -n "$golang" ] || { echo "::error::cannot read WEBTUNNEL_VERSION or the golang tag from $CONTEXT/Dockerfile"; exit 1; }
+
+          # What a build would pull right now: the Go release behind the builder tag, the Debian base.
+          go=$(docker buildx imagetools inspect "$golang" --format '{{json (index .Image "linux/amd64")}}' \
+            | jq -r '.config.Env[] | select(startswith("GOLANG_VERSION=")) | ltrimstr("GOLANG_VERSION=")')
+          base=$(docker buildx imagetools inspect debian:trixie-slim --format '{{json .Manifest}}' | jq -r .digest)
+          [ -n "$go" ] && [ -n "$base" ] || { echo "::error::could not resolve the Go version or the Debian base digest"; exit 1; }
+
+          reasons=()
+          [ "$EVENT" != push ] || reasons+=("Dockerfile or workflow changed")
+          [ "$FORCE" != true ] || reasons+=("forced")
+          if labels=$(docker buildx imagetools inspect "$IMAGE:$wt" --format '{{json .Image.Config.Labels}}' 2>/dev/null); then
+            [ "$(jq -r '."nas.go-version" // ""' <<<"$labels")" = "$go" ] || reasons+=("Go $go")
+            [ "$(jq -r '."nas.base-digest" // ""' <<<"$labels")" = "$base" ] || reasons+=("debian:trixie-slim moved")
+            # A dry-run upgrade inside the published image sees Debian security fixes and new Tor alike.
+            upgrades=$(docker run --rm --platform linux/arm64 --user 0 --entrypoint sh "$IMAGE:$wt" \
+              -c 'apt-get update -qq >/dev/null && apt-get -s upgrade | sed -n "s/^Inst \([^ ]*\) .*/\1/p"' | xargs)
+            [ -z "$upgrades" ] || reasons+=("apt: $upgrades")
+          else
+            reasons+=("$IMAGE:$wt is not published yet")
+          fi
+
+          { echo "wt=$wt"; echo "go=$go"; echo "base=$base"; } >> "$GITHUB_OUTPUT"
+          if [ ${#reasons[@]} -eq 0 ]; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "\`$IMAGE:$wt\` is current: $go, same Debian base, no apt upgrades." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            printf 'Rebuilding `%s:%s`:\n\n' "$IMAGE" "$wt" >> "$GITHUB_STEP_SUMMARY"
+            printf -- '- %s\n' "${reasons[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Build, check and push
+        if: steps.plan.outputs.build == 'true'
+        env:
+          WT: ${{ steps.plan.outputs.wt }}
+          GO_VERSION: ${{ steps.plan.outputs.go }}
+          BASE: ${{ steps.plan.outputs.base }}
+          SOURCE: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # --pull --no-cache: a rebuild exists to take new packages, so no layer may come from a cache.
+          docker build --pull --no-cache --platform linux/arm64 --provenance=false --sbom=false \
+            --label "org.opencontainers.image.source=$SOURCE" \
+            --label "org.opencontainers.image.version=$WT" \
+            --label "nas.go-version=$GO_VERSION" \
+            --label "nas.base-digest=$BASE" \
+            -t "$IMAGE:$WT" "$CONTEXT"
+
+          arm() { docker run --rm --platform linux/arm64 "$@"; }
+          tor=$(arm --entrypoint tor "$IMAGE:$WT" --version | sed -n 's/^Tor version \([0-9.]*[0-9]\).*/\1/p')
+          [ -n "$tor" ] || { echo "::error::tor --version printed no version"; exit 1; }
+          arm --entrypoint sh "$IMAGE:$WT" -c \
+            'test -x /usr/bin/webtunnel-server && test -x /usr/local/bin/start-tor.sh && test -x /usr/local/bin/get-bridge-line.sh'
+          rc=0; arm "$IMAGE:$WT" >/dev/null 2>&1 || rc=$?
+          [ "$rc" = 64 ] || { echo "::error::the image did not refuse an empty WEBTUNNEL_URL (exit $rc, want 64)"; exit 1; }
+
+          docker push "$IMAGE:$WT"
+          digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$WT" | cut -d@ -f2)
+          {
+            echo
+            echo "Pushed with Tor $tor and $GO_VERSION. Renovate raises the pin in \`$CONTEXT/docker-compose.yml\` on its next run:"
+            echo
+            echo '```yaml'
+            echo "    image: $IMAGE:$WT@$digest"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "$IMAGE:$WT@$digest"

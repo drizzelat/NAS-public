@@ -1,0 +1,41 @@
+services:
+  adguard:
+    image: adguard/adguardhome:v0.107.79@sha256:aba9e3bf0613be3ba3755e1fc311b126e2c24bec25e18b6483894a88283074f0
+    container_name: adguard
+    restart: unless-stopped
+    command:
+      - --no-check-update
+      - --web-addr
+      - 0.0.0.0:30004
+      - --config
+      - /opt/adguardhome/conf/AdGuardHome.yaml
+      - --work-dir
+      - /opt/adguardhome/work
+    volumes:
+      - /mnt/apps/adguard/config:/opt/adguardhome/conf
+      - /mnt/apps/adguard/workdir:/opt/adguardhome/work
+    # Bound to the LAN IP, not the wildcard: Incus' dnsmasq binds :53 with SO_REUSEADDR
+    # and docker-proxy does not, so a wildcard bind fails whenever Incus wins the race.
+    ports:
+      - 192.168.178.111:53:53/tcp
+      - 192.168.178.111:53:53/udp
+    networks:
+      default: {}
+      # Static IP so containers on proxy_adguard (e.g. Kuma's dns:) can target
+      # AdGuard directly and bypass Docker UDP hairpin NAT on the host port.
+      proxy_adguard:
+        ipv4_address: 172.16.25.3
+    environment:
+      TZ: Etc/UTC
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+networks:
+  proxy_adguard:
+    external: true

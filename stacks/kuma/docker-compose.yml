@@ -1,0 +1,43 @@
+services:
+  uptime-kuma:
+    image: ghcr.io/louislam/uptime-kuma:2.5.5@sha256:c74379ac4509ce2d2c2633f509e67003ee2e45b6e995c5e43fc101f45a0e1fbe
+    container_name: uptime-kuma
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges=true
+    cap_add:
+      - NET_RAW
+      - DAC_OVERRIDE
+    cap_drop:
+      - ALL
+    # Resolve internal *.example.com via AdGuard directly on proxy_adguard. The host
+    # LAN IP routes through Docker UDP hairpin NAT, which drops the query.
+    dns:
+      - 172.16.25.3
+    networks:
+      - default
+      - proxy_kuma
+      - proxy_adguard
+    environment:
+      - TZ=Etc/UTC
+      - UPTIME_KUMA_PORT=31050
+    volumes:
+      - /mnt/apps/kuma:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - extra/healthcheck
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+networks:
+  proxy_kuma:
+    external: true
+  proxy_adguard:
+    external: true

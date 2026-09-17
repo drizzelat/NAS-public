@@ -1,0 +1,154 @@
+services:
+  # Tails the Caddy access log, enriches it, and fans out: logs to VictoriaLogs,
+  # derived counters to VictoriaMetrics. Adding a source = one file in vector/.
+  vector:
+    image: timberio/vector:0.58.0-alpine@sha256:5dcf67db0ee378caa87f3395cb9484ebe3e97bb0334d119f2ac33116e00c5773
+    container_name: vector
+    restart: unless-stopped
+    command: ["--config-dir", "/etc/vector", "--watch-config"]
+    environment:
+      TZ: Europe/Vienna
+    volumes:
+      # The DIRECTORY, not the files: git replaces inodes on pull and a single-file
+      # mount pins the old one forever. Same trap as the Caddyfile.
+      - /mnt/apps/komodo/repos/nas/stacks/observability/vector:/etc/vector:ro
+      - /mnt/apps/caddy/logs:/var/log/caddy:ro
+      - /mnt/apps/observability/geoip:/geoip:ro
+      # Read checkpoints, so a restart does not re-ingest the whole log.
+      - /mnt/apps/observability/vector:/var/lib/vector
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+    depends_on:
+      - victorialogs
+      - victoriametrics
+    networks:
+      - default
+
+  victorialogs:
+    image: victoriametrics/victoria-logs:v1.52.0@sha256:47b820890d64c4575a2a0a46415dcd8a4fd59a0f1fcd6a377693d7aea639442e
+    container_name: victorialogs
+    restart: unless-stopped
+    command:
+      - "-storageDataPath=/victoria-logs-data"
+      - "-retentionPeriod=90d"
+      - "-httpListenAddr=:9428"
+    volumes:
+      - /mnt/apps/observability/victorialogs:/victoria-logs-data
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    networks:
+      - default
+
+  # Also the scraper: -promscrape.config removes the need for a separate vmagent.
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.152.0@sha256:86ca5fdb6d87d56ba047b044039019ba2bd9042b36e35f6ea34e437b6c825cef
+    container_name: victoriametrics
+    restart: unless-stopped
+    command:
+      - "-storageDataPath=/victoria-metrics-data"
+      - "-retentionPeriod=1y"
+      - "-httpListenAddr=:8428"
+      - "-promscrape.config=/etc/victoriametrics/scrape.yml"
+      # Re-reads scrape.yml on this interval, so the deploy's git pull applies it.
+      - "-promscrape.configCheckInterval=1m"
+    volumes:
+      - /mnt/apps/komodo/repos/nas/stacks/observability/victoriametrics:/etc/victoriametrics:ro
+      - /mnt/apps/observability/victoriametrics:/victoria-metrics-data
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    # One network per scraped stack: proxy_network reaches crowdsec:6060,
+    # proxy_authentik reaches server:9300, proxy_downloads reaches gluetun:9022/9023
+    # (qBittorrent + SABnzbd exporters), proxy_arr the exportarr-* sidecars and
+    # proxy_jellyfin jellyfin-exporter:9594. Joining a stack's INTERNAL network
+    # (authentik_net, immich's default, ...) would also put this next to its
+    # database — always scrape over the proxy_ network the service already exposes.
+    networks:
+      - default
+      - proxy_network
+      - proxy_authentik
+      - proxy_downloads
+      - proxy_arr
+      - proxy_jellyfin
+
+  grafana:
+    image: grafana/grafana:13.2.2@sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Vienna
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: https://grafana.example.com
+      # LAN-only behind Caddy; nothing should self-register.
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: victoriametrics-logs-datasource
+    volumes:
+      - /mnt/apps/komodo/repos/nas/stacks/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - /mnt/apps/komodo/repos/nas/stacks/observability/grafana/dashboards:/etc/grafana/dashboards:ro
+      - /mnt/apps/observability/grafana:/var/lib/grafana
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+    depends_on:
+      - victorialogs
+      - victoriametrics
+    networks:
+      - default
+      - proxy_observability
+
+  # Daemon mode: refreshes the mmdb files Vector reads every GEOIPUPDATE_FREQUENCY
+  # hours. Without it geo lookups go stale, not broken.
+  geoipupdate:
+    image: maxmindinc/geoipupdate:v8.0.0@sha256:51e70dd6f16cd3e4d845ac02d09940b10772a75b9d741427d235a78570923c1d
+    container_name: geoipupdate
+    restart: unless-stopped
+    environment:
+      GEOIPUPDATE_ACCOUNT_ID: ${MAXMIND_ACCOUNT_ID}
+      GEOIPUPDATE_LICENSE_KEY: ${MAXMIND_LICENSE_KEY}
+      GEOIPUPDATE_EDITION_IDS: GeoLite2-City GeoLite2-ASN
+      GEOIPUPDATE_FREQUENCY: "72"
+    volumes:
+      - /mnt/apps/observability/geoip:/usr/share/GeoIP
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    networks:
+      - default
+
+networks:
+  default:
+    name: observability_net
+  proxy_observability:
+    external: true
+  proxy_network:
+    external: true
+  proxy_authentik:
+    external: true
+  proxy_downloads:
+    external: true
+  proxy_arr:
+    external: true
+  proxy_jellyfin:
+    external: true

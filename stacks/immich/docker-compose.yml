@@ -1,0 +1,134 @@
+x-environment: &a2
+  PUID: "568"
+  PGID: "568"
+  TZ: Europe/Berlin
+  UMASK: "002"
+x-common-keys: &a1
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges=true
+  platform: linux/amd64
+services:
+  server:
+    <<: *a1
+    image: ghcr.io/immich-app/immich-server:v3.2.2@sha256:79cc1623323d5894922686d8743b4780181428f98eecbfb58ce12c41ef02d1ea
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+    depends_on:
+      pgvecto:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *a2
+      DB_HOSTNAME: pgvecto
+      DB_USERNAME: immich
+      DB_PASSWORD: ${POSTGRES_PW}
+      DB_DATABASE_NAME: immich
+      REDIS_HOSTNAME: redis
+      REDIS_PASSWORD: ${REDIS_PW}
+      IMMICH_MACHINE_LEARNING_URL: http://machine-learning:32002
+      IMMICH_PORT: "30041"
+    networks:
+      - default
+      - proxy_immich
+    volumes:
+      - cli-temp-storage:/.config
+      - /mnt/data/immich:/data
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "44"
+      - "107"
+      - "568"
+    user: 568:568
+  machine-learning:
+    <<: *a1
+    image: ghcr.io/immich-app/immich-machine-learning:v3.2.2@sha256:60dfcf266a9ef3b7376f5678e8c980d4fb61db5fc48c078fe8a326ab1535d60d
+    deploy:
+      resources:
+        limits:
+          cpus: "3"
+          memory: 4G
+    environment:
+      <<: *a2
+      HF_HOME: /mlcache
+      MACHINE_LEARNING_CACHE_FOLDER: /mlcache
+      TRANSFORMERS_CACHE: /mlcache
+    volumes:
+      - ml-cache:/mlcache
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "44"
+      - "107"
+      - "568"
+    user: 568:568
+  pgvecto:
+    <<: *a1
+    labels:
+      nas.backup.dump: "true"
+      nas.backup.user: immich
+      nas.backup.db: immich
+      nas.backup.dir: /mnt/apps/immich/dumps
+    image: ghcr.io/immich-app/postgres:18-vectorchord0.5.3@sha256:828081a755d3911a2d94f0a2be9f98570c07d52cf080fd310a9d6e4b83b73aa5
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+    environment:
+      <<: *a2
+      POSTGRES_DB: immich
+      POSTGRES_USER: immich
+      POSTGRES_PASSWORD: ${POSTGRES_PW}
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - /mnt/apps/immich:/var/lib/postgresql
+    shm_size: 256M
+    user: 999:999
+    healthcheck:
+      test:
+        - CMD
+        - pg_isready
+        - -d
+        - immich
+        - -U
+        - immich
+      interval: 10s
+  redis:
+    <<: *a1
+    image: valkey/valkey:9.1.2@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+    command:
+      - --port
+      - "6379"
+      - --requirepass
+      - ${REDIS_PW}
+    environment:
+      <<: *a2
+    volumes:
+      - redis-data:/data
+    user: 568:568
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - -a
+        - ${REDIS_PW}
+        - ping
+      interval: 10s
+volumes:
+  cli-temp-storage: null
+  ml-cache: null
+  redis-data: null
+networks:
+  proxy_immich:
+    external: true
