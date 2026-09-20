@@ -50,8 +50,9 @@ every other stack PR queued indefinitely (observed 2026-07-29: 14 open, all gree
 cleared PR in one pass. Renovate's one-per-run limit now only applies to
 `github-actions` bumps, of which there is rarely more than one a day. So these
 crons exist purely to make sure fresh PRs are **open and reviewed** before the
-sweep runs at 05:20 — one pass an hour early and one in-window is enough, and
-the hourly `schedule:` in `renovate.yml` opens PRs all day besides.
+sweep runs at 05:20 — one pass an hour early and one in-window is enough.
+These two dispatches are now the **only** triggers: the hourly `schedule:` was
+removed on 2026-09-18 (see below).
 
 If `github-actions` PRs ever pile up, the lever is more dispatches: each run
 takes ~2 min and `renovate.yml` declares `concurrency: renovate` with
@@ -65,10 +66,18 @@ window. Branch protection on `main` has `strict: false` (up-to-date branches are
 **not** required), so that rebase bought nothing but CI churn. Real conflicts still
 rebase; stacks live in separate folders so those are rare.
 
-The hourly `schedule:` cron in `renovate.yml` is **left in place as a fallback**:
-it opens/refreshes PRs throughout the day, and if the NAS is down during 05–06
-Vienna, a (possibly late) GitHub-scheduled run still eventually fires. Belt and
-braces.
+**The hourly `schedule:` cron was removed on 2026-09-18.** It was kept as a
+fallback — opening PRs through the day, and firing (late) if the NAS was down at
+05–06 Vienna. Two things ended that. GitHub throttled scheduled events from
+2026-08-27: they land 2.5–5.5 h late and are mostly dropped, so the fallback no
+longer fires when it is needed. And at ~3 billed minutes a run it was the
+second-largest line on the Actions bill for a trigger that had stopped working.
+
+**What this costs:** PRs now open only at 04:15 and 05:15 Vienna, not through the
+day, and a NAS offline at 05–06 Vienna means no Renovate that day. Neither blocks
+anything — the next day's dispatch picks the backlog up, and the sweep merges every
+cleared PR in one pass. If you want an off-NAS fallback back, use a dispatch from
+somewhere that is not the NAS rather than restoring `schedule:`.
 
 > The 04:15 cron originally targeted a 04:00–05:00 `schedule` open-window in
 > renovate.json. That window was removed (every run opens PRs now) and this
@@ -233,9 +242,9 @@ other status logs `ERROR: dispatch got HTTP <code>` and the cron exits non-zero.
   write** or can't see the repo; `401`/`403` = bad/expired token.
 - **Dispatch runs the workflow from the default branch.** `ref: main` — the run
   always uses `main`'s `renovate.yml` and `renovate.json`, regardless of open PRs.
-- **Don't remove the GitHub `schedule:` cron.** The hourly runs open/refresh PRs
-  all day and are the merge-window fallback for when the NAS is offline at 05–06
-  Vienna.
+- **The GitHub `schedule:` cron is gone (2026-09-18).** The host cron dispatches
+  are the only trigger. Don't add `schedule:` back expecting a fallback: GitHub
+  drops most scheduled events since 2026-08-27, so it bills without firing.
 - **A stack-PR backlog no longer drains one per run.** The review workflow's
   sweep merges every cleared PR in one pass inside the same window; each merge
   still triggers its own stack redeploy, and `deploy-stacks`'s concurrency group

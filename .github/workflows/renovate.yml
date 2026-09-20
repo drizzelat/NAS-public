@@ -3,11 +3,12 @@ name: renovate
 # Self-hosted Renovate: the hosted app runs on Mend's cadence, which may never
 # land in renovate.json's 05:00-06:00 automerge window. Keep it OFF the NAS runner.
 
+# No `schedule:`. GitHub's cron has been running 2.5-5.5 h late and mostly dropping
+# events since 2026-08-27, so the hourly pass was paying for a trigger that no longer
+# lands in the window it existed for. The TrueNAS host cron dispatches this at 04:15 and
+# 05:15 Vienna (scripts/renovate-trigger.sh) and is the trigger of record.
+# Renovate merges at most ONE PR per run.
 on:
-  schedule:
-    # Hourly, so some run always lands in the merge window whatever the DST offset.
-    # Renovate merges at most ONE PR per run — see scripts/renovate-trigger.sh.
-    - cron: '0 * * * *'    # every hour, on the hour (UTC)
   workflow_dispatch:        # manual trigger (Actions tab → Run workflow)
 
 permissions:

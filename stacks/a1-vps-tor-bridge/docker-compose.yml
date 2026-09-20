@@ -1,7 +1,7 @@
 # Tor obfs4 bridge: unlisted, never an exit. Docs: docs/services/a1-vps-tor-bridge.md
 services:
   obfs4-bridge:
-    image: ghcr.io/drizzelat/obfs4-bridge:0.8.1@sha256:12bf1333d9f329928cb48d782546e4d816581a45395f9bec3a3c8d35bc150f25
+    image: ghcr.io/drizzelat/obfs4-bridge:0.8.1@sha256:379b75f3dcac64b17561520036e2ea6b51836ed1152ea4956548e52ed5d3deab
     container_name: a1-tor-bridge
     restart: unless-stopped
     security_opt:

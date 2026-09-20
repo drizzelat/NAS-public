@@ -26,16 +26,20 @@ env:
   KOMODO_RESOLVE: komodo.example.com:443:192.168.178.111
 
 jobs:
-  # The fallback must not duplicate the host cron's runs — it fires only on a day no
-  # dispatch landed. Docs: docs/runbooks/setup-operations/deploy-state-probe.md
-  guard:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      skip: ${{ steps.check.outputs.skip }}
+  # ONE job, and it is the self-hosted one. The guard used to be its own `ubuntu-latest`
+  # job that `probe` depended on — which billed a minute per run (~6x a day) AND meant a
+  # blocked Actions quota starved a probe that otherwise costs nothing. As a step here it
+  # is free and it cannot be starved.
+  probe:
+    # Komodo is LAN-only. Sharing the one runner with deploy-stacks also means a probe never
+    # reads a deploy halfway through.
+    runs-on: [self-hosted, nas]
+    timeout-minutes: 20
     steps:
+      # The fallback must not duplicate the host cron's runs — it fires only on a day no
+      # dispatch landed. Docs: docs/runbooks/setup-operations/deploy-state-probe.md
       - name: Skip the fallback if the host cron already ran today
-        id: check
+        id: guard
         if: github.event_name == 'schedule'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -58,19 +62,13 @@ jobs:
             echo "::warning::no dispatched run today - the host cron may be broken, running the fallback"
           fi
 
-  probe:
-    needs: guard
-    if: needs.guard.outputs.skip != 'true'
-    # Komodo is LAN-only. Sharing the one runner with deploy-stacks also means a probe never
-    # reads a deploy halfway through.
-    runs-on: [self-hosted, nas]
-    timeout-minutes: 15
-    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: ${{ steps.guard.outputs.skip != 'true' }}
         with:
           fetch-depth: 0  # the drift script dates each drift with git log -S
 
       - name: Write NAS SSH key
+        if: ${{ steps.guard.outputs.skip != 'true' }}
         env:
           # nashealth's forced-command key, shared with nas-health-check.
           NAS_HEALTH_SSH_KEY: ${{ secrets.NAS_HEALTH_SSH_KEY }}
@@ -81,6 +79,7 @@ jobs:
           chmod 600 "$RUNNER_TEMP/nas_health_ssh_key"
 
       - name: Assert deployed state
+        if: ${{ steps.guard.outputs.skip != 'true' }}
         env:
           # Komodo service user probe-read: Read on Servers (+Inspect) and Stacks. docs/services/komodo.md
           KOMODO_API_KEY: ${{ secrets.KOMODO_READ_API_KEY }}

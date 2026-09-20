@@ -20,7 +20,7 @@ Full build: [matrix-deploy runbook](../runbooks/setup-operations/matrix-deploy.m
 
 | | |
 |---|---|
-| URL | `https://matrix.example.com` (client + federation); `example.com/.well-known/matrix/*` (discovery, Cloudflare-redirected to the A1); `https://element.example.com` (Element Web browser client); `https://<WEBTUNNEL_DOMAIN>` (a placeholder page whose secret path is the [WebTunnel bridge](a1-vps-webtunnel.md)) |
+| URL | `https://matrix.example.com` (client + federation); `example.com/.well-known/matrix/*` (discovery, Cloudflare-redirected to the A1); `https://element.example.com` (Element Web browser client); `https://<WEBTUNNEL_DOMAIN>` (a placeholder page whose secret path is the [WebTunnel bridge](a1-vps-webtunnel.md)); `http://pool.ntp.org` and its zone names (redirect for the [NTP Pool server](a1-vps-ntp.md#web-redirect)) |
 | Port | Caddy `:80`/`:443` on the A1; Synapse `:8008` internal only. Federation delegated to `:443` — **8448 is not exposed**. |
 | Auth | Authentik SSO (OIDC) only; break-glass local `@admin` (password login normally OFF) |
 
@@ -193,6 +193,9 @@ The signing key must be restored from the vault or the federation identity is lo
   applies to state paths.
 
 ## Last updated
+
+2026-09-17 — Caddy redirects the NTP Pool's names on port 80 to `https://www.ntppool.org/`
+([a1-vps-ntp](a1-vps-ntp.md#web-redirect)); `config-rev` bumped.
 
 2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack; env goes into Komodo Variables before the compose lands.
 

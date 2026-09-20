@@ -1,7 +1,7 @@
 # Tor WebTunnel bridge behind the matrix stack's Caddy: unlisted, never an exit. Docs: docs/services/a1-vps-webtunnel.md
 services:
   webtunnel-bridge:
-    image: ghcr.io/drizzelat/webtunnel-bridge:0.0.7@sha256:886c2cc53e1ac743c083467f4d50f75d2c33cfae987df5f3849b734d983bec9e
+    image: ghcr.io/drizzelat/webtunnel-bridge:0.0.7@sha256:fcb7b06ffb87c1e11ede431d98b88ec5f3008d41cc523a4ed35cf5adab413fd8
     container_name: a1-webtunnel
     restart: unless-stopped
     security_opt:

@@ -44,16 +44,17 @@ env:
   ORDER_PROBE_HOST: komodo
 
 jobs:
-  # The fallback must not duplicate the host cron's runs — it fires only on a day no
-  # dispatch landed. Docs: docs/runbooks/setup-operations/edge-access-policy-probe.md
-  guard:
+  # ONE job on purpose. Both layers finish in ~13 s each and the guard in ~3 s, but GitHub
+  # bills every job a full minute — three jobs cost 3 min to do ~30 s of work, on a probe
+  # that runs 6x a day. Steps, not jobs, so it is 1 billed minute.
+  probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      skip: ${{ steps.check.outputs.skip }}
+    timeout-minutes: 20
     steps:
+      # The fallback must not duplicate the host cron's runs — it fires only on a day no
+      # dispatch landed. Docs: docs/runbooks/setup-operations/edge-access-policy-probe.md
       - name: Skip the fallback if the host cron already ran today
-        id: check
+        id: guard
         if: github.event_name == 'schedule'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -76,14 +77,9 @@ jobs:
             echo "::warning::no dispatched run today - the host cron may be broken, running the fallback"
           fi
 
-  # Layer 1 — VPS SNI allowlist, seen the way the internet sees it.
-  sni-allowlist:
-    needs: guard
-    if: needs.guard.outputs.skip != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
+      # Layer 1 — VPS SNI allowlist, seen the way the internet sees it.
       - name: Assert the public edge drops admin hostnames
+        if: ${{ steps.guard.outputs.skip != 'true' }}
         run: |
           set -uo pipefail
 
@@ -188,16 +184,14 @@ jobs:
           [ "$fail" = 0 ] || { echo "::error::Layer 1 assertion failed"; exit 1; }
           echo "Layer 1 OK — admin hostnames dropped, orange-clouded names Cloudflare-only, gray-cloud serving."
 
-  # Layer 2 — Caddy's @lan exclusion of the VPS tailnet IP, which only the VPS can observe.
-  edge-access-list:
-    needs: guard
-    if: needs.guard.outputs.skip != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
+      # Layer 2 — Caddy's @lan exclusion of the VPS tailnet IP, which only the VPS can
+      # observe. `!cancelled()` so a Layer 1 failure does not hide Layer 1's own result:
+      # these were parallel jobs, and both must still report. The job fails if either did.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: ${{ !cancelled() && steps.guard.outputs.skip != 'true' }}
 
       - name: Write probe SSH key
+        if: ${{ !cancelled() && steps.guard.outputs.skip != 'true' }}
         env:
           # Forced-command key, no shell, no sudo — it can only run the probe.
           # Setup: docs/runbooks/setup-operations/edge-access-policy-probe.md
@@ -213,6 +207,7 @@ jobs:
             > "$RUNNER_TEMP/known_hosts"
 
       - name: Assert the LAN-only rule from the ingress VPS
+        if: ${{ !cancelled() && steps.guard.outputs.skip != 'true' }}
         run: |
           set -uo pipefail
 

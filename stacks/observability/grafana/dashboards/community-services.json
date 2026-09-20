@@ -500,12 +500,12 @@
             "type": "prometheus",
             "uid": "victoriametrics"
           },
-          "expr": "(sum(increase(tor_relay_traffic_bytes[$__range])) or vector(0)) + ((sum(increase(tor_snowflake_proxy_traffic_inbound_bytes_total[$__range])) + sum(increase(tor_snowflake_proxy_traffic_outbound_bytes_total[$__range]))) * 1000 or vector(0)) + (sum(increase(conduit_bytes_uploaded[$__range])) + sum(increase(conduit_bytes_downloaded[$__range])) or vector(0)) + (sum(increase(qbittorrent_torrent_total_uploaded_bytes{name=~\".+\\\\.zim\"}[$__range])) or vector(0))",
+          "expr": "(sum(increase(tor_relay_traffic_bytes[$__range])) or vector(0)) + ((sum(increase(tor_snowflake_proxy_traffic_inbound_bytes_total[$__range])) + sum(increase(tor_snowflake_proxy_traffic_outbound_bytes_total[$__range]))) * 1000 or vector(0)) + (sum(increase(conduit_bytes_uploaded[$__range])) + sum(increase(conduit_bytes_downloaded[$__range])) or vector(0)) + (sum(increase(qbittorrent_torrent_total_uploaded_bytes{name=~\".+\\\\.zim\"}[$__range])) or vector(0)) + ((sum(increase(chrony_serverstats_ntp_packets_received_total[$__range])) * 2 - sum(increase(chrony_serverstats_ntp_packets_dropped_total[$__range]))) * 76 or vector(0))",
           "legendFormat": "",
           "instant": true
         }
       ],
-      "description": "The four bars below added up. A service with no data in the range counts as zero instead of blanking the total."
+      "description": "The five bars below added up. A service with no data in the range counts as zero instead of blanking the total."
     },
     {
       "id": 9,
@@ -599,6 +599,21 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "NTP Pool"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
           }
         ]
       },
@@ -654,9 +669,19 @@
           "expr": "sum(increase(qbittorrent_torrent_total_uploaded_bytes{name=~\".+\\\\.zim\"}[$__range]))",
           "legendFormat": "Kiwix seeding",
           "instant": true
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "(sum(increase(chrony_serverstats_ntp_packets_received_total[$__range])) * 2 - sum(increase(chrony_serverstats_ntp_packets_dropped_total[$__range]))) * 76",
+          "legendFormat": "NTP Pool",
+          "instant": true
         }
       ],
-      "description": "Both directions for the relays (Tor bridges read + written, Snowflake in + out, Conduit up + down); upload only for Kiwix, since the download is fetching the files for ourselves. NTP is a few kilobytes per thousand queries, so it has no bar."
+      "description": "Both directions for the relays (Tor bridges read + written, Snowflake in + out, Conduit up + down) and for NTP (queries in + replies out); upload only for Kiwix, since the download is fetching the files for ourselves. chrony counts packets, not bytes, so NTP is derived: 76 B per packet (48 B NTP + 8 UDP + 20 IPv4) and one reply per query that ratelimit did not drop."
     },
     {
       "id": 10,
@@ -746,6 +771,21 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "NTP Pool"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
           }
         ]
       },
@@ -796,9 +836,18 @@
           },
           "expr": "sum(rate(qbittorrent_torrent_total_uploaded_bytes{name=~\".+\\\\.zim\"}[$__rate_interval]))",
           "legendFormat": "Kiwix seeding"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "(sum(rate(chrony_serverstats_ntp_packets_received_total[$__rate_interval])) * 2 - sum(rate(chrony_serverstats_ntp_packets_dropped_total[$__rate_interval]))) * 76",
+          "legendFormat": "NTP Pool"
         }
       ],
-      "description": "Stacked. Tor bridges ride the A1's Oracle egress; Snowflake, Conduit and Kiwix all share the home uplink, so their stack is what remote streaming competes with. Snowflake is an hourly average: the proxy updates its traffic counters once an hour."
+      "description": "Stacked. Tor bridges and NTP ride the A1's Oracle egress; Snowflake, Conduit and Kiwix all share the home uplink, so their stack is what remote streaming competes with. Snowflake is an hourly average: the proxy updates its traffic counters once an hour. NTP is derived from its packet counters at 76 B per packet."
     },
     {
       "id": 11,
@@ -1968,6 +2017,227 @@
       "description": "The pool's own view (score, monitors) is at https://www.ntppool.org/scores/198.51.100.20."
     },
     {
+      "id": 37,
+      "type": "timeseries",
+      "title": "NTP bandwidth",
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 53
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never"
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "in (queries)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "out (replies)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "in + out"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "sum(rate(chrony_serverstats_ntp_packets_received_total[$__rate_interval])) * 76",
+          "legendFormat": "in (queries)"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "(sum(rate(chrony_serverstats_ntp_packets_received_total[$__rate_interval])) - sum(rate(chrony_serverstats_ntp_packets_dropped_total[$__rate_interval]))) * 76",
+          "legendFormat": "out (replies)"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "(sum(rate(chrony_serverstats_ntp_packets_received_total[$__rate_interval])) * 2 - sum(rate(chrony_serverstats_ntp_packets_dropped_total[$__rate_interval]))) * 76",
+          "legendFormat": "in + out"
+        }
+      ],
+      "description": "Derived, not measured: chrony exposes packet counts only. Every packet is 76 B on the wire (48 B NTP payload + 8 UDP + 20 IPv4 — the server has no IPv6 and no NTS, so the payload never varies), and one reply leaves per query that ratelimit did not drop. Ethernet framing (18 B per frame) is not counted, and neither is the query traffic to our own upstreams, which is a packet every few minutes."
+    },
+    {
+      "id": 38,
+      "type": "stat",
+      "title": "NTP data, selected range",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 53
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "In (queries)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Out (replies)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "sum(increase(chrony_serverstats_ntp_packets_received_total[$__range])) * 76",
+          "legendFormat": "In (queries)",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "(sum(increase(chrony_serverstats_ntp_packets_received_total[$__range])) - sum(increase(chrony_serverstats_ntp_packets_dropped_total[$__range]))) * 76",
+          "legendFormat": "Out (replies)",
+          "instant": true
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "(sum(increase(chrony_serverstats_ntp_packets_received_total[$__range])) * 2 - sum(increase(chrony_serverstats_ntp_packets_dropped_total[$__range]))) * 76",
+          "legendFormat": "Total",
+          "instant": true
+        }
+      ],
+      "description": "Same 76 B per packet as the panel on the left. Out is what counts against the A1's Oracle egress budget (10 TB/month, shared with the bridges and Matrix); a day of pool traffic is well under a gigabyte of it."
+    },
+    {
       "id": 29,
       "type": "row",
       "title": "Kiwix seeding (NAS, qBittorrent)",
@@ -1976,7 +2246,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 53
+        "y": 61
       },
       "panels": []
     },
@@ -1988,7 +2258,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 54
+        "y": 62
       },
       "datasource": {
         "type": "prometheus",
@@ -2092,7 +2362,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 54
+        "y": 62
       },
       "datasource": {
         "type": "prometheus",
@@ -2168,7 +2438,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 54
+        "y": 62
       },
       "datasource": {
         "type": "prometheus",
@@ -2243,7 +2513,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 54
+        "y": 62
       },
       "datasource": {
         "type": "prometheus",
@@ -2309,7 +2579,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 58
+        "y": 66
       },
       "datasource": {
         "type": "prometheus",
@@ -2364,7 +2634,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 58
+        "y": 66
       },
       "datasource": {
         "type": "prometheus",
@@ -2420,7 +2690,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 62
+        "y": 70
       },
       "datasource": {
         "type": "prometheus",

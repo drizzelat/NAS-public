@@ -8,9 +8,18 @@ on:
 
 permissions:
   contents: read
-  packages: read   # the caddy-validate job pulls the custom edge image from ghcr.
+  packages: read   # the Caddyfile step pulls the custom edge image from ghcr.
+
+# GitHub bills a full minute per job, so a Renovate force-push that leaves the previous
+# run to finish costs as much as the run that replaces it. Newest push wins.
+concurrency:
+  group: compose-validate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
+  # Every blocking check in ONE job: each of these finishes in seconds, and GitHub rounds
+  # each *job* up to a billed minute, so four jobs cost 4 min to do ~30 s of work.
+  # `docs-drift` stays separate below — it must stay non-required.
   validate:
     runs-on: ubuntu-latest   # GitHub-hosted ONLY — do not change to self-hosted.
     steps:
@@ -50,13 +59,8 @@ jobs:
           done
           exit $fail
 
-  # The edge policy is one file, so this is what git alone does not give you: proof the
-  # running binary can parse it. Required check. docs/services/caddy.md
-  caddy-validate:
-    runs-on: ubuntu-latest   # GitHub-hosted ONLY — do not change to self-hosted.
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
+      # The edge policy is one file, so this is what git alone does not give you: proof the
+      # running binary can parse it. docs/services/caddy.md
       - name: Validate the Caddyfile against the pinned image
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -72,21 +76,6 @@ jobs:
             -e CROWDSEC_API_KEY=ci-placeholder \
             -v "$PWD/stacks/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
             "$img" caddy validate --config /etc/caddy/Caddyfile
-
-  # Docs drift (the promises AGENTS.md makes). Separate job so a doc gap is its own
-  # red line rather than a compose failure.
-  docs-drift:
-    runs-on: ubuntu-latest   # GitHub-hosted ONLY — do not change to self-hosted.
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Check docs against stacks
-        run: python3 .github/scripts/docs-drift.py
-
-  shellcheck:
-    runs-on: ubuntu-latest   # GitHub-hosted ONLY — do not change to self-hosted.
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # -S warning, not the default: the deploy scripts deliberately word-split some
       # list variables, which is style-level noise, not a defect.
@@ -107,3 +96,13 @@ jobs:
             esac
           done < <(git ls-files 'scripts/deploy/*.sh' 'scripts/review/*.sh')
           exit $bad
+
+  # Docs drift (the promises AGENTS.md makes). Separate job so a doc gap is its own
+  # red line rather than a compose failure, and so it can stay non-required.
+  docs-drift:
+    runs-on: ubuntu-latest   # GitHub-hosted ONLY — do not change to self-hosted.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Check docs against stacks
+        run: python3 .github/scripts/docs-drift.py

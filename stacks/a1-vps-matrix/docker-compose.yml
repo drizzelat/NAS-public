@@ -71,7 +71,7 @@ services:
       - "80:80"
       - "443:443"
     labels:
-      - "config-rev=2026-09-11"
+      - "config-rev=2026-09-17"
     volumes:
       - /opt/matrix/caddy/data:/data
       - /opt/matrix/caddy/config:/config
@@ -314,6 +314,13 @@ configs:
 
       element.example.com {
           reverse_proxy element:80
+      }
+
+      # NTP Pool request (docs/services/a1-vps-ntp.md): a browser that resolves a pool name to this IP
+      # lands on the project page. http:// only: no certificate for these names is ever attempted.
+      # A * matches one label, so 0.de.pool.ntp.org needs *.*.pool.ntp.org.
+      http://pool.ntp.org, http://*.pool.ntp.org, http://*.*.pool.ntp.org, http://*.ntppool.org {
+          redir https://www.ntppool.org/ permanent
       }
 
       # Tor WebTunnel bridge (docs/services/a1-vps-webtunnel.md): only the secret path reaches it.

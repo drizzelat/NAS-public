@@ -317,7 +317,7 @@ flowchart TB
 
   subgraph github["GitHub"]
     pr["pull request"]
-    gates["required checks, GitHub-hosted runners<br>validate · caddy-validate · renovate-review"]
+    gates["required checks, GitHub-hosted runners<br>validate (compose · Caddyfile · shellcheck) · renovate-review"]
     sweep["merge sweep, 05:20 Vienna<br>only DELTA: NOOP or RISK: LOW"]
     byhand["merge by hand<br>DBs · SSO · edge image · control plane · anything flagged"]
     mainb[("main")]

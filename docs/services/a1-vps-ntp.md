@@ -39,14 +39,22 @@ No UI.
 | Port | Bind | Purpose |
 | ---- | ---- | ------- |
 | `123/udp` | public | NTP. Needs an **Oracle Security List** ingress rule (UDP, source `0.0.0.0/0`). Host iptables needs none: Docker DNATs published ports before the `INPUT` chain's final `REJECT` |
-
+| `80/tcp` | public, shared | Not this stack: `matrix-caddy` redirects the pool's names to `https://www.ntppool.org/`, see [Web redirect](#web-redirect) |
 | `9037/tcp` | `100.64.0.13` (tailnet) | `chrony_exporter` metrics (container `:9123`), scraped by the NAS `victoriametrics` (job `ntp`) |
 
 chrony's command port stays on the container's own localhost. `chronyc` therefore works only through
 `docker exec`, and none of chrony's query interface is reachable from outside for amplification.
 
 **Dashboard:** Grafana → *NAS (git)* → **Community services** (`community-services`), section *NTP Pool
-server*: queries received and dropped by `ratelimit`, clock offset, stratum and upstream reachability.
+server*: queries received and dropped by `ratelimit`, clock offset, stratum, upstream reachability, and
+bandwidth plus data served. The overview's traffic panels count NTP alongside the other services.
+
+chrony counts packets, never bytes, so every byte figure on the dashboard is derived: **76 B per
+packet** (48 B NTP payload + 8 UDP + 20 IPv4) and one reply out per query `ratelimit` did not drop, so
+in + out = `(2 × received − dropped) × 76`. The payload never varies here — no IPv6 on `123/udp`, and
+NTS is off, so `chrony_serverstats_authenticated_ntp_packets_total` stays at 0. Ethernet framing (18 B
+a frame) is not counted, nor is our own polling of the upstreams. At pool load that works out around
+1.2 GB a day both directions, of which ~0.6 GB is egress against the A1's Oracle budget.
 
 **Pool status:** `https://www.ntppool.org/scores/198.51.100.20`, and
 [manage.ntppool.org](https://manage.ntppool.org/) for the account that registered it.
@@ -75,6 +83,22 @@ None, and nothing in the vault. Everything is in the compose `environment:`.
 | Exporter over the **socket**, not UDP 323 | `--chrony.address=unix:///run/chrony/chronyd.sock` | `serverstats` (packets served and dropped) is refused over UDP with `501 Not authorised`, even from localhost. Measured on the A1, 2026-09-14 |
 | Exporter `user: "100:101"` | `chrony:chrony` in the chrony image | `/run/chrony` is `0750 chrony:chrony`, and chronyd must be able to write its reply into the exporter's client socket there |
 | Exporter collectors | `tracking` (default), `serverstats`, `sources`, `--no-collector.dns-lookups` | Not `clients`: it would label every pool client's IP address |
+
+### Web redirect
+
+The pool asks members that run a web server to redirect port 80 to the project page: people type
+`pool.ntp.org` into a browser and get whichever member DNS handed out. Before this, the A1's Caddy
+sent them to `https://pool.ntp.org/` on its own address, which has no certificate, so they saw a TLS error.
+
+The site block lives in the `Caddyfile` of [a1-vps-matrix](a1-vps-matrix.md), which owns `:80`/`:443`:
+
+| Detail | Why |
+| ------ | --- |
+| `http://` addresses | Without the scheme Caddy would try, and fail forever, to get certificates for the pool's names. HTTPS for them keeps failing the handshake; the pool asks for port 80 only |
+| `*.*.pool.ntp.org` as well as `*.pool.ntp.org` | A Caddy `*` matches exactly one label; `0.de.pool.ntp.org` and `2.debian.pool.ntp.org` have two |
+| `redir … permanent` | `301` to `https://www.ntppool.org/`, like Apache's `Redirect permanent` in the pool's example. Verified after deploy |
+
+Check: `curl -sI -H 'Host: 0.de.pool.ntp.org' http://198.51.100.20/` → `301`, `Location: https://www.ntppool.org/`.
 
 ## Dependencies
 
@@ -155,6 +179,8 @@ Nothing to restore.
   failing on the A1 (see the MagicDNS note in [a1-vps-matrix.md](a1-vps-matrix.md)).
 
 ## Last updated
+
+2026-09-17 — port-80 redirect of the pool's names to `https://www.ntppool.org/`, in the A1 Caddy.
 
 2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, restart from Komodo.
 

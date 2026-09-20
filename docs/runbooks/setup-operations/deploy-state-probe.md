@@ -103,10 +103,16 @@ The slots stay clear of the 05:00–06:00 Renovate merge window, the deploys it 
 
 ### The fallback, and why it is guarded
 
-The `guard` job, on `ubuntu-latest`, skips the scheduled run when a dispatched run already reached a
-conclusion that UTC day, and otherwise runs it with a `::warning::` naming the broken cron — the
-edge probe's guard, verbatim. Unlike the edge probe's, this fallback cannot help during a NAS
-outage, because its probe job needs the NAS runner. `10:47` UTC is at least two hours clear of every
+The **guard step** skips the scheduled run when a dispatched run already reached a conclusion that
+UTC day, and otherwise runs it with a `::warning::` naming the broken cron — the edge probe's guard,
+verbatim. Unlike the edge probe's, this fallback cannot help during a NAS outage, because the job
+runs on the NAS runner.
+
+> **The guard was its own `ubuntu-latest` job until 2026-09-18**, which `probe` depended on. That
+> billed a GitHub-hosted minute per run (~6 a day) for a two-second API call, and worse, it meant an
+> exhausted Actions quota would starve a probe that otherwise costs nothing — the hosted gate could
+> not start, so the free self-hosted job never ran. It is a step in `probe` now: free, and
+> unstarvable. The whole workflow is self-hosted. `10:47` UTC is at least two hours clear of every
 host slot in both DST offsets (01:47/07:47/13:47/19:47 UTC in summer, an hour later in winter).
 
 ### Cron job (TrueNAS → System → Advanced → Cron Jobs, run as root)

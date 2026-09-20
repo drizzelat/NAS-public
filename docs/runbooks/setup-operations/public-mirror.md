@@ -148,7 +148,8 @@ dispatch gets HTTP 404. Prove the cron path with `sudo midclt call -j cronjob.ru
 `tail -2 /var/log/public-mirror-trigger.log`.
 
 Installed 2026-09-17 as TrueNAS cron job `21`. Its first `cronjob.run` dispatched a sync that went
-green with `changed=false`.
+green with `changed=false`. A second sync, on a one-line docs change, ran all three jobs in CI:
+`PUBLISH` for $0.04, published.
 
 ## Setup (done once)
 
@@ -163,7 +164,8 @@ green with `changed=false`.
    steps 2 to 4.
 5. Install the weekly cron job above.
 6. Review the private mirror on GitHub, then make it public:
-   `gh repo edit drizzelat/NAS-public --visibility public --accept-visibility-change-consequences`.
+   `gh api -X PATCH repos/drizzelat/NAS-public -f visibility=public`. The REST call works on any gh;
+   `gh repo edit --visibility` needs a confirmation flag that gh 2.46 does not have. Done 2026-09-17.
 
 ## Undoing a leak
 

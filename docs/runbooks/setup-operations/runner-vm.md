@@ -50,9 +50,17 @@ The whole guest is [`vm/runner-vm/`](../../../vm/runner-vm/): a NoCloud seed (`u
    into a scratch directory outside every dataset that is backed up, and verify it. Create the zvol
    (`pool.dataset.create`, `type: VOLUME`, 20 GiB sparse), then
    `qemu-img convert -f qcow2 -O raw noble.img /dev/zvol/apps/runner-vm`.
-3. **Create the VM.** `vm.create` (no `devices` field in 25.04.2), then `vm.device.create` for the
-   DISK (virtio), a CDROM with the seed, and the NIC (virtio, `nic_attach: br0`,
-   `mac: 00:a0:98:30:ac:6c`). Start it.
+3. **Create the VM.** `vm.create` (no `devices` field in 25.04.2) with
+   **`cpu_mode: HOST-PASSTHROUGH`**, then `vm.device.create` for the DISK (virtio), a CDROM with the
+   seed, and the NIC (virtio, `nic_attach: br0`, `mac: 00:a0:98:30:ac:6c`). Start it.
+
+   > **Do not leave `cpu_mode` at the default `CUSTOM`.** With `cpu_model: None` libvirt gives the
+   > guest a `QEMU Virtual CPU version 2.5+` (qemu64) that advertises no `avx`, no `avx2`, not even
+   > `sse4_2`, while the N100 host has all three. Native Bun-compiled binaries still start, but hit
+   > fallback paths that can spin forever: `claude install` burned 99 % of one core silently and
+   > never wrote `~/.local/bin`, so the nightly health check died at its 45 min timeout from
+   > 2026-09-18 until the mode was fixed on 2026-09-19. Changing `cpu_mode` needs a VM power cycle
+   > (`vm.stop` then `vm.start`), not just `vm.update`.
 4. **Wait for cloud-init:** `cloud-init status` reads `done`.
 5. **Clean up.** Stop the VM, delete the CDROM device (a device cannot be removed from a running VM),
    start it again, and delete the scratch directory.

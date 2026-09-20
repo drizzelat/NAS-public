@@ -33,7 +33,7 @@ from outside** — you cannot test it through the front door. And Layer 2 only e
 the VPS forwarded, so it cannot tell you whether Layer 1 is doing its job. Each job below tests
 exactly one of them.
 
-### Job `sni-allowlist` — Layer 1, from a GitHub-hosted runner
+### Layer 1 — the VPS SNI allowlist, from a GitHub-hosted runner
 
 Forces the public path with `curl --resolve`, the same shape as the diagnostic in
 [micro-vps-ingress.md](../../services/micro-vps-ingress.md) → Common failures, but aimed at the
@@ -80,7 +80,7 @@ Cloudflare from the A1 every ~60 s, which is a tighter loop than this 6-hourly j
 > an admin host would expose the origin IP and drop Cloudflare's TLS/DDoS layer; orange-clouding
 > `jellyfin` would break streaming. Both now fail the run.
 
-### Job `edge-access-list` — Layer 2, from the ingress VPS
+### Layer 2 — the Caddy LAN-only rule, from the ingress VPS
 
 The rule under test is an **exclusion**: `@lan` admits `100.64.0.0/10` but must exclude
 `100.64.0.12`, because the VPS forwards from an address inside that CGNAT range. Drop the
@@ -184,17 +184,23 @@ summer/winter pair.
 
 ### The fallback, and why it is guarded
 
-Unlike the health check's, this fallback **is** a NAS-down fallback in part: both jobs run on
-`ubuntu-latest`, not on the self-hosted runner, so GitHub can still execute them when the NAS is
+Unlike the health check's, this fallback **is** a NAS-down fallback in part: the job runs on
+`ubuntu-latest`, not on the self-hosted runner, so GitHub can still execute it when the NAS is
 gone. What it cannot do then is dispatch itself — so a NAS outage silences the primary trigger and
 the fallback is what still fires. Note the consequence: during a *deliberate* NAS outage (a reboot,
 say) a fallback run will go red, correctly and unhelpfully. Expect it.
 
-The fallback must not duplicate the host cron's four daily runs. The `guard` job checks this
+The fallback must not duplicate the host cron's four daily runs. The **guard step** checks this
 workflow's own run list and sets `skip=true` when a `workflow_dispatch` run already reached a
-conclusion on the same UTC day; both probe jobs `needs: guard` and are skipped on that output. When
-no dispatch landed, it runs **and** logs a `::warning::` naming the broken cron. It needs
+conclusion on the same UTC day; both layer steps carry `if: steps.guard.outputs.skip != 'true'`.
+When no dispatch landed, it runs **and** logs a `::warning::` naming the broken cron. It needs
 `actions: read`, which is why the workflow grants it.
+
+> **One job, three steps** (since 2026-09-18). The guard and both layers were separate jobs. Each
+> finished in ~13 s, but GitHub bills every *job* a full minute, so a probe that runs six times a
+> day cost 3 min a run to do ~30 s of work. They are steps now. Layer 2 carries `!cancelled()` so a
+> Layer 1 failure does not hide Layer 2's own result — they used to run in parallel, and both must
+> still report. The run fails if either layer failed.
 
 Its cron is `17 8 * * *` **UTC**, which is at least two hours clear of every host slot in both DST
 offsets (host slots land at 22:17/04:17/10:17/16:17 UTC in summer, an hour later in winter), so the

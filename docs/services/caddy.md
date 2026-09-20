@@ -422,8 +422,8 @@ cannot parse never reaches the edge.
 
 ### Validating a Caddyfile change
 
-The `caddy-validate` job in [`compose-validate.yml`](../../.github/workflows/compose-validate.yml)
-is a **required check**. By hand, with the same image the stack runs:
+The Caddyfile step of the `validate` job in [`compose-validate.yml`](../../.github/workflows/compose-validate.yml)
+is part of a **required check** (it was its own `caddy-validate` job until 2026-09-18). By hand, with the same image the stack runs:
 
 ```sh
 docker run --rm -e CLOUDFLARE_API_TOKEN=$(head -c 30 /dev/urandom | base64 | tr -d '+/=' | head -c 40) \
