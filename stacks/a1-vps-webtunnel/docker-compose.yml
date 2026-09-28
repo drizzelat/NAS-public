@@ -1,9 +1,17 @@
 # Tor WebTunnel bridge behind the matrix stack's Caddy: unlisted, never an exit. Docs: docs/services/a1-vps-webtunnel.md
+
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   webtunnel-bridge:
-    image: ghcr.io/drizzelat/webtunnel-bridge:0.0.7@sha256:fcb7b06ffb87c1e11ede431d98b88ec5f3008d41cc523a4ed35cf5adab413fd8
+    image: ghcr.io/drizzelat/webtunnel-bridge:0.0.7@sha256:755ec58d1aacdacebe2c30556cfadd2480d6ea129e58e5c2ebec9edeee57a079
     container_name: a1-webtunnel
     restart: unless-stopped
+    logging: *default-logging
     security_opt:
       - no-new-privileges=true
     cap_drop:

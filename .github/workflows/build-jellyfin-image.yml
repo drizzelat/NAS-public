@@ -1,0 +1,77 @@
+name: build-jellyfin-image
+
+# Jellyfin with the adaptive bitrate patches (stacks/jellyfin/patches) on the pinned linuxserver
+# image. Pull requests build it without pushing. Rebase + rollout: docs/services/jellyfin.md → Image.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - stacks/jellyfin/Dockerfile
+      - stacks/jellyfin/patches/**
+      - .github/workflows/build-jellyfin-image.yml
+  pull_request:
+    paths:
+      - stacks/jellyfin/Dockerfile
+      - stacks/jellyfin/patches/**
+      - .github/workflows/build-jellyfin-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-jellyfin-image-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/nas-jellyfin
+
+jobs:
+  build:
+    runs-on: ubuntu-latest   # GitHub-hosted: the NAS runner has no docker socket.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          # The tag follows the linuxserver base, so Renovate offers a new Jellyfin release as a tag bump.
+          tag=$(sed -n 's|^FROM lscr\.io/linuxserver/jellyfin:\([^@ ]*\)@.*|\1|p' stacks/jellyfin/Dockerfile)
+          [ -n "$tag" ] || { echo "::error::cannot read the linuxserver tag from stacks/jellyfin/Dockerfile"; exit 1; }
+          docker build -t "$IMAGE:$tag" stacks/jellyfin
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+
+      - name: Check the patched server and web client are in the image
+        run: |
+          set -euo pipefail
+          base=$(sed -n 's|^FROM \(lscr\.io/linuxserver/jellyfin:[^ ]*\) AS base$|\1|p' stacks/jellyfin/Dockerfile)
+          dll=/usr/lib/jellyfin/bin/Jellyfin.Api.dll
+          stock=$(docker run --rm --entrypoint sha256sum "$base" "$dll" | cut -d' ' -f1)
+          ours=$(docker run --rm --entrypoint sha256sum "$IMAGE:$TAG" "$dll" | cut -d' ' -f1)
+          [ "$stock" != "$ours" ] || { echo "::error::$dll is still the stock one"; exit 1; }
+          docker run --rm --entrypoint grep "$IMAGE:$TAG" -rqF '[hlsFloorLevel]' /usr/share/jellyfin/web \
+            || { echo "::error::the web client in the image is not the patched one"; exit 1; }
+          echo "patched Jellyfin.Api.dll and web client present"
+
+      # Only main pushes: the tag is what Renovate watches, so a branch build would come back as a digest PR.
+      - name: Push
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+          docker push "$IMAGE:$TAG"
+          digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$TAG" | cut -d@ -f2)
+          # The compose pin is hand-applied: a new build reaches the server only through a reviewed commit.
+          {
+            echo "## \`$IMAGE\`"
+            echo
+            echo "Pin this in \`stacks/jellyfin/docker-compose.yml\`:"
+            echo
+            echo '```yaml'
+            echo "    image: $IMAGE:$TAG@$digest"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "$IMAGE:$TAG@$digest"

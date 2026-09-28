@@ -1,5 +1,5 @@
 #!/bin/sh
-# post_deploy guard: fail unless <container> sees exactly the clone's files at <dir> (komodo-migration.md F28).
+# post_deploy guard: fail unless <container> sees exactly the clone's files at <dir> (docs/services/komodo.md → Rules).
 # Run from the Stack's run directory: sh ../../scripts/komodo/mount-matches.sh <container> <dir> <clone-dir>
 set -eu
 [ $# -eq 3 ] || { echo "usage: mount-matches.sh <container> <container-dir> <clone-dir>" >&2; exit 2; }

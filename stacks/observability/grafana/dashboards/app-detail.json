@@ -247,6 +247,7 @@
     },
     {
       "id": 6,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Requests/s by status",
       "gridPos": {

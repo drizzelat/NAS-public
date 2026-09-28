@@ -1,9 +1,17 @@
 # NTP Pool server on the A1: public UDP 123, never touches the host clock. Docs: docs/services/a1-vps-ntp.md
+
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   chrony:
     image: dockurr/chrony:4.9@sha256:f584829f268b26b26b351000b60aa7c3507933873b6a6d77ffe9dcabcfdc7025
     container_name: a1-ntp
     restart: unless-stopped
+    logging: *default-logging
     security_opt:
       - no-new-privileges=true
     cap_drop:
@@ -15,25 +23,28 @@ services:
       - SETUID
       - SETGID
       - NET_BIND_SERVICE
-    ports:
-      - "123:123/udp"   # public — needs an Oracle Security List rule
+    # Host network, not a port publish: docker-proxy handles published IPv6 in userland and would
+    # rewrite every v6 client to the bridge gateway, collapsing them into one ratelimit bucket.
+    network_mode: host
     environment:
       # Pool rule: fixed upstreams, never pool.ntp.org itself.
       - NTP_SERVERS=169.254.169.254,ptbtime1.ptb.de,ptbtime2.ptb.de,ptbtime3.ptb.de,time.cloudflare.com
-      - NTP_DIRECTIVES=ratelimit,clientloglimit 16777216   # ratelimit only sees clients in the log
+      # ratelimit only sees clients in the log; 128 MB holds ~1M addresses, enough not to evict between polls
+      - NTP_DIRECTIVES=ratelimit,clientloglimit 134217728
     volumes:
       - chrony-run:/run/chrony   # command socket, shared with the exporter
     deploy:
       resources:
         limits:
           cpus: "0.5"
-          memory: 128M
+          memory: 256M   # the client log is most of it
 
   # serverstats (packets served/dropped) is refused over UDP ("501 Not authorised"): socket only.
   chrony-exporter:
     image: quay.io/superq/chrony-exporter:v0.14.0@sha256:74c7294e79dff4e6eaa48129a69a6da353a0d321f26bd315dcb682f6200c0fd1
     container_name: a1-ntp-exporter
     restart: unless-stopped
+    logging: *default-logging
     user: "100:101"     # chrony:chrony in the chrony image: /run/chrony is 0750 and chronyd must write back to our socket
     read_only: true
     security_opt:
@@ -56,6 +67,30 @@ services:
         limits:
           cpus: "0.25"
           memory: 64M
+
+  # serverstats has no IPv4/IPv6 split; the host's Udp6 counter supplies it. docs/services/a1-vps-ntp.md
+  netstat-exporter:
+    image: prom/node-exporter:v1.12.1-distroless@sha256:8c9bac11973b94b59be88d6e11fee4429aa743c8846cdc75d65b18db33f6a106
+    container_name: a1-ntp-netstat
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: host   # /proc/net/snmp6 is per network namespace: the host's, where chronyd listens
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    command:
+      - "--web.listen-address=100.64.0.13:9038"   # tailnet only, for the NAS victoriametrics scrape
+      - "--web.disable-exporter-metrics"
+      - "--collector.disable-defaults"
+      - "--collector.netstat"
+      - "--collector.netstat.fields=^Udp6?_InDatagrams$$"   # $$: compose interpolation escape
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 32M
 
 volumes:
   chrony-run:

@@ -15,6 +15,7 @@ bytes. Run it **quarterly** (and after any change to the crypt key, Hetzner logi
 
 | When | Action |
 | --- | --- |
+| **Monthly, automated** (first Sunday 05:00) | [`restore-drill-auto.sh`](../../../scripts/restore-drill-auto.sh) does step 1 unattended — see [The automated drill](#the-automated-drill) |
 | Quarterly (Jan / Apr / Jul / Oct) | Full drill below |
 | After crypt key / Hetzner login change | Full drill (verify new secret works) |
 | After editing `cloudsync-chain.sh` or `pg-dump-backup.sh` | Steps 2–4 |
@@ -60,6 +61,13 @@ sqlite3 "$SCRATCH/kuma/kuma.db" 'PRAGMA integrity_check;'   # expect: ok
 ```
 
 A wrong salt shows here: the pull "succeeds" but the files are garbage / integrity_check fails.
+
+**Do the same pull once from the *oldest* Storage Box snapshot.** The 10-day window is the whole
+defence against damage that was mirrored offsite, and the path into a snapshot is different from
+the live one — `.zfs/snapshot/<oldest>/backup/apps/kuma` instead of `/backup/apps/kuma`
+([backup.md → History on the Storage Box](backup.md#history-on-the-storage-box)). A path that only
+works on the live mirror is a path that fails on the night it is needed. The ciphertext is the
+same, so the same password and salt decrypt it.
 
 ### 2. Pull one Postgres logical dump and load it into a throwaway DB
 
@@ -118,26 +126,94 @@ sudo rm -rf "$SCRATCH"
 # delete the temporary PULL Cloud Sync task(s) if you made them in the UI
 ```
 
+## The automated drill
+
+[`restore-drill-auto.sh`](../../../scripts/restore-drill-auto.sh) turns "the backup exists" into
+"the backup restores" every month, without waiting for a quarter nobody schedules. It does **step 1
+only** — the part that proves the offsite copy decrypts — and touches nothing in production:
+
+1. finds the one Cloud Sync task whose description contains `restore-drill PULL`;
+2. re-points its local path at `/mnt/apps/restore-drill` and runs it (the crypt password and salt
+   stay in the middleware — the script never reads them);
+3. checks `kuma.db` is there, runs `PRAGMA integrity_check`, and compares the restored file count
+   with the live `apps/kuma` dataset (a band, not equality: the live dataset moves);
+4. deletes the scratch copy, mails on any failure, and pings a Kuma push monitor on success.
+
+Cron fires it **every** Sunday 05:00 — cron ORs day-of-month with day-of-week, so the script itself
+returns immediately after the 7th. `RESTORE_DRILL_FORCE=1` runs it on any day for a hand test.
+
+### Setting it up (once)
+
+```sh
+# 1. The PULL task. Copy the template's credential AND its crypt settings without ever
+#    printing them: this builds the payload inside the middleware call.
+sudo midclt call cloudsync.query '[["snapshot","=",true]]' | sudo python3 -c '
+import json, subprocess, sys
+t = json.load(sys.stdin)[0]
+payload = {
+    "description": "restore-drill PULL (automated)",
+    "direction": "PULL", "transfer_mode": "COPY",
+    "path": "/mnt/apps/restore-drill",
+    "credentials": t["credentials"]["id"],
+    "attributes": dict(t["attributes"], folder="/backup/apps/kuma"),
+    "enabled": False, "snapshot": False,
+    # Crypt is a TASK field, not part of attributes. Without these four the task
+    # pulls raw ciphertext and every file arrives as <name>.bin.
+    **{k: t[k] for k in ("encryption", "filename_encryption",
+                         "encryption_password", "encryption_salt")},
+}
+subprocess.run(["midclt", "call", "cloudsync.create", json.dumps(payload)], check=True)
+'
+
+# 2. The cron job (TrueNAS -> System -> Advanced -> Cron Jobs, run as root).
+sudo midclt call cronjob.create '{"description":"monthly automated restore drill",
+  "command":"/bin/sh /mnt/apps/scripts/nas/scripts/restore-drill-auto.sh",
+  "user":"root","schedule":{"minute":"0","hour":"5","dom":"*","month":"*","dow":"0"},
+  "enabled":true,"stdout":true,"stderr":true}'
+
+# 3. Prove it end to end, off-schedule.
+sudo RESTORE_DRILL_FORCE=1 /bin/sh /mnt/apps/scripts/nas/scripts/restore-drill-auto.sh
+tail -5 /var/log/restore-drill-auto.log
+```
+
+**If the restored files come back as `kuma.db.bin`**, the crypt fields are missing from the task:
+`encryption`, `filename_encryption`, `encryption_password` and `encryption_salt` live on the task,
+beside `attributes`, not inside it. Copy them onto the existing task with `cloudsync.update` rather
+than recreating it.
+
+The task is left **disabled** on purpose: it has no schedule of its own and only ever runs when the
+script calls `cloudsync.sync` on it. A PULL task pointed at a production path would overwrite live
+data, so its `path` stays the scratch dataset and the script re-points it to the same value every
+run.
+
 ## Silent-failure heartbeats
 
-The nightly local scripts support an **Uptime-Kuma push monitor** so the job silently
-*not running* is itself an alert (cron disabled, mail OAuth token expired, script path moved). The
-monitors live on the [A1 Kuma](../../services/a1-vps-kuma.md), outside the house:
+The nightly local scripts ping an **Uptime-Kuma push monitor** so the job silently
+*not running* is itself an alert (cron disabled, mail OAuth token expired, script path moved). All
+three were created on 2026-09-23 and are **live** on the [NAS Kuma](../../services/kuma.md) — the
+[A1 Kuma](../../services/a1-vps-kuma.md) is the better home in principle (it survives the NAS), but
+the house-down case is covered per host by [healthchecks.io](../setup-operations/external-heartbeat.md):
 
 | Script | Host file with the push URL | Kuma monitor type |
 | --- | --- | --- |
 | [`pg-dump-backup.sh`](../../../scripts/pg-dump-backup.sh) | `/root/.config/pg-dump-kuma-push.url` | Push, ~26 h interval |
 | [`truenas-config-email.sh`](../../../scripts/truenas-config-email.sh) | `/root/.config/config-email-kuma-push.url` | Push, ~26 h interval |
 | [`a1-file-backup.sh`](../../../scripts/a1-file-backup.sh) | `/root/.config/a1-file-backup-kuma-push.url` | Push, ~26 h interval |
+| [`restore-drill-auto.sh`](../../../scripts/restore-drill-auto.sh) | `/root/.config/restore-drill-kuma-push.url` | Push, ~40 d interval (monthly job) |
 
-Setup (once): in Kuma create a **Push** monitor per job (interval a bit over 24 h so a single
-late run doesn't false-alarm), copy its push URL into the matching host file
-(`echo 'https://kuma…/api/push/XXXX?status=up' | sudo tee /root/.config/pg-dump-kuma-push.url`),
-`chmod 600`. On the next successful nightly run the monitor goes green; miss a night → Kuma
-alerts. No file = the scripts skip the ping (safe default), and failures still email.
+Setup (once, as done): in Kuma create a **Push** monitor per job — interval `93600` (26 h), so a
+single late run doesn't false-alarm — copy its push URL into the matching host file
+(`echo 'https://kuma…/api/push/XXXX?status=up&msg=OK&ping=' | sudo tee /root/.config/pg-dump-kuma-push.url`),
+`chmod 600`, then curl the URL once so the monitor leaves *Pending* before the first nightly run.
+Miss a night → Kuma alerts. No file = the scripts skip the ping (safe default), and failures still email.
+
+On a `kuma.example.com` URL the ping only works because of the TrueNAS host entry — the vhost is
+`lan_only` and the NAS resolves through `1.1.1.1`, so without it the push returns HTTP 525. See
+[renovate-trigger → Alerting](../setup-operations/renovate-trigger.md#alerting-dead-mans-switch).
 
 ## Drill log
 
 | Date | Config pull (step 1) | pg_dump restore (step 2) | Freshness (step 3) | Alarms (step 4) | Notes |
 | --- | --- | --- | --- | --- | --- |
+| 2026-09-23 | **PASS** (automated) | not run | not run | not run | First run of [`restore-drill-auto.sh`](../../../scripts/restore-drill-auto.sh): `apps/kuma` pulled from Hetzner, `PRAGMA integrity_check` **ok**. The first attempt failed with `kuma.db is not in the restored copy` — the PULL task had been created without the crypt fields, so it pulled ciphertext (`kuma.db.bin`). Fixed on the task and in the setup block above |
 | 2026-07 | ok (manual, first drill) | — | — | — | Initial one-off; formalised as this runbook |

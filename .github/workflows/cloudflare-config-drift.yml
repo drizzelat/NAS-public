@@ -1,0 +1,70 @@
+name: cloudflare-config-drift
+
+# Read-only export of the zone's DNS records and custom firewall rules, diffed against
+# the committed copy. Runbook: docs/runbooks/setup-operations/cloudflare-config-drift.md
+
+on:
+  schedule:
+    # Best-effort: GitHub drops most schedule events, and this is a drift report,
+    # not a gate — a missed day costs nothing.
+    - cron: '25 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-config-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Export the live zone
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "::warning::CLOUDFLARE_READ_TOKEN is not set — nothing compared"
+            exit 0
+          fi
+          .github/scripts/cloudflare-export.py cf-live
+
+      # How the baseline is seeded, and re-seeded after an intentional UI change:
+      # download this, commit it as cloudflare/. Nobody needs the token locally.
+      - name: Upload the export
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloudflare-export
+          # In the workspace, not /tmp: the export is a build output like any other.
+          path: cf-live/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Compare with the committed copy
+        run: |
+          set -euo pipefail
+          [ -d cf-live ] || exit 0
+          # Nothing committed yet: say so once, stay green. Seeding is a human commit.
+          if [ ! -f cloudflare/dns-records.json ] && [ ! -f cloudflare/firewall-rules.json ]; then
+            echo "::warning::no baseline in cloudflare/ yet — seed it (see the runbook)"
+            exit 0
+          fi
+          rc=0
+          for f in dns-records.json firewall-rules.json; do
+            if [ ! -f "cloudflare/$f" ]; then
+              echo "::error::cloudflare/$f is missing — seed the baseline (see the runbook)"
+              rc=1
+              continue
+            fi
+            if ! diff -u "cloudflare/$f" "cf-live/$f"; then
+              echo "::error::cloudflare/$f differs from the live zone — someone changed it in the UI"
+              rc=1
+            fi
+          done
+          if [ "$rc" -eq 0 ]; then echo "Cloudflare zone matches the committed copy"; fi
+          exit "$rc"

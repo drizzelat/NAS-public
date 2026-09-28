@@ -17,7 +17,7 @@ bridge half.
 
 - **Stack folder:** `stacks/snowflake/`
 - **Compose file:** `stacks/snowflake/docker-compose.yml`
-- **Deploy:** Komodo Stack `snowflake` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `snowflake` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 - **Image:** `thetorproject/snowflake-proxy`, the Tor Project's own.
 
@@ -128,9 +128,3 @@ Nothing to restore.
   If it recurs anyway: a restart clears it. For an upstream report, run `sudo kill -QUIT <pid>`
   instead: Go writes every goroutine's stack to the container log and exits, and the restart policy
   brings the container back.
-
-## Last updated
-
-2026-09-16 — removed the daily restart cron and `scripts/snowflake-restart.sh`; the deadlock is gone without `-capacity`.
-
-2026-09-16

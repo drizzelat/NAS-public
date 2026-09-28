@@ -1,12 +1,27 @@
 # Matrix homeserver (Synapse) on the Ampere A1, not the NAS. Config is inline `configs:`;
 # only state stays on the host under /opt/matrix. Docs: docs/services/a1-vps-matrix.md
+
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     # Patch-level tag, NOT floating `18-alpine`: on a floating tag a digest update can
     # silently carry 18.4 -> 18.5 with no release notes in the PR.
-    image: postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     container_name: matrix-postgres
     restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
     # Nightly logical dump, pulled from the NAS over the tailnet. nas.backup.dir is a
     # path on the NAS. Docs: docs/runbooks/backup-restore/postgres-dump.md
     labels:
@@ -35,6 +50,14 @@ services:
     image: ghcr.io/element-hq/synapse:v1.161.0@sha256:6b95dd129e35e97e8032cb759e5db4a516a5f7ef6c98d34d716fea1ae239b62a
     container_name: matrix-synapse
     restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
     environment:
       # CONFIG_DIR stays on the writable bind; only CONFIG_PATH moves to the read-only
       # /config mount, so anything the entrypoint writes still lands in /data.
@@ -64,9 +87,17 @@ services:
     networks: [matrix_net]
 
   caddy:
-    image: caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    image: caddy:2-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
     container_name: matrix-caddy
     restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 256M
     ports:
       - "80:80"
       - "443:443"
@@ -89,6 +120,14 @@ services:
     image: dock.mau.dev/mautrix/whatsapp:v0.2609.0@sha256:e92b5217929622aabfea3cf72b279d1b73790a035a293d7149bcce7ae220b86f
     container_name: matrix-mautrix-whatsapp
     restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
     volumes:
       - /opt/matrix/bridges/whatsapp:/data
     depends_on:
@@ -98,9 +137,17 @@ services:
 
   # Element Web, served by Caddy. Config is the inline element_config below.
   element:
-    image: vectorim/element-web:v1.12.28@sha256:a8f415462ab8d2600a592ba1b92bea51efe5a4d10eb738aab9bed769f7099613
+    image: vectorim/element-web:v1.12.29@sha256:da32e88c8dafe2c3d4f40ca5e90ab2f43a7c9ac35f0977ec7662dcb4fdcd56d8
     container_name: matrix-element
     restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
     labels:
       - "config-rev=2026-08-21"
     configs:

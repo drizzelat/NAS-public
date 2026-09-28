@@ -8,7 +8,7 @@ AdGuard Home is a network-wide DNS server and ad/tracker blocker. It acts as the
 
 - **Stack folder:** `stacks/adguard/`
 - **Compose file:** `stacks/adguard/docker-compose.yml`
-- **Deploy:** Komodo Stack `adguard` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `adguard` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 
 ## Access
@@ -83,7 +83,7 @@ After the stack is up, do this in the AdGuard web UI:
 ### Restart / redeploy
 
 - Komodo → Stacks → `adguard` → **Restart** (bounce) or **Deploy** (re-pull image).
-- Or push to `stacks/adguard/` → the runner deploys it through Komodo ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)).
+- Or push to `stacks/adguard/` → the runner deploys it through Komodo ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)).
 
 ### Upgrade
 
@@ -103,9 +103,3 @@ After the stack is up, do this in the AdGuard web UI:
 - **Whole LAN loses DNS** → container down or port 53 not bound. Check `NET_BIND_SERVICE` cap is set. Stop-gap: point the router's DHCP DNS at the FritzBox / `1.1.1.1` until AdGuard is back.
 - **DNS works, web UI unreachable** → normal: the web UI has no host port. Reach it via Caddy (`adguard.example.com`), or add a temporary `30004:30004` mapping for direct access.
 - **Resolution died right after an update** → roll back by reverting the pin and redeploying.
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack.
-
-2026-09-11

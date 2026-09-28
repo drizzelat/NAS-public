@@ -23,6 +23,13 @@ The name decides the host the stack is first created on: `micro-vps-<x>` → the
 - Set `restart: unless-stopped` on all containers.
 - Pin images `tag@sha256:digest` — never `latest`; Renovate keeps the pin current.
 - Add `security_opt: [no-new-privileges=true]` and `deploy.resources.limits`, like the other stacks.
+- Add the `x-logging: &default-logging` block and `logging: *default-logging` on **every**
+  service — Docker's `json-file` default never rotates (a NAS socket proxy reached 1.6 GB in one
+  file before the cap landed). Copy the block from any other compose file.
+- All of the above except healthchecks is enforced in CI by
+  [`compose-policy.py`](../../../.github/scripts/compose-policy.py) (the `validate` check). A service
+  that genuinely cannot comply goes in its `NNP_EXEMPT` / `LIMIT_EXEMPT` / `SOCKET_ALLOWED` table
+  **with the reason**. Run it locally: `python3 .github/scripts/compose-policy.py`.
 - Web-facing: join `proxy_<name>` (declared `external: true` at the bottom), keep everything else on
   the stack's own `default` network, and publish **no** host port.
 - Add a `healthcheck:` where the image ships a probe tool — `deploy-stacks` gates on it.
@@ -62,7 +69,9 @@ No DNS record is needed: AdGuard and Cloudflare both cover `*.example.com` with 
   in [`cloudsync-chain.sh`](../../../scripts/cloudsync-chain.sh) — see the
   [backup runbook](../backup-restore/backup.md).
 
-`python3 .github/scripts/docs-drift.py` checks the service doc, ports and mounts before you push.
+`python3 .github/scripts/docs-drift.py` checks the service doc, ports and mounts before you push,
+plus that each Caddyfile vhost is in the edge probe's host lists and each `/mnt/data/*` mount is
+either under `DATA_INCLUDE` or in the backup runbook's "NOT backed up" table.
 
 ### 6. Declare it in Komodo, secrets, then deploy
 
@@ -71,7 +80,8 @@ In the same PR as the folder:
 - **A `[[stack]]` entry** in [`komodo/resources.toml`](../../../komodo/resources.toml). Copy a
   neighbour's, and keep these three fields: `server` (which host it runs on),
   `project_name = "<name>"` written out, and `destroy_before_deploy = false`. A derived project name
-  can silently duplicate a stack (komodo-migration.md F13).
+  can silently duplicate a stack
+  ([komodo.md → Rules](../../services/komodo.md#the-project-name-is-load-bearing)).
 - **The env, as Variable names.** List the stack's env as `KEY=[[<NAME>__<KEY>]]` in `environment`.
   Values never go in the file.
 - **Ownership.** Add the name to [`komodo/owned-stacks`](../../../komodo/owned-stacks) and to the
@@ -79,8 +89,8 @@ In the same PR as the folder:
 
 **Env** → CI holds no vault key, so do this from the workstation **before merging**:
 
-1. `scripts/secrets.sh edit <name>` — writes `secrets/portainer-env/<name>.env` and locks it.
-   Commit `secrets.enc/portainer-env/<name>.env.age` in the PR.
+1. `scripts/secrets.sh edit <name>` — writes `secrets/stack-env/<name>.env` and locks it.
+   Commit `secrets.enc/stack-env/<name>.env.age` in the PR.
 2. `scripts/secrets.sh komodo-vars <name>` — writes the Komodo Variables the entry names.
 
 **Merge.** `deploy-stacks` creates the Komodo Stack through a sync filtered to it, adds it to

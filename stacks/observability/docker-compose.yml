@@ -1,3 +1,9 @@
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   # Tails the Caddy access log, enriches it, and fans out: logs to VictoriaLogs,
   # derived counters to VictoriaMetrics. Adding a source = one file in vector/.
@@ -5,6 +11,7 @@ services:
     image: timberio/vector:0.58.0-alpine@sha256:5dcf67db0ee378caa87f3395cb9484ebe3e97bb0334d119f2ac33116e00c5773
     container_name: vector
     restart: unless-stopped
+    logging: *default-logging
     command: ["--config-dir", "/etc/vector", "--watch-config"]
     environment:
       TZ: Europe/Vienna
@@ -33,6 +40,7 @@ services:
     image: victoriametrics/victoria-logs:v1.52.0@sha256:47b820890d64c4575a2a0a46415dcd8a4fd59a0f1fcd6a377693d7aea639442e
     container_name: victorialogs
     restart: unless-stopped
+    logging: *default-logging
     command:
       - "-storageDataPath=/victoria-logs-data"
       - "-retentionPeriod=90d"
@@ -54,6 +62,7 @@ services:
     image: victoriametrics/victoria-metrics:v1.152.0@sha256:86ca5fdb6d87d56ba047b044039019ba2bd9042b36e35f6ea34e437b6c825cef
     container_name: victoriametrics
     restart: unless-stopped
+    logging: *default-logging
     command:
       - "-storageDataPath=/victoria-metrics-data"
       - "-retentionPeriod=1y"
@@ -85,10 +94,42 @@ services:
       - proxy_arr
       - proxy_jellyfin
 
+  # Evaluates the alerting rules. -notifier.blackhole: there is no Alertmanager, because
+  # the only working mail path here is the TrueNAS one. docs/services/observability.md#alerting
+  vmalert:
+    image: victoriametrics/vmalert:v1.152.0@sha256:ba00566373eb8c72d70cbee123e27ee75292dc0239830f36218c72712ba396b2
+    container_name: vmalert
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - "-rule=/etc/vmalert/*.yml"
+      - "-datasource.url=http://victoriametrics:8428"
+      - "-notifier.blackhole"
+      - "-httpListenAddr=:8880"
+      - "-rule.resendDelay=1h"
+      - "-configCheckInterval=1m"  # re-reads the rules after deploy-stacks pulls the clone
+    volumes:
+      - /mnt/apps/komodo/repos/nas/stacks/observability/vmalert:/etc/vmalert:ro
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    ports:
+      # Host loopback only: scripts/vmalert-mail.sh polls /api/v1/alerts from the host.
+      - "127.0.0.1:8880:8880"
+    depends_on:
+      - victoriametrics
+    networks:
+      - default
+
   grafana:
     image: grafana/grafana:13.2.2@sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0
     container_name: grafana
     restart: unless-stopped
+    logging: *default-logging
     environment:
       TZ: Europe/Vienna
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
@@ -120,6 +161,7 @@ services:
     image: maxmindinc/geoipupdate:v8.0.0@sha256:51e70dd6f16cd3e4d845ac02d09940b10772a75b9d741427d235a78570923c1d
     container_name: geoipupdate
     restart: unless-stopped
+    logging: *default-logging
     environment:
       GEOIPUPDATE_ACCOUNT_ID: ${MAXMIND_ACCOUNT_ID}
       GEOIPUPDATE_LICENSE_KEY: ${MAXMIND_LICENSE_KEY}

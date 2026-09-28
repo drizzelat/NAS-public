@@ -3,8 +3,7 @@
 ## Overview
 
 The *arr automation suite: indexer management, movie/TV automation, subtitles, extraction and
-queue management. Split out of the old 15-service `mediaserver` stack on 2026-08-21
-([STR-1](../architecture-review-2026-08-20.md#str-1--split-the-15-service-mediaserver-stack)).
+queue management. Split out of the old 15-service `mediaserver` stack.
 
 ### Containers
 
@@ -22,7 +21,7 @@ queue management. Split out of the old 15-service `mediaserver` stack on 2026-08
 
 - **Stack folder:** `stacks/arr/`
 - **Compose file:** `stacks/arr/docker-compose.yml`
-- **Deploy:** Komodo Stack `arr` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `arr` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 
 ## Access
@@ -111,6 +110,10 @@ Images are pinned `tag@sha256:digest`; Renovate proposes bumps. Renovate groups 
 `{{packageFileDir}}`, so these six now bundle into **their own** PR with their own risk verdict —
 a bazarr patch no longer shares a grade, or a rollback, with a Jellyfin major.
 
+The linuxserver images (prowlarr, radarr, sonarr, bazarr) need the regex-versioning rules in
+`renovate.json`: without them Renovate reads `-ls<N>` as an incompatible suffix and never offers an
+update. They sat on their first pins until 2026-09-23 for that reason.
+
 ### Restore from backup
 
 1. Stop the stack.
@@ -130,9 +133,3 @@ a bazarr patch no longer shares a grade, or a rollback, with a Jellyfin major.
 - **An app shows DOWN on the Media stack dashboard but its UI works** → the exporter's API key is
   stale (regenerated in the app). `docker logs exportarr-<app>` shows `401`; update the key with
   `scripts/secrets.sh edit arr` and `push arr`.
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables.
-
-2026-09-14

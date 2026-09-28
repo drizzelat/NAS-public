@@ -58,7 +58,3 @@ _(Stop stack → restore which dataset(s) from local ZFS snapshot (fast) or Hetz
 ### Common failures
 
 _(Known quirks, what breaks, symptoms → fix.)_
-
-## Last updated
-
-_(YYYY-MM-DD)_

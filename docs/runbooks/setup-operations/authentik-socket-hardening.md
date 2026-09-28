@@ -22,8 +22,8 @@ privileged container and escape). Authentik is one of the few **internet-facing*
 box to lock down.
 
 The worker only needs the socket to manage **Docker-type outpost integrations** (it spins up and
-updates outpost containers via the Docker API). The **embedded** outpost — what this setup uses to
-front filebrowser — runs *inside* the `server` container and does **not** need the socket.
+updates outpost containers via the Docker API). The **embedded** outpost — the only kind this setup
+has — runs *inside* the `server` container and does **not** need the socket.
 
 ## Decide which fix applies
 

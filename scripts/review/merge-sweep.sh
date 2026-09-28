@@ -3,6 +3,8 @@
 # Docs: docs/runbooks/setup-operations/renovate-pr-review.md
 
 set -uo pipefail   # NOT -e: a refused merge must not go red.
+# shellcheck source=scripts/review/soak.sh
+. "$(dirname "$0")/soak.sh"
 
 # GitHub cron is UTC and the window is Berlin local, so ask the clock.
 hour=$(TZ=Europe/Berlin date +%H)
@@ -110,6 +112,16 @@ while read -r pr; do
   done
   if [ -n "$hit" ]; then
     echo "#$num: bumps a stateful image ($hit) — merge it by hand."
+    continue
+  fi
+
+  # The soak: Renovate has no release date for most registries, so the sweep dates the images itself.
+  if ! youngest=$(pr_youngest_image "$num" "$head"); then
+    echo "::warning::#$num: could not date its images — held, not merged."
+    continue
+  fi
+  if [ "$youngest" != none ] && [ $(( ($(date -u +%s) - youngest) / 3600 )) -lt "$SOAK_HOURS" ]; then
+    echo "#$num: newest image built $(( ($(date -u +%s) - youngest) / 3600 ))h ago — soaking until ${SOAK_HOURS}h."
     continue
   fi
 

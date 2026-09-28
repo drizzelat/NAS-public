@@ -5,11 +5,8 @@
 Two independent layers keep admin hostnames off the public internet, and **neither is proven by
 being in git**: the SNI allowlist only takes effect once Komodo deploys it to the VPS, and
 Caddy's `@lan` exclusion only holds while the running Caddyfile is the committed one and every
-LAN-only vhost still imports `lan_only`. Until the 2026-09-07 Caddy cutover the second layer was
-NPM Access List UI state that nothing reviewed —
-[GAP-1](../../architecture-review-2026-08-20.md#gap-1--npm-and-authentik-config-is-click-ops)
-called it the most dangerous configuration in the estate, and a proxy host deleted by hand during
-[SVC-3](../../architecture-review-2026-08-20.md#svc-3--delete-scrutiny) showed the drift is real.
+LAN-only vhost still imports `lan_only`. A mistake in either exposes admin UIs to the internet
+with nothing else noticing.
 
 [`edge-access-policy.yml`](../../../.github/workflows/edge-access-policy.yml) turns both layers
 into an assertion. It runs **every 6 hours**, fired by a host cron rather than by GitHub's own
@@ -104,15 +101,14 @@ matcher and read back the verdict:
 One host carries the range cases because every LAN-only vhost imports the **same** `lan_only`
 snippet — the per-host sweep is what catches a vhost that was written without it.
 
-**A denied request reads as no HTTP response at all.** Under NPMplus that was `444` — a reset,
-curl exit 56. Caddy's `abort` closes cleanly instead, curl exit 52. The job accepts either, and
+**A denied request reads as no HTTP response at all.** Caddy's `abort` closes cleanly, curl exit
+52; a reset (curl exit 56) means the same. The job accepts either, and
 also a plain `403`: a host that answers `403` has lost the drop but not the policy, which is a
 cosmetic regression this probe should not go red for.
 
 **Curl exit 52 is also accepted as denied.** It is the same "no HTTP response at all" outcome
 reached by a clean close rather than a reset — what Caddy's `abort` does where nginx's `444`
-resets. Accepting it is what lets the deny stay a drop rather than a fingerprintable `403` through
-the [SVC-1](../../architecture-review-2026-08-20.md#svc-1--npmplus--caddy) migration; the failure
+resets. Accepting it is what lets the deny stay a drop rather than a fingerprintable `403`; the failure
 this assertion exists to catch, a `200`/`3xx`, is still caught. Curl exit **35** is different and
 *is* a failure — the TLS handshake failed at Caddy's `:8443` listener, which means no site block
 answers to that name any more.
@@ -307,3 +303,5 @@ The host lists are `env:` at the top of the workflow. A new **public** service n
 not import `lan_only`. A new **LAN-only** service needs its name in `LAN_ONLY_HOSTS` and a vhost
 that imports `lan_only`. Either way also update
 [network.md](../../network.md) → Access control — the workflow and that list are meant to agree.
+CI (`docs-drift.py`) fails a pull request that adds a Caddyfile vhost whose name is in neither
+`PUBLIC_HOSTS` nor `LAN_ONLY_HOSTS`.

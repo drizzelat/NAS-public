@@ -1,0 +1,14 @@
+[
+ {
+  "action": "block",
+  "description": "Geoblock",
+  "enabled": true,
+  "expression": "(ip.src.country ne \"AT\" and ip.src.country ne \"DE\" and ip.src.country ne \"CH\")"
+ },
+ {
+  "action": "block",
+  "description": "AI Crawl Control - Block AI bots by User Agent",
+  "enabled": true,
+  "expression": "(http.request.uri.path ne \"/robots.txt\" and ((http.user_agent contains \"Applebot\") or (http.user_agent contains \"archive.org_bot\") or (http.user_agent contains \"bingbot\") or (http.user_agent contains \"ChatGPT-User\") or (http.user_agent contains \"DuckAssistBot\") or (http.user_agent contains \"Googlebot\") or (http.user_agent contains \"Manus-User\") or (http.user_agent contains \"meta-externalfetcher\") or (http.user_agent contains \"MistralAI-User\") or (http.user_agent contains \"OAI-SearchBot\") or (http.user_agent contains \"Perplexity-User\") or (http.user_agent contains \"PerplexityBot\") or (http.user_agent contains \"ProRataInc\") or (http.user_agent contains \"Terracotta\")))"
+ }
+]

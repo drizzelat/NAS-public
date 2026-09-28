@@ -20,14 +20,14 @@ subnet router / node goes down, **public sites go down too**, not just remote ad
 
 - **Stack folder:** `stacks/tailscale/`
 - **Compose file:** `stacks/tailscale/docker-compose.yml`
-- **Deploy:** Komodo Stack `tailscale` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `tailscale` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 
 ## Access
 
 | Field | Value                                                          |
 | ----- | -------------------------------------------------------------- |
-| URL   | n/a — no web UI. Managed at <https://login.tailscale.com/admin> |
+| URL   | n/a — no web UI. Managed at <https://login.tailscale.com/admin>; the ACL belongs in `tailscale/policy.hujson` ([runbook](../runbooks/setup-operations/tailscale-acl-gitops.md)) |
 | Port  | None on the LAN. Outbound UDP 41641 + DERP relays only         |
 | Auth  | Tailscale account; node joins via `TS_AUTHKEY`                 |
 
@@ -126,7 +126,7 @@ compose file, not env vars.
 ### Restart / redeploy
 
 - Komodo → Stacks → `tailscale` → **Deploy** (or **Restart**).
-- Or push to `stacks/tailscale/` → the runner deploys it through Komodo ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)).
+- Or push to `stacks/tailscale/` → the runner deploys it through Komodo ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)).
 
 ### Upgrade
 
@@ -172,9 +172,18 @@ compose file, not env vars.
   `userland-proxy`; on TrueNAS 25.04 `daemon.json` is middleware-managed and edits
   get regenerated away.)
 - **NAS powered off** → no Tailscale; fall back to FritzBox WG.
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables.
-
-2026-09-11
+- **A remote job over the tailnet dies part-way through, and the NAS side reports
+  no error of its own** (2026-09-25: the nightly `pg-dump-backup.sh` wrote the
+  213 MB `synapse` dump, then failed on `mautrix_whatsapp` from the same
+  container) → **tailscaled was OOM-killed inside its memory limit.** Both hosts
+  and both containers are fine; what broke is the `ssh://a1-docker` transport,
+  because that alias resolves to the A1's *tailnet* address, so the whole dump
+  streams through this process. Confirm on the host — the container's own logs say
+  nothing:
+  ```bash
+  sudo journalctl -k --since "<the run>" | grep -E "Killed process.*tailscaled"
+  sudo docker stats --no-stream tailscale   # idle usage vs. the limit
+  ```
+  Idle RSS sitting near the ceiling is the warning sign: it was 124M against a
+  128M limit. Raise `deploy.resources.limits.memory` in the compose file; the
+  limit is a runaway guard, not a working-set estimate.

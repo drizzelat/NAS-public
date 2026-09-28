@@ -17,8 +17,8 @@ classic hub→agent dial-in the [NAS agent](beszel.md) uses.
 
 - **Stack folder:** `stacks/a1-vps-beszel-agent/`
 - **Compose file:** `stacks/a1-vps-beszel-agent/docker-compose.yml`
-- **Deploy:** Komodo Stack `a1-vps-beszel-agent` on Server `a1-vps`, adopted 2026-09-15
-  ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its folder deploys it
+- **Deploy:** Komodo Stack `a1-vps-beszel-agent` on Server `a1-vps`
+  ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its folder deploys it
   through Komodo.
 - **Runs on:** the Ampere A1 ([host + SSH details](a1-vps-matrix.md)).
 
@@ -54,10 +54,9 @@ public IP `198.51.100.20`**. The agent reaches the hub over the tailnet (peer `n
 
 ## Environment variables
 
-From the vault (`secrets.enc/portainer-env/a1-vps-beszel-agent.env.age`), written into the Komodo
+From the vault (`secrets.enc/stack-env/a1-vps-beszel-agent.env.age`), written into the Komodo
 Variables `A1_VPS_BESZEL_AGENT__*` by `scripts/secrets.sh push a1-vps-beszel-agent`, which then
-deploys through Komodo. Never committed in the clear. Until 2026-09-15 the vault's token was not
-the one the agent ran with; at adoption the vault took the live value (komodo-migration.md F20).
+deploys through Komodo. Never committed in the clear.
 
 | Variable                | Description                                        |
 | ----------------------- | -------------------------------------------------- |
@@ -99,14 +98,8 @@ image is a multi-arch manifest index, so the same digest resolves on this arm64 
    the **WebSocket** connection. The hub emits a **KEY** and **TOKEN**.
 2. **Create the env secret.** Add `BESZEL_VPS_AGENT_KEY` / `BESZEL_VPS_AGENT_TOKEN` to the vault:
    `./scripts/secrets.sh edit a1-vps-beszel-agent` (edits the plaintext, then locks).
-3. **Push, then create the stack from your workstation.** *(This step is the original Portainer
-   bring-up. Since 2026-09-15 a rebuild writes the Variables with
-   `scripts/secrets.sh komodo-vars a1-vps-beszel-agent` and deploys from Komodo.)* Commit `stacks/a1-vps-beszel-agent/`
-   together with the new `secrets.enc/portainer-env/a1-vps-beszel-agent.env.age` and push.
-   `deploy-stacks` stops at this stack with `is NEW and its env lives in the vault` — expected,
-   CI holds no vault key. Then `./scripts/secrets.sh push a1-vps-beszel-agent` creates the stack
-   from `main` with its env, routed to endpoint 5 by the `a1-vps-` prefix, and
-   `gh workflow run deploy-stacks.yml -f stacks=a1-vps-beszel-agent` health-checks it.
+3. **Deploy.** `./scripts/secrets.sh push a1-vps-beszel-agent` writes the Komodo Variables and
+   deploys the Stack. CI cannot do this step, because it holds no vault key.
 4. **Grant the tailnet ACL.** The A1 is a tagged node, so add the `tag:a1-matrix` →
    hub grant in the Tailscale admin console (see the Connection note above). Without it
    the agent logs `i/o timeout` forever.
@@ -116,6 +109,10 @@ image is a multi-arch manifest index, so the same digest resolves on this arm64 
    status` shows peer `nas`).
 6. **Thresholds / alerts** — set per-system CPU/mem/disk thresholds; alerts route like
    the NAS ([beszel.md](beszel.md)).
+
+**Container logs** are capped at 10 MB × 3 files per container (`x-logging` in the compose file):
+Docker's `json-file` default never rotates. Enforced by
+[`compose-policy.py`](../../.github/scripts/compose-policy.py).
 
 ## Operations
 
@@ -141,17 +138,3 @@ NAS agent pin in `stacks/beszel/` and the micro's.
   vault (and so the Komodo Variables) match the hub's values exactly.
 - **`docker pull` fails on the A1** → tailscale MagicDNS hijacked system DNS. Fix:
   `sudo tailscale set --accept-dns=false` (same as the Matrix stack).
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables; the vault took the live `TOKEN` (F20).
-
-2026-09-11 — env var names corrected to the ones the compose file and the vault use
-(`BESZEL_VPS_AGENT_*`); first-time setup updated for vault-env stacks being created by
-`scripts/secrets.sh push`, not by CI.
-
-2026-07-09 — initial deploy, mirrored from the micro VPS agent (arm64, `SYSTEM_NAME=a1-matrix`).
-Live in the hub. First-deploy `i/o timeout` was a tailnet ACL gap: tagged node
-`tag:a1-matrix` had no grant to the untagged NAS hub — fixed with a `tag:a1-matrix` →
-`100.64.0.11:8090` accept rule in the Tailscale admin console (documented above).
-Also added a second disk probe for the `/opt/matrix` block volume (hub name `matrix`).

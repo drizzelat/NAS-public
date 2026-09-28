@@ -67,11 +67,10 @@ Applies to the four plain-Postgres stacks with a **bind-mounted datadir**:
 Immich runs `ghcr.io/immich-app/postgres:18-vectorchordX.Y.Z` with the datadir bind-mounted at
 `/mnt/apps/immich` and `PGDATA=/var/lib/postgresql/18/docker` — already the 18+ layout.
 
-Until 2026-08-21 the stack carried an `ixsystems/postgres-upgrade` service (`pgvecto_upgrade`,
-`TARGET_VERSION: "18"`) wired as a `service_completed_successfully` gate on the database, so a
-data-mutating in-place `pg_upgrade` helper ran on **every** deploy, with its digest bumped
-unattended by Renovate. It was removed ([SEC-2](../../architecture-review-2026-08-20.md#sec-2--migration-container-in-the-normal-deploy-path)).
-Deploys no longer touch the datadir.
+**Never put an upgrade helper in the stack.** An `ixsystems/postgres-upgrade` service wired as a
+`service_completed_successfully` gate runs a data-mutating `pg_upgrade` on **every** deploy, with
+its digest bumped unattended by Renovate. One lived in this stack once; deploys must not touch the
+datadir.
 
 Renovate's `18-vectorchordX.Y.Z` bumps stay inside major 18 and need nothing from this runbook.
 When Immich eventually ships a **19** image, do it deliberately:
@@ -289,8 +288,7 @@ dataset back to the `@pre-pg18-${STAMP}` ZFS snapshot.
 >   `ON_ERROR_STOP` aborts mid-restore. For such apps: `docker rm -f` the writers, then
 >   `DROP DATABASE` / `CREATE DATABASE` for a pristine target, restore, then recreate the writers.
 > - **Recreating force-removed containers:** press **Deploy** on the Stack in Komodo. It runs
->   `compose up`, which recreates missing containers on an unchanged commit. The Portainer webhook
->   this runbook used until 2026-09-17 no-oped on an unchanged commit and needed a trivial new one.
+>   `compose up`, which recreates missing containers on an unchanged commit.
 
 - **alpine vs glibc:** authentik stays alpine→alpine and the others stay glibc→glibc, so the
   collation *provider* doesn't change within a service — only the version string bumps (handled

@@ -36,11 +36,9 @@ push to main ──▶ GitHub ──(deploy key, read-only)──▶ git-pull-na
 > change the puller, edit the host file by hand — **merging a change to the repo copy does
 > nothing.**
 
-> **The puller no longer reloads Caddy** (since 2026-09-17, CPX-2 #4a). Caddy's config and the
-> Authentik blueprints are mounted from Komodo's clone at `/mnt/apps/komodo/repos/nas`. The deploy
-> pulls that clone, and the `caddy` Stack's `post_deploy` reloads Caddy
-> ([caddy.md](../../services/caddy.md)). Log lines reading `caddy reloaded` before that date came
-> from here.
+> **The puller does not reload Caddy.** No container mounts config from this clone: Caddy's config
+> and the Authentik blueprints come from Komodo's clone at `/mnt/apps/komodo/repos/nas`, and the
+> `caddy` Stack's `post_deploy` reloads Caddy ([caddy.md](../../services/caddy.md)).
 >
 > `observability` and `files` moved to Komodo's clone the same day, so **no container mounts this
 > clone any more.** It exists for the host cron scripts, and stays for good (§7 #4b).

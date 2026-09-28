@@ -21,12 +21,13 @@ now costs one container and means adding a service later is one config file, nev
 | `vector` | tails log files, parses and enriches, fans out to both stores |
 | `victorialogs` | log store — full-text + structured, queried with LogsQL |
 | `victoriametrics` | metrics store **and** the Prometheus scraper (`-promscrape.config`, so no separate vmagent) |
+| `vmalert` | evaluates the alerting rules against the metrics store |
 | `grafana` | the single visual layer over both |
 | `geoipupdate` | refreshes the MaxMind mmdb files Vector reads |
 
 - **Stack folder:** `stacks/observability/`
 - **Compose file:** `stacks/observability/docker-compose.yml`
-- **Deploy:** Komodo Stack `observability` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `observability` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 
 ## Access
@@ -47,6 +48,7 @@ now costs one container and means adding a service later is one config file, nev
 | `/var/lib/vector` | `/mnt/apps/observability/vector` | Read checkpoints, so a restart does not re-ingest |
 | `/victoria-logs-data` | `/mnt/apps/observability/victorialogs` | Log store |
 | `/etc/victoriametrics` (`ro`) | `/mnt/apps/komodo/repos/nas/stacks/observability/victoriametrics` | Scrape config, from the clone |
+| `/etc/vmalert` (`ro`) | `/mnt/apps/komodo/repos/nas/stacks/observability/vmalert` | Alerting rules, from the clone |
 | `/victoria-metrics-data` | `/mnt/apps/observability/victoriametrics` | Metrics store |
 | `/etc/grafana/provisioning` (`ro`) | `/mnt/apps/komodo/repos/nas/stacks/observability/grafana/provisioning` | Datasources + dashboard provider, from the clone |
 | `/etc/grafana/dashboards` (`ro`) | `/mnt/apps/komodo/repos/nas/stacks/observability/grafana/dashboards` | Dashboard JSON, from the clone |
@@ -62,9 +64,8 @@ now costs one container and means adding a service later is one config file, nev
 > - Grafana's dashboard provider polls every 60 s.
 >
 > The Stack's `post_deploy` fails the deploy unless every mount shows the clone's files
-> ([`scripts/komodo/mount-matches.sh`](../../scripts/komodo/mount-matches.sh), komodo-migration.md
-> F28). Until 2026-09-17 these came from the 15-minute pull of `/mnt/apps/scripts/nas`; [Caddy](caddy.md)
-> and the [Authentik blueprints](authentik.md#configuration-in-git-blueprints) moved the same day.
+> ([`scripts/komodo/mount-matches.sh`](../../scripts/komodo/mount-matches.sh),
+> [komodo.md → Rules](komodo.md#config-mounts-come-from-komodos-clone)).
 >
 > **The mounts are directories, not files.** Load-bearing, and the same trap the Caddyfile hit:
 > `git` replaces a file's inode on pull, and a single-file bind mount stays bound to the old one
@@ -73,7 +74,7 @@ now costs one container and means adding a service later is one config file, nev
 ## Environment variables
 
 Set as Komodo Variables `OBSERVABILITY__<KEY>` (`scripts/secrets.sh push observability`); the plaintext lives in the gitignored
-`secrets/portainer-env/observability.env` and the ciphertext in `secrets.enc/` — see the
+`secrets/stack-env/observability.env` and the ciphertext in `secrets.enc/` — see the
 [secret-sync runbook](../runbooks/setup-operations/secret-sync.md).
 
 | Variable | Description |
@@ -98,6 +99,7 @@ Set as Komodo Variables `OBSERVABILITY__<KEY>` (`scripts/secrets.sh push observa
                                     100.64.0.13:9035 (tor bridge, A1),
                                     100.64.0.13:9036 (webtunnel bridge, A1),
                                     100.64.0.13:9037 (chrony exporter, A1),
+                                    100.64.0.13:9038 (A1 UDP counters, NTP v4/v6),
                                     gluetun:9022 (qbittorrent exporter),
                                     gluetun:9023 (sabnzbd exporter),
                                     exportarr-{sonarr,radarr,prowlarr,bazarr}:9707
@@ -151,7 +153,7 @@ vhost behind the proxy appears in them automatically.
 | CrowdSec — Security | `crowdsec-security` | `crowdsec:6060` | Bans in force, scenarios firing, parser health, bouncer polling |
 | Authentik — Identity | `authentik-identity` | `server:9300` | SSO request rate, latency, outpost connectivity, task backlog, DB load |
 | Tor — Bridges & Snowflake | `tor-traffic` | `100.64.0.13:9035` + `:9036` + `192.168.178.111:9999` | Traffic through the A1 [obfs4](a1-vps-tor-bridge.md) and [WebTunnel](a1-vps-webtunnel.md) bridges and the [NAS Snowflake proxy](snowflake.md); bridge egress month-to-date and projected against the 2 TiB their two caps add up to. UTC, to match Tor accounting and Oracle billing |
-| Community services | `community-services` | the Tor, Snowflake and Conduit targets above + `100.64.0.13:9037` (`ntp`) + `gluetun:9022` (`qbittorrent`) | Everything run for other people on one page: status, users/clients, traffic per service, then a section each for the [bridges](a1-vps-tor-bridge.md), [Snowflake](snowflake.md), [Conduit](conduit.md), the [NTP Pool server](a1-vps-ntp.md) (queries, drops, offset, upstreams, bandwidth and data served) and [Kiwix seeding](../runbooks/setup-operations/kiwix-seeding.md) (upload, peers, incoming port, per-file table). Bridge accounting detail stays in `tor-traffic` |
+| Community services | `community-services` | the Tor, Snowflake and Conduit targets above + `100.64.0.13:9037` (`ntp`) + `:9038` (`ntp-netstat`) + `gluetun:9022` (`qbittorrent`) | Everything run for other people on one page: status, users/clients, traffic per service, then a section each for the [bridges](a1-vps-tor-bridge.md), [Snowflake](snowflake.md), [Conduit](conduit.md), the [NTP Pool server](a1-vps-ntp.md) (queries, drops, offset, upstreams, bandwidth and data served) and [Kiwix seeding](../runbooks/setup-operations/kiwix-seeding.md) (upload, peers, incoming port, per-file table). Bridge accounting detail stays in `tor-traffic` |
 | Media stack | `media-stack` | `jellyfin-exporter:9594` (`jellyfin`) + `exportarr-*:9707` (`sonarr`, `radarr`, `prowlarr`, `bazarr`) + `gluetun:9023` (`sabnzbd`) + `gluetun:9022` (`qbittorrent`) + Caddy log | [Jellyfin](jellyfin.md), the [\*arr apps](arr.md) and the [download clients](downloads.md): status and headline numbers, then a section each for Jellyfin (now playing, sessions, watch time per user, play method, transcode reasons and detail, egress, library counts), the library (series/movies on disk, missing, below cutoff, size, quality), downloads (queues, throughput, torrent states, incomplete torrents, SABnzbd queue, Usenet provider usage), Prowlarr indexers (queries, grabs, failures, response time), Bazarr subtitles, and health (each app's health checks, free space, web UI requests and 5xx, exporter scrape time) |
 | Observability — Pipeline Health | `observability-health` | self-scrape | Is the telemetry itself working — the one that catches silent drops |
 
@@ -167,13 +169,94 @@ vhost behind the proxy appears in them automatically.
 ### Dashboards are code
 
 `stacks/observability/grafana/dashboards/*.json` is provisioned into a folder named **NAS (git)**
-with `allowUiUpdates: false` — read-only in the UI on purpose. That is
-[GAP-1](../architecture-review-2026-08-20.md#gap-1--npm-and-authentik-config-is-click-ops)'s
-argument applied here: Grafana's default home for a dashboard is its own SQLite, which is exactly
-the unreviewed UI state the NPMplus migration existed to kill.
+with `allowUiUpdates: false` — read-only in the UI on purpose. Grafana's default home for a
+dashboard is its own SQLite: unreviewed UI state, which this repo exists to avoid.
 
 To iterate: build in any other (hand-made) Grafana folder, then **Dashboard → Export → Save to
 file** and commit the JSON into `dashboards/`.
+
+**Graphs are smoothed, scaled to the time range shown.** A time-series panel sets `"interval": "5m"`
+(a minimum), so `$__rate_interval` never drops below about 5 minutes. A raw gauge such as the Kiwix
+peer count is wrapped in `avg_over_time((…)[$__interval:30s])`. The `:30s` is the scrape interval,
+and it is needed: without it VictoriaMetrics steps the subquery at the query step, and each window
+holds one sample, which averages nothing. `$__interval` grows with the range, from 5 minutes on a
+1-hour view to about 45 minutes on 30 days. Left raw on purpose: small discrete counts (sessions,
+queue, missing items), where 1.4 sessions reads wrong; the signed clock offset, where averaging
+cancels + and − swings; scrape durations, where a spike near the timeout is the point; limit lines;
+event counts per interval; and panels already on a fixed `[1h]` or `[1d]` window.
+
+## Alerting
+
+`vmalert` evaluates [`stacks/observability/vmalert/alerts.yml`](../../stacks/observability/vmalert/alerts.yml)
+against the metrics store every minute. **Every rule carries a `runbook:` annotation** — a rule
+nobody can act on is noise, and the mail below quotes that link.
+
+**There is no Alertmanager.** vmalert runs with `-notifier.blackhole` and holds the alert state in
+its own API. The reason is the mail path: TrueNAS sends through the owner's Outlook account over
+**OAuth**, which Microsoft requires for personal accounts, and no container can use it — there is no
+SMTP username and password to give Alertmanager (see
+[email-setup.md](../runbooks/setup-operations/email-setup.md)). So the bridge is a host script:
+
+```text
+vmalert (rules, :8880 on loopback) ──▶ scripts/vmalert-mail.sh (TrueNAS cron, */15)
+                                          ├── midclt call mail.send  ──▶ the same inbox
+                                          │                              everything else on this host alerts to
+                                          └── Watchdog seen? ping ──▶ healthchecks.io (mails from outside)
+```
+
+[`scripts/vmalert-mail.sh`](../../scripts/vmalert-mail.sh) polls `/api/v1/alerts`, remembers what it
+already mailed in `/root/.local/state/vmalert-mailed`, and mails once when an alert starts firing
+and once when it clears. No file, no mail — a fresh host is silent, not broken.
+
+**The bridge watches itself through `Watchdog`,** a rule that always fires and is never mailed. Each
+run pings the healthchecks.io check `NAS vmalert watchdog` when `Watchdog` is firing. It pings
+`/fail` when vmalert answers without it, and pings `/fail` and exits 1 when vmalert does not answer.
+If vmalert, the bridge or its cron job stops, healthchecks.io mails from outside, without the
+TrueNAS mail path. The ping URL lives in `/root/.config/vmalert-watchdog.url` (`600 root:root`),
+never the repo. Without that file the bridge still mails and only logs the missing URL.
+
+vmalert re-reads the rule files every minute (`-configCheckInterval`), so a merged rule is live once
+`deploy-stacks` has pulled the clone.
+
+### The rules, and what they do not cover
+
+| Rule | Fires when |
+| ---- | ---------- |
+| `Watchdog` | always; the heartbeat above, never mailed |
+| `MetricsStoreDiskLow` / `LogStoreDiskLow` | the store has under 10% of its filesystem free for 15 min — the `apps` pool is one NVMe with no redundancy |
+| `DownloadsDiskLow` | under 100 GB free where qBittorrent writes, for 30 min |
+| `ScrapeTargetDown` | any scrape target has been `up == 0` for 10 min |
+| `CrowdSecDecisionSpike` | local (non-CAPI) decisions jump more than 20 above the last hour's average |
+
+**What is still not alerted on, and why.** VictoriaMetrics scrapes *applications*, not hosts: there
+is no `node_exporter`, no container-level exporter and no SMART exporter, so per-dataset fill,
+container restart loops, OOM kills and NVMe wear/temperature have **no series to alert on** here.
+[Beszel](beszel.md) does collect all four (it holds host, container, ZFS pool and SMART history), so
+the choice is Beszel's own alert rules or adding those exporters to this stack — see
+[roadmap.md](../roadmap.md). `ScrapeTargetDown` is the nearest available stand-in for a restart loop.
+
+### Setting up the mail bridge (once)
+
+```sh
+sudo midclt call cronjob.create '{"description":"vmalert mail bridge",
+  "command":"/bin/sh /mnt/apps/scripts/nas/scripts/vmalert-mail.sh",
+  "user":"root","schedule":{"minute":"*/15","hour":"*","dom":"*","month":"*","dow":"*"},
+  "enabled":true,"stdout":false,"stderr":true}'
+
+# Prove it end to end: this lists what vmalert is firing right now.
+curl -s http://127.0.0.1:8880/api/v1/alerts | python3 -m json.tool | head -20
+sudo /bin/sh /mnt/apps/scripts/nas/scripts/vmalert-mail.sh && tail -3 /var/log/vmalert-mail.log
+```
+
+The watchdog check: create `NAS vmalert watchdog` in healthchecks.io with **period 15 min, grace
+15 min** (one missed run is tolerated), then write its ping URL on the NAS:
+
+```sh
+sudo sh -c 'umask 077; mkdir -p /root/.config; cat > /root/.config/vmalert-watchdog.url'  # paste, Ctrl-D
+```
+
+Prove it: `sudo docker stop vmalert`, run the bridge once by hand (exit 1, check red at once),
+`sudo docker start vmalert`, run it again (check green).
 
 ## Retention and sizing
 
@@ -204,8 +287,8 @@ both numbers after a month of real figures rather than guessing now.
 - **`proxy_authentik`** — `victoriametrics` joins it to scrape `server:9300`. Only the
   authentik *server* is scraped; the *worker* is on `authentik_net` alongside Postgres and
   reaching it would mean joining that internal network, which is not worth the blast radius.
-- **Tailnet NAS → A1** — the `tor-bridge`, `tor-webtunnel` and `ntp` jobs scrape `100.64.0.13:9035`,
-  `:9036` and `:9037`. `snowflake` and `conduit` need no network join: both run on the host network and are
+- **Tailnet NAS → A1** — the `tor-bridge`, `tor-webtunnel`, `ntp` and `ntp-netstat` jobs scrape
+  `100.64.0.13:9035`, `:9036`, `:9037` and `:9038`. `snowflake` and `conduit` need no network join: both run on the host network and are
   scraped on `192.168.178.111:9999` and `:9998`.
 - **Caddy** writes the log this stack reads, and proxies `grafana.example.com`. CrowdSec reads
   the same file; two readers on one log file is not a conflict.
@@ -302,7 +385,7 @@ both numbers after a month of real figures rather than guessing now.
 
 - Komodo → Stacks → `observability` → **Restart** or **Deploy**, or push to `stacks/observability/` → the
   runner deploys it through Komodo
-  ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). 
+  ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). 
 - A change to the Vector pipeline, the scrape config or a dashboard arrives with the deploy that its
   push triggers. The containers stay running; each re-reads the file itself. To re-apply one by hand,
   press **Deploy** on the Stack.
@@ -361,9 +444,3 @@ dataset.
   `drop_on_error: true` is silent by design.
 - **A dashboard edit will not save** → it is in the git-provisioned **NAS (git)** folder, which is
   read-only on purpose. Copy it to another folder to iterate.
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables.
-
-2026-09-14

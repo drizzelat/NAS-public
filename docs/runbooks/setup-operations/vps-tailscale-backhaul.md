@@ -42,8 +42,7 @@ Internet :80/:443 → (Cloudflare) → VPS nginx (stream) → Tailscale → NAS 
    > Plain `curl https://100.64.0.11` (no SNI) fails the TLS handshake at Caddy — expected. Always test with SNI.
 3. **Add the VPS to Komodo** as a Server: apply [`stacks/micro-vps-periphery/`](../../../stacks/micro-vps-periphery/)
    over SSH, tailnet-only on `100.64.0.12:8120` ([micro-vps-periphery](../../services/micro-vps-periphery.md)),
-   with its `[[server]]` entry in `komodo/resources.toml`. (Until 2026-09-17 this step added a
-   Portainer agent on `:9001`.)
+   with its `[[server]]` entry in `komodo/resources.toml`.
 4. **Deploy nginx** — the `micro-vps-ingress` Komodo Stack on Server `micro-vps`. It has no env, so
    `deploy-stacks` creates it from its `resources.toml` entry on the first push.
 5. **Close the access-control hole (security-critical).** The VPS forwards public traffic from its

@@ -9,17 +9,25 @@
 | Interface   | `br0`, a bridge over `enp2s0` (Realtek `r8169`) |
 | MAC address | `br0` `d6:09:5b:49:52:c3`; `enp2s0` `9c:6b:00:84:26:37` |
 
-> **The LAN address sits on the bridge `br0`**, not on `enp2s0`, since 2026-09-17. The
+> **The LAN address sits on the bridge `br0`**, not on `enp2s0`. The
 > [runner VM](#runner-vm)'s NIC attaches to `br0`, which is how it reaches its own host. Only `enp2s0` is
 > enslaved, STP is off, and the address is static. TrueNAS gave the bridge a random MAC, so the
 > FritzBox sees `d6:09:5b:49:52:c3` for `.111`. The bridge carries no global IPv6 address, only
-> link-local, and nothing on the NAS relies on one. A first attempt on DHCP with STP on cost about
-> 108 s of outage and rolled itself back (komodo-migration.md F33).
+> link-local, and nothing on the NAS relies on one. Rebuilding it: keep the address static and STP
+> off. A first attempt on DHCP with STP on took the NAS off the network for ~108 s until TrueNAS's
+> check-in rollback reverted it.
 
 > **EEE is disabled on `enp2s0`** (TrueNAS Post-Init script `ethtool --set-eee enp2s0 eee
 > off`). Energy Efficient Ethernet on this Realtek NIC causes silent ~10% packet loss on an
 > idle link — do not re-enable it. See
 > [runbooks/incident-response/nas-nic-packet-loss.md](runbooks/incident-response/nas-nic-packet-loss.md).
+
+> **avahi / mDNS is masked** (`avahi-daemon.service` + `.socket`). The NAS is reached by IP and
+> `nas.example.com`; nothing needs `truenas.local`. TrueNAS's generated `deny-interfaces=` line
+> lists every docker `br-*` bridge (~39), overflowing avahi's 256-byte config-line buffer, so the
+> daemon fails to start — masking is the fix. A TrueNAS major update may re-create the units; re-apply
+> the mask. See
+> [runbooks/incident-response/nas-avahi-mdns-disabled.md](runbooks/incident-response/nas-avahi-mdns-disabled.md).
 
 ## SSH access
 
@@ -71,21 +79,21 @@ Off-NAS Oracle Cloud hosts on the tailnet. Full details in their runbooks/servic
 | Host | Public IP | Tailnet IP | Role | Details |
 | ---- | --------- | ---------- | ---- | ------- |
 | `instance-20260417-1014` (AMD micro) | `198.51.100.10` | `100.64.0.12` | **Live public ingress** (nginx stream → NAS) | [services/micro-vps-ingress.md](services/micro-vps-ingress.md) |
-| `instance-20260708-0942` (Ampere A1 `a1-matrix`) | `198.51.100.20` | `100.64.0.13` | **Matrix host** (Synapse + Postgres + Caddy `:80`/`:443`; mautrix bridges later) + **external watchdog** ([Uptime Kuma](services/a1-vps-kuma.md), tailnet `:3001` — moved off the ingress VPS 2026-08-21 so it does not share a failure domain with what it watches) + [Beszel agent](services/a1-vps-beszel-agent.md) (outbound to hub) + [Tor obfs4 bridge](services/a1-vps-tor-bridge.md) (public `:4443` obfs4 + `:9443` ORPort, metrics on tailnet `:9035`) + [Tor WebTunnel bridge](services/a1-vps-webtunnel.md) (a secret path behind this Caddy's `:443`, metrics on tailnet `:9036`) + [NTP Pool server](services/a1-vps-ntp.md) (public `:123/udp`, exporter on tailnet `:9037`) — [services/a1-vps-matrix.md](services/a1-vps-matrix.md) | [a1-provision](runbooks/setup-operations/a1-provision.md) → as-built; [matrix-deploy](runbooks/setup-operations/matrix-deploy.md) |
+| `instance-20260708-0942` (Ampere A1 `a1-matrix`) | `198.51.100.20` | `100.64.0.13` | **Matrix host** (Synapse + Postgres + Caddy `:80`/`:443` + mautrix-whatsapp) + **external watchdog** ([Uptime Kuma](services/a1-vps-kuma.md), tailnet `:3001` — not on the ingress VPS, so it does not share a failure domain with what it watches) + [Beszel agent](services/a1-vps-beszel-agent.md) (outbound to hub) + [Tor obfs4 bridge](services/a1-vps-tor-bridge.md) (public `:4443` obfs4 + `:9443` ORPort, metrics on tailnet `:9035`) + [Tor WebTunnel bridge](services/a1-vps-webtunnel.md) (a secret path behind this Caddy's `:443`, metrics on tailnet `:9036`) + [NTP Pool server](services/a1-vps-ntp.md) (public `:123/udp` on IPv4 and on two IPv6 addresses in `2001:db8:1::/64`, exporter on tailnet `:9037`, host UDP counters on tailnet `:9038`) — [services/a1-vps-matrix.md](services/a1-vps-matrix.md) | [a1-provision](runbooks/setup-operations/a1-provision.md) → as-built; [matrix-deploy](runbooks/setup-operations/matrix-deploy.md) |
 
 > SSH to the A1: `ssh -i secrets/ssh/ssh-a1-key.key -p 2222 ubuntu@198.51.100.20` (port **2222**,
 > key-only — 22 is closed; use the **public** IP, tailscale SSH is ACL-blocked; key in the age vault
-> `secrets.enc/ssh/ssh-a1-key.key.age`). This host is the **Matrix homeserver** (`a1-matrix`, renamed
-> from `a1-ingress`), not ingress — the public front door stays on the AMD micro (`100.64.0.12`),
+> `secrets.enc/ssh/ssh-a1-key.key.age`). This host is the **Matrix homeserver** (`a1-matrix`), not ingress — the public front door stays on the AMD micro (`100.64.0.12`),
 > which remains the value excluded by Caddy's `@lan` matcher.
 >
 > Matrix exposure: `matrix.example.com` **and** `element.example.com` (Element Web) are
 > **Cloudflare grey-cloud (DNS-only)** to `198.51.100.20`; Caddy on the A1 terminates TLS.
 > **Federation is delegated to `:443`** via `.well-known`, so **8448 is not exposed** — Matrix and
 > SSH use only `80`/`443`/`2222` (both Oracle Security List and host iptables). Client + federation
-> both ride `:443`. The [Tor bridge](services/a1-vps-tor-bridge.md) adds public `4443`/`9443` and the
-> [NTP server](services/a1-vps-ntp.md) public `123/udp`, open in the Security List only: Docker DNATs
-> published ports, so they never reach the `INPUT` chain. The [WebTunnel bridge](services/a1-vps-webtunnel.md)
+> both ride `:443`. The [Tor bridge](services/a1-vps-tor-bridge.md) adds public `4443`/`9443`, open in the
+> Security List only: Docker DNATs published ports, so they never reach the `INPUT` chain. The
+> [NTP server](services/a1-vps-ntp.md) adds public `123/udp` on IPv4 **and IPv6** — it runs on the host
+> network, so its Security List rules are the only filter, four of them and all stateless. The [WebTunnel bridge](services/a1-vps-webtunnel.md)
 > needs no port of its own: Caddy routes its secret path on `:443` over `proxy_a1-vps-webtunnel`, the
 > A1's one cross-stack network, which `stacks/a1-vps-matrix` defines.
 
@@ -94,6 +102,7 @@ Off-NAS Oracle Cloud hosts on the tailnet. Full details in their runbooks/servic
 | Network name  | Subnet        | Purpose                                        |
 | ------------- | ------------- | ---------------------------------------------- |
 | proxy_network | _(auto)_      | Shared by Caddy and CrowdSec; `victoriametrics` joins it to scrape CrowdSec |
+| crowdsec_socket | _(auto)_    | `internal: true`, defined by the `caddy` stack: CrowdSec to `crowdsec-socket-proxy` only. It carries the Docker API, so nothing else joins it and it has no egress — [services/caddy.md](services/caddy.md#authentik-brute-force) |
 | proxy_*       | _(auto)_      | Dedicated isolated proxy networks per stack (e.g. proxy_paperless) |
 | observability_net | _(auto)_  | Internal network for Vector, VictoriaLogs, VictoriaMetrics, Grafana |
 | authentik_net | _(auto)_      | Internal network for Authentik + Postgres      |
@@ -109,8 +118,7 @@ Off-NAS Oracle Cloud hosts on the tailnet. Full details in their runbooks/servic
 > [services/observability.md](services/observability.md) → Adding a service.
 
 > **`media_net` is a deliberate exception to the per-stack isolation model.** Splitting the old
-> 15-service `mediaserver` stack ([STR-1](architecture-review-2026-08-20.md#str-1--split-the-15-service-mediaserver-stack))
-> cut through connections that the *arr apps store in their own config databases, not in compose:
+> 15-service `mediaserver` stack cut through connections that the *arr apps store in their own config databases, not in compose:
 > `sonarr`/`radarr` reach qBittorrent as `gluetun:8082`, `prowlarr` reaches FlareSolverr as
 > `gluetun:8191`, and Seerr reaches `sonarr:8989` / `radarr:7878`. `media_net` keeps those
 > hostnames resolving across the new stack boundaries. Isolation is **unchanged versus before the
@@ -136,6 +144,9 @@ Keep this table up to date. Any port reachable from the LAN must be listed here.
 | 8120  | TCP      | Komodo periphery (HTTPS) | nas-periphery | Bound to the LAN IP only. Komodo Core connects inbound; noise-key auth plus `PERIPHERY_ALLOWED_IPS`. The two VPS peripheries bind `:8120` to their tailnet IPs instead, and `runner-vm-periphery` to the [runner VM](#runner-vm)'s `192.168.178.34` |
 | 9998  | TCP      | Psiphon Conduit metrics  | conduit     | Host network mode; bound to the LAN IP only, for the `victoriametrics` scrape. The station's WebRTC UDP is outbound-initiated |
 
+> **`:53` is the only resolver on the LAN.** NAS off, DNS off. A Raspberry Pi as a secondary AdGuard
+> is planned: [roadmap.md](roadmap.md#5-raspberry-pi--secondary-dns).
+>
 > `github-runner` exposes no ports — outbound only (GitHub, Komodo over the LAN). It runs in the [runner VM](#runner-vm), not on the NAS host.
 >
 > `romm` exposes no host port either — RomM's `:8080` is reached only through Caddy over
@@ -151,19 +162,10 @@ Keep this table up to date. Any port reachable from the LAN must be listed here.
 
 ## DNS / reverse proxy
 
-> **Caddy replaced NPMplus on 2026-09-07** ([SVC-1](architecture-review-2026-08-20.md#svc-1--npmplus--caddy)).
-> It owns `:80`/`:443`/`:8443` and serves every request. `stacks/npm/` was removed on 2026-09-07;
-> the archived doc is [archive/npm.md](archive/npm.md). The policy carried over unchanged — today
-> 21 LAN-only and 5 public names, same client-IP rule — but it is now
-> [`stacks/caddy/Caddyfile`](../stacks/caddy/Caddyfile) rather than NPM UI state, so read
-> [services/caddy.md](services/caddy.md) for the mechanics. Plan and execution record:
-> [caddy-migration.md](runbooks/setup-operations/caddy-migration.md).
-
 Services are exposed via **Caddy** under the domain `example.com`. Each service gets a subdomain (e.g. `service.example.com`) proxied to the container's internal port over its own dedicated, isolated `proxy_<stackname>` network (Hub and Spoke model). Direct LAN access via `http://192.168.178.111:<port>` is disabled for security, ensuring all traffic flows through Caddy and its per-host matchers.
 
-> **No bootstrap UI port any more.** Portainer's `:31015` was the one infrastructure UI kept on a host
-> port, for use before the proxy and DNS exist. It went with Portainer on 2026-09-17. Komodo Core has
-> no host port. With Caddy or DNS down, deploy from the NAS instead: `docker compose up -d` in the
+> **No infrastructure UI has a host port.** Komodo Core is reached only through Caddy. With Caddy or
+> DNS down, deploy from the NAS instead: `docker compose up -d` in the
 > periphery's clone at `/mnt/apps/komodo/repos/nas/stacks/<name>`
 > ([komodo.md → Restart / redeploy](services/komodo.md#restart--redeploy)). Caddy has no UI, and its
 > whole configuration is `stacks/caddy/Caddyfile` in this repo.
@@ -189,7 +191,19 @@ Both layers are asserted every 6 h by
 [`edge-access-policy.yml`](../.github/workflows/edge-access-policy.yml) — see the
 [edge access policy probe runbook](runbooks/setup-operations/edge-access-policy-probe.md).
 
+> **Mail: the domain sends and receives none** (since 2026-09-21). Cloudflare holds `v=spf1 -all`,
+> a `p=reject; sp=reject` DMARC record, a null MX and a revoked `*._domainkey` key, so mail forged
+> as the domain or any subdomain is rejected. Records and the plan for sending from services:
+> [email-setup runbook](runbooks/setup-operations/email-setup.md).
+
 ### Access control (who can reach each subdomain)
+
+> **Three of the four layers are in git.** The SNI allowlist is in
+> [`stacks/micro-vps-ingress/`](../stacks/micro-vps-ingress/), the per-host rules are in the
+> Caddyfile, and the **tailnet ACL** is [`tailscale/policy.hujson`](../tailscale/policy.hujson)
+> ([tailscale-acl-gitops.md](runbooks/setup-operations/tailscale-acl-gitops.md)). **Cloudflare**
+> stays UI-edited, with a daily read-only diff against a committed copy
+> ([cloudflare-config-drift.md](runbooks/setup-operations/cloudflare-config-drift.md)).
 
 The VPS forwards internet `:443` only for an **SNI allowlist** of public hostnames
 (`auth`/`files`/`immich`/`jellyfin`/`mealie` — see [services/micro-vps-ingress.md](services/micro-vps-ingress.md) → Security); all
@@ -211,10 +225,8 @@ its `:8443` twin) that does **not** import `lan_only` — plus its name in the p
   / [mealie](services/mealie.md) / [files](services/files.md) — kept public so immich's mobile app
   and friends without VPN access can reach them). Caddy does not route through the Authentik
   outpost here; the app itself redirects the browser to Authentik. For `files` that is what lets
-  its public share and upload links work at all — before the 2026-09-09 cutover the name went
-  through the outpost to the old filebrowser, which could only approximate it with
-  `skip_path_regex` holes ([migration runbook](runbooks/setup-operations/filebrowser-to-quantum.md)).
-  **`immich` additionally blocks its password endpoints at the public edge** (since 2026-09-16),
+  its public share and upload links work at all.
+  **`immich` additionally blocks its password endpoints at the public edge**,
   the same shape as `jellyfin` below: the `:8443` site block `403`s `POST /api/auth/login` and
   `/api/auth/admin-sign-up`, while `/api/oauth/*` (web **and** mobile app) and anonymous `/share/`
   links are not matched. LAN/tailnet `:443` keeps native password login.
@@ -222,7 +234,7 @@ its `:8443` twin) that does **not** import `lan_only` — plus its name in the p
 > **Forward-auth is not used for any of these, and cannot be.** An Authentik proxy provider in
 > front of `immich` or `jellyfin` would 302 every request, which their mobile/native clients and
 > APIs cannot follow; excluding `/api/` to fix that excludes essentially the whole app. `files`
-> was deliberately migrated *off* a proxy provider on 2026-09-09 for the same class of reason.
+> left a proxy provider for the same class of reason: its share links must work without a login.
 > What gates these apps instead is (a) the app's own OIDC login, (b) the Authentik **`nas-users`
 > application binding** — [authentik.md → Application access](services/authentik.md#application-access-the-login-allowlist)
 > — and (c) the edge `403`s on password endpoints.
@@ -246,8 +258,7 @@ its `:8443` twin) that does **not** import `lan_only` — plus its name in the p
   clauses are evaluated together, so there is no ordering to get wrong. See
   [services/micro-vps-ingress.md](services/micro-vps-ingress.md) → Security. Covers everything else: `nas` (TrueNAS host web
   UI — not a Docker stack, proxied to the host over HTTPS), `grafana`
-  (traffic and service analytics — see [services/observability.md](services/observability.md); it
-  replaced the `goaccess` placeholder name on 2026-09-09), `adguard`,
+  (traffic and service analytics — see [services/observability.md](services/observability.md)), `adguard`,
   `homarr`, `komodo` (Komodo Core, the control plane), `kuma`, `beszel`, `paperless`, `seerr`,
   `games`, `questarr`, `romm`, `shelfmark`, and all *arr / download tools (`sonarr`,
   `radarr`, `bazarr`, `prowlarr`, `sabnzbd`, `qbittorrent`). This list is the one

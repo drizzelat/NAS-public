@@ -47,8 +47,8 @@ choosing nftables`.
 ### `--snat-subnet-routes=false` + `100.64.0.0/10` in `@lan` — real tailnet source IP
 
 Tailscale's `--snat-subnet-routes` (default on) masquerades tunnel clients as a Docker gateway, so
-the edge's LAN-only rule refused them (under NPMplus a `444`, which the browser showed as
-`ERR_HTTP2_PROTOCOL_ERROR` / instant reset). Turning SNAT off lets Caddy see the real
+the edge's LAN-only rule refused them (the browser shows an empty reply or
+`ERR_HTTP2_PROTOCOL_ERROR`). Turning SNAT off lets Caddy see the real
 `100.64.0.0/10` tailnet source, which its `@lan` matcher admits. **Both are required** — the flag
 alone is still refused if the range is missing.
 
@@ -66,7 +66,7 @@ devices emit those addresses — so allow-listing the range is otherwise safe. B
 forwards public traffic from its own tailnet IP `100.64.0.12`, which *is* inside `100.64.0.0/10`**,
 so the range alone would expose LAN-only hosts to the internet. Every LAN-only vhost's `@lan`
 matcher therefore excludes the VPS IP with `not remote_ip 100.64.0.12` — a set, not an ordered
-list, so there is no ordering to get wrong (NPMplus needed the `deny` *before* the `allow`). See
+list, so there is no ordering to get wrong. See
 [micro-vps-ingress.md](../../services/micro-vps-ingress.md) → Security.
 
 ## End-state config
@@ -87,12 +87,12 @@ Plus, **not in the repo** (console / UI state):
   plus `not remote_ip 100.64.0.12` — [`stacks/caddy/Caddyfile`](../../../stacks/caddy/Caddyfile).
 - Client: *Use Tailscale DNS* + *use subnet routes* on.
 - Node auth: deploy with `TS_AUTHKEY=""` and open the interactive auth URL from the container logs
-  (or set a real key in Portainer). Node state persists in `/mnt/apps/tailscale`.
+  (or set a real key in the vault). Node state persists in `/mnt/apps/tailscale`.
 
 ## Verify
 
 - [ ] `tailscale dns status` on the client lists `example.com → 192.168.178.111`.
-- [ ] `nslookup portainer.example.com` over the tunnel → `192.168.178.111`.
+- [ ] `nslookup komodo.example.com` over the tunnel → `192.168.178.111`.
 - [ ] A LAN-only service loads over the tunnel (no empty reply / HTTP2 error).
 - [ ] The Caddy access log (`/mnt/apps/caddy/logs/access.log`) shows the real `100.x` tailnet IP for tunnel requests.
 - [ ] FritzBox WG still connects (fallback intact).

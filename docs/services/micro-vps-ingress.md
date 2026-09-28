@@ -30,27 +30,25 @@ all the way to Caddy.
 > [`edge-access-policy.yml`](../../.github/workflows/edge-access-policy.yml) —
 > [runbook](../runbooks/setup-operations/edge-access-policy-probe.md).
 
-> **Komodo Stack, since 2026-09-15.** The `nginx` ingress lives in this repo at
+> **Komodo Stack.** The `nginx` ingress lives in this repo at
 > [`stacks/micro-vps-ingress/`](../../stacks/micro-vps-ingress/) (single self-contained
 > `docker-compose.yml` — the nginx config is **inlined as a Compose `config`**, see note below). It
 > is deployed by the Komodo Stack `micro-vps-ingress` on Server `micro-vps`, through the
 > [periphery](micro-vps-periphery.md), from the clone at `/etc/komodo/repos/nas`. A push reaches it
 > through `deploy-stacks` → Komodo `DeployStack`, with the health gate; the hourly
-> `reconcile-owned` Procedure is the backstop ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)).
+> `reconcile-owned` Procedure is the backstop ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)).
 > The stack has no env, so it uses no Komodo Variables.
 >
-> **Why the config is inlined, not a mounted file:** this was a Portainer constraint. Portainer ships
-> only the compose *content* to Agent (non-local) endpoints, **not** sibling files. A relative
-> `./nginx.conf` bind mount had nothing to mount on the VPS, so Docker auto-created a bogus
-> directory and the deploy failed (`not a directory: Are you trying to mount a directory onto a file`).
-> Komodo clones the whole repo, so a real file would now work. Turning the block into one is a
-> Phase 3 follow-up PR ([§8](../runbooks/setup-operations/komodo-migration.md#phase-3--decommission)),
-> not something to fold into another change.
+> **Why the config is inlined, not a mounted file:** Portainer, which deployed it before Komodo,
+> shipped only the compose *content* to remote hosts. Komodo clones the whole repo, so a real file
+> would now work; turning the block into one is a [roadmap](../roadmap.md#already-in-the-docs-still-to-do)
+> item, not something to fold into another change. Compare an inline block with the running config
+> through `docker compose config --hash`: plain `config` writes every `$` back as `$$`, so a correct
+> render reads as drift.
 >
 > **The Komodo periphery is NOT in this stack** — it is the transport this Stack deploys through, so
 > it must not be torn down by its own deploys. See [micro-vps-periphery](micro-vps-periphery.md). The
-> Portainer agent and the `/home/ubuntu/` break-glass copy were removed on 2026-09-17 (SVC-2 Phase
-> 3); the periphery's clone is the break-glass now.
+> periphery's clone is the break-glass.
 
 ## Host
 
@@ -81,7 +79,10 @@ Two independently-managed pieces:
 | `nginx`           | **Komodo Stack** `micro-vps-ingress` (Server `micro-vps`) | repo [`stacks/micro-vps-ingress/`](../../stacks/micro-vps-ingress/), cloned to `/etc/komodo/repos/nas` | `nginx:alpine`, `network_mode: host`, stream-forwards public `:80/:443` |
 | `komodo-periphery` | **repo + SSH apply** | repo [`stacks/micro-vps-periphery/`](../../stacks/micro-vps-periphery/). See [micro-vps-periphery](micro-vps-periphery.md) | the transport; bound **tailnet-only** `100.64.0.12:8120` |
 
-Both `restart: unless-stopped`. Config backups in `/home/ubuntu/backups/<ts>/`. The stream config,
+Both `restart: unless-stopped`. Config backups in `/home/ubuntu/backups/<ts>/`. `nginx` runs with
+`no-new-privileges` and a **128 MB** memory limit — the host has 954 MiB and no swap, so the cap is
+what keeps a runaway nginx from taking `sshd` and the periphery with it; peak RSS over a month of
+Beszel history is 7.7 MB. The stream config,
 abridged — the compose file is authoritative, and writes every nginx `$` as `$$`:
 
 ```nginx
@@ -151,7 +152,13 @@ probes to `:80` with no valid Host likewise go nowhere — benign log noise.
 | 443   | nginx stream       | → NAS `100.64.0.11:8443` (Caddy's PROXY-protocol listener) via Tailscale |
 
 `8120` (Komodo periphery) is tailnet-IP-bound, not public. `111`/rpcbind masked. Firewall =
-iptables (Oracle default); **no ufw, no fail2ban**.
+iptables (Oracle default); **no ufw, no fail2ban** (an accepted risk: key-only SSH on a
+non-standard port, and nginx is a raw `stream` forwarder with no HTTP log to jail on).
+
+Host iptables rules persist in `/etc/iptables/rules.v4`: edit that file, never run
+`netfilter-persistent save`, which would freeze a copy of Docker's generated chains into it. The
+Oracle security list still has a stale ingress rule for tcp/2333 (console-only;
+[roadmap](../roadmap.md#already-in-the-docs-still-to-do)).
 
 ## Dependencies
 
@@ -210,7 +217,7 @@ IP, so anything the VPS forwards is refused while real tailnet clients still pas
 }
 ```
 
-Unlike NPMplus's ordered `allow`/`deny` list, the IP lists OR and the two matchers AND, so the
+The IP lists OR and the two matchers AND, so the
 exclusion cannot be reordered into a hole ([caddy.md](caddy.md) → LAN-only vs public). Public hosts
 (`auth`/`files`/`immich`/`jellyfin`/`mealie`) carry no `@lan` matcher and are unaffected.
 
@@ -231,6 +238,10 @@ the `lan_only` snippet, or the VPS tailnet IP changes and the exclusion goes sta
   edge address — see [caddy.md](caddy.md) → Real client IP behind Cloudflare. An L7 proxy here is
   not needed for that.
 
+**Container logs** are capped at 10 MB × 3 files per container (`x-logging` in the compose file):
+Docker's `json-file` default never rotates. Enforced by
+[`compose-policy.py`](../../.github/scripts/compose-policy.py).
+
 ## Operations
 
 Normal path (nginx): edit [`stacks/micro-vps-ingress/`](../../stacks/micro-vps-ingress/) in this repo → commit →
@@ -240,7 +251,7 @@ periphery's clone and runs `compose up -d` on the VPS, then health-checks it. **
 - A change to the inlined config *content* alone needs a `config-rev` label bump to actually
   recreate the container (see Common failures).
 - **Every recreate takes all public sites down for ~11 s.** nginx's graceful `SIGQUIT` closes the
-  listeners and then waits on open streams until Docker kills it after 10 s (plan F22). Push
+  listeners and then waits on open streams until Docker kills it after 10 s. Push
   changes here when a short public outage is acceptable.
 
 The periphery is managed by hand ([micro-vps-periphery](micro-vps-periphery.md)). SSH is the
@@ -263,7 +274,7 @@ sudo docker compose -p micro-vps-ingress restart nginx  # bounce only
 ```
 
 The host's compose hashes differently from the periphery's, so this recreates the container: ~11 s
-of public outage (F22). **Deploy** the Stack from Komodo once it is back.
+of public outage. **Deploy** the Stack from Komodo once it is back.
 
 Changing the periphery's version: [micro-vps-periphery](micro-vps-periphery.md).
 
@@ -324,7 +335,7 @@ on its own.
   ```
 
   Fix: redeploy `stacks/micro-vps-ingress` (**Deploy** the Komodo Stack — see Operations). Verify from
-  outside: an unlisted host (e.g. `npm`) should be a Cloudflare `525`, `auth`/`files`/`immich`/`jellyfin`/`mealie`
+  outside: an unlisted host (e.g. `komodo`) should be a Cloudflare `525`, `auth`/`files`/`immich`/`jellyfin`/`mealie`
   still reachable. Diagnostic from any machine (forces the public path, bypassing LAN DNS):
 
   ```sh
@@ -345,9 +356,3 @@ on its own.
   change to `configs.*.content` **alone** does not always make Compose recreate the container — the
   stack's `ConfigHash` advances but the old container keeps running. The `config-rev` label on the
   `nginx` service forces the recreate; **bump it whenever the config changes**.
-
-## Last updated
-
-2026-09-17 — the Portainer agent and the `/home/ubuntu/` break-glass copy removed (SVC-2 Phase 3); the periphery's clone is the break-glass.
-
-2026-09-15 — deployed by the Komodo Stack; Portainer's redeploy and webhook are the §10 rollback only

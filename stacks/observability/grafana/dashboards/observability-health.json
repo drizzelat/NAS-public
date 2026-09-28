@@ -676,6 +676,7 @@
     },
     {
       "id": 15,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Vector events/s by component",
       "gridPos": {
@@ -726,6 +727,7 @@
     },
     {
       "id": 16,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Vector discarded events/s by component",
       "gridPos": {
@@ -777,6 +779,7 @@
     },
     {
       "id": 17,
+      "interval": "5m",
       "type": "timeseries",
       "title": "VictoriaLogs rows ingested vs dropped/s",
       "gridPos": {
@@ -833,6 +836,7 @@
     },
     {
       "id": 18,
+      "interval": "5m",
       "type": "timeseries",
       "title": "VictoriaMetrics inserts/s",
       "gridPos": {

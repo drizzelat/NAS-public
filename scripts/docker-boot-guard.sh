@@ -11,7 +11,15 @@ WAIT_SECS="${WAIT_SECS:-120}"
 
 LOG="${DOCKER_BOOT_GUARD_LOG:-/var/log/docker-boot-guard.log}"
 
-if { : >>"$LOG"; } 2>/dev/null; then
+# Renders the drop-in on stdout and exits, so a checker can diff the live file against
+# this generator. Before the log redirect on purpose. See dropin_text below.
+if [ "${1:-}" = "--print-dropin" ]; then
+  print_only=true
+else
+  print_only=false
+fi
+
+if [ "$print_only" = false ] && { : >>"$LOG"; } 2>/dev/null; then
   exec >>"$LOG" 2>&1
 fi
 
@@ -24,15 +32,20 @@ fi
 
 # Ordering drop-in. `mountpoint -q` is the check that matters: the mountpoint DIR
 # always exists, so a path test would pass in exactly the broken case.
-install_dropin() {
+dropin_text() {
   # The command line must contain NO dollar sign — systemd expands \$VAR in unit
   # files even inside single quotes, so `timeout` + `until` is used instead of a counter.
-  want="[Unit]
+  printf '%s' "[Unit]
 # Installed by scripts/docker-boot-guard.sh (POSTINIT). Not RequiresMountsFor= —
 # a middleware-mounted ZFS dataset has no .mount unit. Regenerated every boot.
 [Service]
 ExecStartPre=/bin/sh -c 'timeout $WAIT_SECS sh -c \"until mountpoint -q $DOCKER_ROOT; do sleep 1; done\" || { echo \"docker data-root $DOCKER_ROOT not mounted after ${WAIT_SECS}s\" >&2; exit 1; }'
 "
+}
+
+install_dropin() {
+  want="$(dropin_text; printf x)"
+  want="${want%x}"
 
   if [ -f "$DROPIN" ] && [ "$(cat "$DROPIN")" = "$want" ]; then
     log "ok: ordering drop-in already current ($DROPIN)"
@@ -60,6 +73,11 @@ live_image_count() {
 daemon_is_blind() {
   [ "$(disk_image_count)" -gt 0 ] && [ "$(live_image_count)" -eq 0 ]
 }
+
+if [ "$print_only" = true ]; then
+  dropin_text
+  exit 0
+fi
 
 install_dropin
 

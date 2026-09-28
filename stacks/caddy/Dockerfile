@@ -13,7 +13,7 @@ RUN xcaddy build \
       --replace golang.org/x/text=golang.org/x/text@v0.42.0 \
       --replace google.golang.org/grpc=google.golang.org/grpc@v1.84.0
 
-FROM caddy:2.11.4-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e
+FROM caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
 # Upstream rebuilds this base only with its Alpine base, so repo fixes lag; take them at build time.
 RUN apk upgrade --no-cache
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy

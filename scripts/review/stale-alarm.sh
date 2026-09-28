@@ -3,6 +3,8 @@
 # Docs: docs/runbooks/setup-operations/renovate-pr-review.md
 
 set -uo pipefail
+# shellcheck source=scripts/review/soak.sh
+. "$(dirname "$0")/soak.sh"
 now=$(date -u +%s)
 stale=""
 
@@ -23,6 +25,11 @@ while read -r pr; do
   set -- $st
   [ "$1" = "success" ] || continue
   granted=$(date -u -d "$2" +%s 2>/dev/null) || continue
+  # A PR still soaking was never mergeable: count from when the soak ended.
+  youngest=$(pr_youngest_image "$num" "$head") || youngest=none
+  if [ "$youngest" != none ] && [ $((youngest + SOAK_HOURS * 3600)) -gt "$granted" ]; then
+    granted=$((youngest + SOAK_HOURS * 3600))
+  fi
   age=$(( (now - granted) / 3600 ))
   [ "$age" -gt "$MAX_AGE_HOURS" ] || continue
 

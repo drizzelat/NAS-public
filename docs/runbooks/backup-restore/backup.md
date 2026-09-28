@@ -33,8 +33,8 @@ false`, so they never collide with the template).
 
 ## What is backed up
 
-**Application config** — all leaf datasets under `apps`, e.g. `portainer`, `authentik`,
-`immich` (database), `npm`, `kuma`, `mealie`, and every `mediaserver/config/*` service. The
+**Application config** — all leaf datasets under `apps`, e.g. `authentik`,
+`immich` (database), `npm` (CrowdSec's state), `kuma`, `mealie`, and every `mediaserver/config/*` service. The
 Jellyfin task excludes its regenerable `cache/` directory. (`apps/tailscale` is the one
 deliberate exception — see below.)
 
@@ -60,6 +60,7 @@ to the chain.
 | Dataset | Reason |
 | --- | --- |
 | `data/mediaserver` | Bulk media (downloads/library), re-downloadable; too large for off-site |
+| `data/romm` | Bulk ROMs, replaceable and quota-capped at 500 GB; RomM's saves + DB live on `apps/romm` ([romm.md](../../services/romm.md)) |
 | `apps/.ix-virt`, `apps/.system/*` | TrueNAS system / VM internals |
 | `apps/ix-apps/*` | TrueNAS-managed Docker/catalog data (regenerable) |
 | `apps/mediaserver/config/jellyfin/cache` | Regenerable transcode/image cache |
@@ -168,7 +169,8 @@ above:
   `apps/ix-apps`, `apps/tailscale`). New app config leaves are picked up for free.
 
 `DATA_INCLUDE` / `APPS_EXCLUDE` live at the top of the script; keep them in sync with those
-tables. Only leaf datasets (no children) qualify — parents are skipped automatically.
+tables. CI (`docs-drift.py`) fails a stack that bind-mounts a `/mnt/data/*` path under neither
+`DATA_INCLUDE` nor a `data/` row of the "NOT backed up" table. Only leaf datasets (no children) qualify — parents are skipped automatically.
 
 > Size does not affect scheduling (serial run, no overlap). The 137G `data/immich` initial
 > scan dominates wall-clock on first seed; after that nightly runs only push the small delta.
@@ -184,8 +186,8 @@ holding 2.6 GB) and one from an aborted run on **2026-06-30** (`apps/immich` 1.3
 The chain now destroys them itself, before it starts syncing:
 
 - Match is `@cloud_sync-<taskid>-<YYYYMMDDHHMMSS>` — the name carries its own timestamp, so age
-  costs no extra property read. `@auto-*` (the retention snapshots) and hand-made `@manual-*`
-  snapshots are never touched.
+  costs no extra property read. The retention snapshots (`@auto-*`, `@daily-*`, `@weekly-*`,
+  `@monthly-*`) and hand-made `@manual-*` snapshots are never touched.
 - Older than `SWEEP_DAYS` (2) only. A live run cannot be that old: the script holds an exclusive
   lock and one full pass takes hours, not days.
 - Runs **before** the chain, not after, so a run that dies half way still gets its strays
@@ -232,6 +234,111 @@ logical dump into each DB's already-backed-up dataset — see
 [postgres-dump.md](../backup-restore/postgres-dump.md). Both the data dir and the logical dump then travel offsite
 in the same cloud-sync run. RomM's dumps get their own `apps/romm/dumps` dataset, because
 `apps/romm` has children and the chain syncs leaf datasets only.
+
+## History on the Storage Box
+
+The Cloud Sync push is a **mirror**: each run makes the remote match the NAS, deletions included,
+and the login it uses lives in the TrueNAS config. On its own it would carry a local disaster
+(ransomware, a wrong `rm`, a destroyed snapshot) offsite the next night.
+
+The history is kept by the **Storage Box itself**: automatic snapshots, **daily, 10 kept** (the
+most this box allows), active since the box was set up. They are configured in the Hetzner console,
+not in TrueNAS, and are managed only from the console/API, so the SFTP login the NAS holds cannot
+remove them — [verified, not assumed](#the-login-cannot-touch-the-snapshots).
+
+- **The window is 10 days.** Damage on the NAS has to be noticed within that, or the last clean
+  snapshot rotates out. Local ZFS history reaches back six months (monthly tier), but it is on
+  the box that was damaged.
+- **They are watched** — see [Watching the snapshots](#watching-the-snapshots) below.
+- **Restoring from one** — see [Restore](#restore) → *From a Storage Box snapshot*.
+
+### The login cannot touch the snapshots
+
+That is the whole reason the offsite copy survives a compromised NAS, so it is checked rather than
+believed. Verified **2026-09-23**.
+
+The snapshots are visible over SFTP at **`/.zfs/snapshot/`** — the Storage Box is ZFS underneath,
+so they appear through the usual `.zfs` portal, not a `.snapshots` directory:
+
+```
+/.zfs/snapshot/Automatic-2026-09-14T02-58-25 … Automatic-2026-09-23T02-16-29   (10)
+```
+
+Being able to *read* them is the point (that is how [Restore](#restore) works). What matters is
+that this login cannot write there. The check is a `mkdir`, never an `rm` — if the tree refuses a
+new directory it cannot delete a snapshot either, and nothing real is risked:
+
+| Probe | Result |
+| ----- | ------ |
+| `mkdir /.zfs/snapshot/<x>` | `permission denied` |
+| `mkdir /.zfs/snapshot/Automatic-…/<x>` | `sftp: "Failure" (SSH_FX_FAILURE)` — a ZFS snapshot is read-only |
+| `mkdir /backup/<x>` (control) | **succeeds** — so the two refusals are the snapshot tree, not a dead login |
+
+The control row is the part that makes it proof. Without it a refusal could just as easily mean the
+credential had stopped working.
+
+> **The Cloud Sync login is key-based.** Credential `Hetzner-Storage Box` carries an empty `pass`
+> and points at keychain credential `hetzner` (`SSH_KEY_PAIR`), user `u000000`, **port 22**. A
+> re-run of this check needs that key, not a password.
+
+To re-run it — after changing the credential, or if Hetzner changes how snapshots are exposed —
+write the key to a 0600 file, point rclone at it and repeat the three `mkdir`s:
+
+```sh
+umask 077
+sudo midclt call keychaincredential.get_instance 1 \
+  | python3 -c 'import json,sys;sys.stdout.write(json.load(sys.stdin)["attributes"]["private_key"])' \
+  > /root/.sbprobe.key
+export RCLONE_CONFIG_SB_TYPE=sftp RCLONE_CONFIG_SB_HOST=u000000.your-storagebox.de \
+       RCLONE_CONFIG_SB_USER=u000000 RCLONE_CONFIG_SB_PORT=22 \
+       RCLONE_CONFIG_SB_KEY_FILE=/root/.sbprobe.key
+rclone lsd sb:/.zfs/snapshot                  # the 10 snapshots
+rclone mkdir sb:/.zfs/snapshot/write-probe    # must fail
+rclone mkdir sb:/backup/write-probe && rclone rmdir sb:/backup/write-probe   # must succeed
+sudo shred -u /root/.sbprobe.key
+```
+
+Any `mkdir` under `/.zfs/snapshot` that **succeeds** means the 10-day window is no longer
+ransomware-proof: remove the probe directory again and treat it as an incident.
+
+### Watching the snapshots
+
+The [deploy-state probe](../setup-operations/deploy-state-probe.md) asks the Hetzner API four
+times a day, through the `storagebox` verb of the NAS health probe, and FAILs when the newest
+snapshot is older than **36 h** or fewer than **8** are kept. Thresholds live at the top of
+[`nas-deterministic-checks.sh`](../../../.github/scripts/nas-deterministic-checks.sh).
+
+The token is **read-only** and never leaves the NAS:
+
+```sh
+# Create it in the Hetzner Console: Security -> API tokens -> Generate, permission Read.
+sudo install -d -m 700 /root/.config
+sudo tee /root/.config/hetzner-readonly.token >/dev/null    # paste, Ctrl-D
+sudo chmod 600 /root/.config/hetzner-readonly.token
+ssh -i secrets/ssh/nas-health_ed25519 nashealth@<nas-lan-ip> storagebox   # BOX + SNAPSHOT lines
+```
+
+Without the file the check prints `SKIP`, not a failure. The API is
+`GET https://api.hetzner.com/v1/storage_boxes` + `/storage_boxes/<id>/snapshots` — the **unified**
+Hetzner API, **not** `api.hetzner.cloud`, which answers `api route not found` for Storage Boxes.
+The helper resolves the box id itself, so a rebuilt box needs no edit.
+
+Verified 2026-09-23: box `557402` (`TrueNAS`, `u000000`), `snapshot_plan` = 10 max, daily at 00:00,
+10 automatic snapshots present, newest ~13 h old.
+
+**The SFTP login cannot delete them.** Hetzner serves snapshots read-only under
+`.zfs/snapshot/` and documents that `/.zfs` and everything below it cannot be written
+([Storage Box snapshots](https://docs.hetzner.com/storage/storage-box/snapshots/)). That is the
+property this whole design rests on, so confirm it by hand once — connect with the box's own SFTP
+credentials and try to delete a file inside a snapshot:
+
+```sh
+sftp -P 23 u000000@u000000.your-storagebox.de
+sftp> ls .zfs/snapshot
+sftp> rm .zfs/snapshot/<newest>/backup/apps/<any-file>     # must be refused
+```
+
+Record the result and the date here when you run it.
 
 ## Encryption
 
@@ -328,10 +435,28 @@ If the old design is still live (dozens of `snapshot: true` tasks), collapse the
 4. For service restores, stop the relevant Stack in Komodo first (**Stop**, never **Destroy**), replace the config
    directory, then start the Stack again.
 
+### From a Storage Box snapshot
+
+When the live mirror already holds the damage (a bad night was synced), restore from one of the
+[Storage Box snapshots](#history-on-the-storage-box) instead:
+
+- **Preferred — copy out of it.** The snapshot directory is already visible over SFTP (confirmed
+  2026-09-23, see [above](#the-login-cannot-touch-the-snapshots)): each snapshot is read-only under
+  `/.zfs/snapshot/<name>/`. Point the PULL task (or
+  `rclone`) at `.zfs/snapshot/<name>/backup/<pool>/<rel>` instead of `/backup/<pool>/<rel>`; the
+  files are the same crypt ciphertext, so the same password/salt decrypts them.
+- **Last resort — roll the box back** from the console. That reverts the **whole** Storage Box and
+  discards every backup newer than the snapshot, for every dataset.
+
+Pause the 03:00 chain first (disable its TrueNAS cron), or the next run mirrors the damage over the
+live copy again — harmless to the snapshots, but confusing mid-restore.
+
 > The encryption password and salt are required to read anything back. Confirm you have them
 > before you need them.
 >
-> **Prove it, don't assume it.** A backup you have never restored is untested. Run the
+> **Prove it, don't assume it.** A backup you have never restored is untested. The
+> [automated drill](restore-drill.md#the-automated-drill) pulls `apps/kuma` back and decrypts it on
+> the first Sunday of every month; run the full
 > [restore drill](restore-drill.md) quarterly — it pulls one real dataset + one `pg_dump` back
 > from Hetzner, decrypts them, and verifies the bytes, all in a scratch path without touching
 > production. That is what actually catches a wrong crypt salt or a truncated dump.

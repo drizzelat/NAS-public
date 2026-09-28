@@ -4,8 +4,7 @@
 `workflow` scopes. Classic PAT scopes are *account-wide*: that one secret reached every
 repository the account can see, and `workflow` let whoever held it rewrite
 `.github/workflows/*` — the push path itself. It was the only credential in the estate that
-reached beyond this repo
-([SEC-1](../../architecture-review-2026-08-20.md#sec-1--github-account-compromise-equals-nas-root)).
+reached beyond this repo.
 
 **Why an App and not a fine-grained PAT.** Renovate needs to read **check runs** before it
 automerges, and `Checks` is not among the permissions a fine-grained PAT can hold. A GitHub

@@ -240,6 +240,7 @@ jobs:
             ghcr.io/goauthentik/server
             ghcr.io/immich-app/postgres
             ghcr.io/drizzelat/nas-caddy
+            ghcr.io/drizzelat/nas-jellyfin
             mongo
             ghcr.io/moghtech/komodo-core
             ghcr.io/moghtech/komodo-periphery
@@ -271,6 +272,7 @@ jobs:
             ghcr.io/goauthentik/server
             ghcr.io/immich-app/postgres
             ghcr.io/drizzelat/nas-caddy
+            ghcr.io/drizzelat/nas-jellyfin
             mongo
             ghcr.io/moghtech/komodo-core
             ghcr.io/moghtech/komodo-periphery

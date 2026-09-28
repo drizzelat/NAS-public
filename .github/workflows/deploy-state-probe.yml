@@ -81,7 +81,7 @@ jobs:
       - name: Assert deployed state
         if: ${{ steps.guard.outputs.skip != 'true' }}
         env:
-          # Komodo service user probe-read: Read on Servers (+Inspect) and Stacks. docs/services/komodo.md
+          # Komodo service user probe-read: Read on Servers (+Inspect), Stacks and the sync. docs/services/komodo.md
           KOMODO_API_KEY: ${{ secrets.KOMODO_READ_API_KEY }}
           KOMODO_API_SECRET: ${{ secrets.KOMODO_READ_API_SECRET }}
           NAS_SSH_KEY_FILE: ${{ runner.temp }}/nas_health_ssh_key

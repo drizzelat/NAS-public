@@ -5,6 +5,9 @@
 !*.env.example
 secrets/
 **/secrets/
+# A worktree may symlink the unlocked secrets/ in from the main checkout; the two
+# patterns above match directories only, so name the bare path as well.
+/secrets
 
 # Encrypted secret vault — SAFE to commit (see docs/runbooks/secret-sync.md).
 # secrets.enc/ holds age ciphertext + the public key + the passphrase-wrapped
@@ -35,3 +38,6 @@ scripts/.bin/
 .agents/
 agent/
 skills-lock.json
+
+# Python bytecode
+__pycache__/

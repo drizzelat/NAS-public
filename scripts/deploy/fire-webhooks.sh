@@ -28,7 +28,7 @@ echo "before=$BEFORE" >> "$GITHUB_OUTPUT"
 # ONLY push-derived stacks may be rolled back — for dispatched ones the repo is right.
 echo "rollbackable=$(echo $pushed | xargs)" >> "$GITHUB_OUTPUT"
 if [ -z "$pushed" ]; then
-  # A lost run is picked up by the reconcile-owned Procedure, not here (komodo-migration.md F16).
+  # A lost run is picked up by the reconcile-owned Procedure, not here (docs/services/komodo.md → Rules).
   echo "Nothing to deploy: no stack folder changed."
   echo "changed=" >> "$GITHUB_OUTPUT"
   exit 0
@@ -43,7 +43,7 @@ for stack in $pushed; do
     echo "::error::there is no stacks/$stack folder to deploy"; fail=1; continue
   fi
   if [ ! -d "stacks/$stack" ]; then
-    # Never torn down from CI: Komodo's DestroyStack is a compose down (komodo-migration.md §10).
+    # Never torn down from CI: Komodo's DestroyStack is a compose down (docs/services/komodo.md → Rules).
     case " $OWNED " in *" $stack "*)
       echo "::error::'$stack' is still in komodo/owned-stacks but its folder is gone. Remove it from owned-stacks and resources.toml in the same PR"
       fail=1;;

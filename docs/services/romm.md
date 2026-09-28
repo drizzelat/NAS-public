@@ -20,7 +20,7 @@ Bring-up + ROM acquisition: [romm-emulation runbook](../runbooks/setup-operation
 
 - **Stack folder:** `stacks/romm/`
 - **Compose file:** `stacks/romm/docker-compose.yml`
-- **Deploy:** Komodo Stack `romm` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `romm` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 
 Two containers: `romm` (app + bundled Redis + nginx) and `romm-db` (**MariaDB** — RomM does not
@@ -40,7 +40,7 @@ run on plain MySQL).
 | Container path | Host path | Purpose |
 |---|---|---|
 | `/var/lib/mysql` | `/mnt/apps/romm/db` | MariaDB data |
-| `/romm/config` | `/mnt/apps/romm/config` | optional `config.yml` |
+| `/romm/config` | `/mnt/apps/romm/config` | `config.yml` — **required** since 5.3.0 (see Notes) |
 | `/romm/resources` | `/mnt/apps/romm/resources` | fetched art/metadata |
 | `/romm/assets` | `/mnt/apps/romm/assets` | **user saves + save-states — precious** |
 | `/redis-data` | `/mnt/apps/romm/redis` | bundled Redis task cache |
@@ -52,7 +52,7 @@ the other `data` tenants. Raise with `zfs set quota=<n>G data/romm`.
 
 ## Environment variables
 
-Set via the encrypted vault (`secrets.enc/portainer-env/romm.env.age`); `scripts/secrets.sh push romm` writes the Komodo Variables `ROMM__<KEY>` and deploys — see
+Set via the encrypted vault (`secrets.enc/stack-env/romm.env.age`); `scripts/secrets.sh push romm` writes the Komodo Variables `ROMM__<KEY>` and deploys — see
 [secret-sync](../runbooks/setup-operations/secret-sync.md). Values are **not** in this repo in
 the clear.
 
@@ -84,6 +84,19 @@ optional add-ons.
   **siblings**. `bios/` must **not** live inside `roms/`, or it is read as a platform slug.
   Platform folder names must match RomM's supported-platform slugs — **GameCube is `ngc`, not
   `gc`**.
+- **The layout must be declared in `config.yml`, and that file is not in this repo.** RomM 5.3.0
+  dropped layout auto-detection and **refuses to start** unless `filesystem.structure` is set;
+  `filesystem.roms_folder` and `filesystem.firmware_folder` were removed in the same release and
+  are equally fatal if still present. `/mnt/apps/romm/config/config.yml` is host state — nothing
+  in `stacks/romm/` carries it, so a Renovate bump alone will not fix it and a fresh host needs it
+  written by hand. The Structure A block this stack runs:
+
+  ```yaml
+  filesystem:
+    structure:
+      default: "roms/{platform}/{game}"
+      firmware: "bios/{platform}"
+  ```
 - **COOP/COEP is RomM's job, not the proxy's.** EmulatorJS needs `SharedArrayBuffer`, which needs a
   cross-origin-isolated page. RomM's internal nginx sets the headers **only on the player routes**
   (`/rom/*/ejs`, `/console/rom/<id>/play`) and nowhere else — deliberately, since `require-corp`
@@ -127,6 +140,9 @@ by hand. Rollback = revert the commit + redeploy (for the app; see below for the
   old major again. Take a fresh logical dump before the next major and restore from it if the
   upgrade goes wrong.
 - **Watch for Redis externalization** (see Notes).
+- **5.3.0 was a one-way DB migration.** It reworked the ROM table, so reverting the image pin
+  restores the old container against the **new** schema. Take a logical dump before any RomM
+  major/minor the release notes flag as migrating, the same way as for MariaDB above.
 
 ### Restore from backup
 
@@ -148,6 +164,7 @@ crash-consistent), fall back to the **logical dump**: reload
 | Symptom | Cause → fix |
 |---|---|
 | RomM won't start, DB errors | MariaDB unhealthy or creds mismatch. **MySQL image will not work — must be MariaDB.** |
+| RomM crash-loops right after an upgrade, complaining about the library layout | `config.yml` has no `filesystem.structure` (or still sets the removed `filesystem.roms_folder`/`filesystem.firmware_folder`) — required since 5.3.0, see Notes. |
 | Auth fails *after a secret rotation* | Rotated `ROMM_DB_PW` never reached the DB — see the rotation trap in Notes. |
 | `romm-db` restarts mid-scan | OOM-killed at the memory limit. Raise `1G` or cap `innodb_buffer_pool_size`. |
 | Games not detected on scan | Wrong platform slug (**`ngc`, not `gc`**), or `bios/` nested inside `roms/`. Also: bulk imports need a manual Scan. |
@@ -156,9 +173,3 @@ crash-consistent), fall back to the **logical dump**: reload
 | Scan/metadata tasks queue but never run | Redis unreachable — after an upgrade that externalized it, add `valkey` + `REDIS_HOST`. |
 | Reachable on LAN, not over Tailscale | `100.64.0.0/10` missing from Caddy's `@lan` matcher, or the tailscale stack lost `--snat-subnet-routes=false` ([tailscale.md](tailscale.md)). |
 | Permission denied on library | Dataset not owned `1000:1000` / ACLs missing (see Notes). |
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables.
-
-2026-09-11

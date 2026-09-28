@@ -91,8 +91,7 @@ Key design choices to copy:
 ## Phase 2 — Komodo, the vault, the runner and the host clone
 
 Komodo Core is the control plane: a `komodo` stack (Core + MongoDB) that deploys itself once
-bootstrapped, plus one **periphery** per host that Core deploys through. Until 2026-09-17 this
-estate used Portainer here; [archive/portainer.md](../../archive/portainer.md) has that history.
+bootstrapped, plus one **periphery** per host that Core deploys through.
 
 1. Fork/clone **this repo** to your own git host and edit it to your values (domain, paths, IPs) as
    you go.
@@ -177,8 +176,8 @@ VPS round-trip).
    [network.md](../../network.md) → "Access control"):
    - **LAN-only** (most): its vhost imports `lan_only`, and its name stays out of the VPS allowlist.
    - **Public, the app's own login via Authentik OIDC**: immich, mealie, files — Caddy proxies
-     straight to the app, which runs the OIDC flow itself ([mealie-authentik-oidc](mealie-authentik-oidc.md),
-     [filebrowser-to-quantum](filebrowser-to-quantum.md)). The app exposes no host port.
+     straight to the app, which runs the OIDC flow itself ([mealie](../../services/mealie.md),
+     [files](../../services/files.md)). The app exposes no host port.
    - **Public with an SSO plugin and an edge login block**: Jellyfin, whose password endpoints
      Caddy answers with `403` on the public listener only ([jellyfin-authentik-sso](jellyfin-authentik-sso.md)).
 
@@ -242,7 +241,7 @@ Administration" in [network.md](../../network.md).
 
 ## Secrets you must generate (never commit in the clear)
 
-Every stack's env lives encrypted in `secrets.enc/portainer-env/<stack>.env.age` and reaches
+Every stack's env lives encrypted in `secrets.enc/stack-env/<stack>.env.age` and reaches
 Komodo's Variables through `scripts/secrets.sh komodo-vars` / `push` ([secret-sync](secret-sync.md)); the variables each
 stack needs are listed in its service doc. Outside the vault, in your password manager: the vault
 passphrase, the rclone Crypt password + salt, the Hetzner login and the TrueNAS `pwenc_secret`

@@ -8,7 +8,7 @@ Paperless-ngx is a document management system that transforms your physical docu
 
 - **Stack folder:** `stacks/paperless/`
 - **Compose file:** `stacks/paperless/docker-compose.yml`
-- **Deploy:** Komodo Stack `paperless` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `paperless` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 
 ## Access
@@ -79,8 +79,7 @@ Gemini endpoint. That archive holds contracts, invoices, medical and tax records
 
 This was never a vulnerability; it was the one place where the estate's posture was
 inconsistent. Everything else here is aggressively self-hosted and privacy-first, and this
-single env var routed the most sensitive dataset in the house to a third party
-([SVC-4](../architecture-review-2026-08-20.md#svc-4--paperless-ai-sends-documents-to-google)).
+single env var routed the most sensitive dataset in the house to a third party.
 
 Removed rather than repointed at a local Ollama: the N100 has no discrete GPU (see
 [hardware.md](../hardware.md)), so local inference would be slow, and **paperless-ngx's native
@@ -118,8 +117,6 @@ Paperless-ngx assigns tags, correspondents and document types itself, with no LL
   "reused from Mealie", then claiming Mealie had no AI configuration at all. Mealie's key lives
   in its own Postgres (`ai_providers.api_key`), set through the Mealie UI — not in a stack env
   var and not in the vault.
-- **The NPM proxy host for the sidecar UI was deleted 2026-08-22**, by hand in the NPM UI — see
-  [GAP-1](../architecture-review-2026-08-20.md#gap-1--npm-and-authentik-config-is-click-ops).
 
 ## Operations
 
@@ -128,7 +125,7 @@ Paperless-ngx assigns tags, correspondents and document types itself, with no LL
 ### Restart / redeploy
 
 - Komodo → Stacks → `paperless` → **Deploy** (or **Restart**).
-- Or push to `stacks/paperless/` → the runner deploys it through Komodo ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)).
+- Or push to `stacks/paperless/` → the runner deploys it through Komodo ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)).
 
 ### Upgrade
 
@@ -149,9 +146,3 @@ Paperless-ngx assigns tags, correspondents and document types itself, with no LL
   `PAPERLESS_CSRF_TRUSTED_ORIGINS` missing or not matching the proxied URL
   (`https://paperless.example.com`). Set both and redeploy.
 - **Need a superuser** → run the Django `createsuperuser` command in the `paperless` container (`sudo docker exec -it paperless python manage.py createsuperuser` over SSH on the NAS).
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables.
-
-2026-09-11

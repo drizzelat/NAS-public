@@ -7,6 +7,13 @@ AGENTS.md makes three promises about every stack in `stacks/`:
   * every LAN-exposed port is listed in the ports table in `docs/network.md`,
   * every host bind mount is a row in the mount table in `docs/storage.md`.
 
+Two more keep the edge probe and the offsite backup from silently missing a service:
+
+  * every `*.<DOMAIN>` site block in the Caddyfile is in `PUBLIC_HOSTS` or
+    `LAN_ONLY_HOSTS` in edge-access-policy.yml, or the probe never asserts it,
+  * every `/mnt/data/*` bind mount is under `DATA_INCLUDE` in cloudsync-chain.sh,
+    or listed as deliberately unbacked in the backup runbook's "NOT backed up" table.
+
 Nothing enforced them, so drift only surfaced when a human went looking. This
 runs in CI on pull requests (see .github/workflows/compose-validate.yml) and is
 runnable by hand: `python3 .github/scripts/docs-drift.py`.
@@ -29,6 +36,10 @@ STACKS = ROOT / "stacks"
 SERVICE_DOCS = ROOT / "docs" / "services"
 NETWORK_DOC = ROOT / "docs" / "network.md"
 STORAGE_DOC = ROOT / "docs" / "storage.md"
+CADDYFILE = STACKS / "caddy" / "Caddyfile"
+EDGE_WORKFLOW = ROOT / ".github" / "workflows" / "edge-access-policy.yml"
+CLOUDSYNC_CHAIN = ROOT / "scripts" / "cloudsync-chain.sh"
+BACKUP_DOC = ROOT / "docs" / "runbooks" / "backup-restore" / "backup.md"
 
 # Stacks on the Oracle VPS hosts, not the NAS: only the service-doc check applies.
 OFF_NAS_PREFIXES = ("micro-vps-", "a1-vps-")
@@ -135,6 +146,63 @@ def host_paths(compose):
     return paths
 
 
+def workflow_env(path):
+    """Top-level `env:` of a workflow as {name: value}, folded `>-` blocks joined.
+    A regex, not PyYAML, so it runs on a bare runner like the rest of this script."""
+    env, key, in_env = {}, None, False
+    for line in path.read_text().splitlines():
+        if not in_env:
+            in_env = line.rstrip() == "env:"
+            continue
+        if line and not line[0].isspace():
+            break                                 # next top-level key ends the block
+        m = re.match(r"^  ([A-Z_][A-Z0-9_]*):\s*(.*)$", line)
+        if m:
+            key, val = m.group(1), m.group(2).strip()
+            env[key] = "" if val in (">", ">-", "|", "|-") else val.strip("'\"")
+        elif key and line.startswith("    ") and not line.strip().startswith("#"):
+            env[key] = f"{env[key]} {line.strip()}".strip()
+    return env
+
+
+def caddy_hosts(path, domain):
+    """Subdomains with a site block of their own. Only column-0 lines open a site
+    block; the `*.<domain>` catch-all is the default-deny, not a service."""
+    hosts = set()
+    for line in path.read_text().splitlines():
+        if not line.rstrip().endswith("{") or line[:1] in ("", " ", "\t", "#", "(", "{"):
+            continue
+        for addr in line.rstrip()[:-1].split(","):
+            addr = re.sub(r"^\w+://", "", addr.strip()).split(":")[0]
+            if addr.endswith("." + domain):
+                name = addr[: -len(domain) - 1]
+                if name != "*":
+                    hosts.add(name)
+    return hosts
+
+
+def data_include(path):
+    m = re.search(r"^DATA_INCLUDE\s*=\s*\(([^)]*)\)", path.read_text(), re.M)
+    if not m:
+        print(f"{path.name}: no DATA_INCLUDE tuple — has it been renamed?", file=sys.stderr)
+        sys.exit(2)
+    return set(re.findall(r"[\"']([^\"']+)[\"']", m.group(1)))
+
+
+def unbacked_datasets(body):
+    """Datasets named in the first column of the "NOT backed up" table."""
+    names = set()
+    for line in body.splitlines():
+        if line.strip().startswith("|"):
+            first = line.strip().strip("|").split("|")[0]
+            names |= {n.rstrip("/*") for n in re.findall(r"`([^`]+)`", first)}
+    return names
+
+
+def under(dataset, prefixes):
+    return any(dataset == p or dataset.startswith(p + "/") for p in prefixes)
+
+
 def main():
     if not STACKS.is_dir():
         print("no stacks/ directory — wrong working directory?", file=sys.stderr)
@@ -142,6 +210,21 @@ def main():
 
     documented_ports = table_column(section(NETWORK_DOC, r"Exposed ports"))
     documented_paths = table_column(section(STORAGE_DOC, r"Shares / bind mounts"))
+    backup_covered = data_include(CLOUDSYNC_CHAIN) | unbacked_datasets(
+        section(BACKUP_DOC, r"What is intentionally NOT backed up"))
+
+    env = workflow_env(EDGE_WORKFLOW)
+    domain = env.get("DOMAIN")
+    if not domain:
+        print(f"{EDGE_WORKFLOW.name}: no DOMAIN in env", file=sys.stderr)
+        return 2
+    probed = set(env.get("PUBLIC_HOSTS", "").split()) | set(env.get("LAN_ONLY_HOSTS", "").split())
+    for name in sorted(caddy_hosts(CADDYFILE, domain) - probed):
+        finding(
+            "stacks/caddy/Caddyfile",
+            f"has a site block for {name}.{domain}, which is in neither PUBLIC_HOSTS nor "
+            f"LAN_ONLY_HOSTS in .github/workflows/edge-access-policy.yml",
+        )
 
     for stack_dir in sorted(p for p in STACKS.iterdir() if p.is_dir()):
         name = stack_dir.name
@@ -181,16 +264,24 @@ def main():
                     f"stacks/{name}/docker-compose.yml",
                     f"bind-mounts {path}, which is not in the mount table in docs/storage.md",
                 )
+            if path.startswith("/mnt/data/"):
+                dataset = path[len("/mnt/"):]
+                if not under(dataset, backup_covered):
+                    finding(
+                        f"stacks/{name}/docker-compose.yml",
+                        f"bind-mounts {path}, which is neither under DATA_INCLUDE in "
+                        f"scripts/cloudsync-chain.sh nor in the NOT-backed-up table in "
+                        f"docs/runbooks/backup-restore/backup.md",
+                    )
 
-    # Service docs are allowed to outlive a stack only if the stack is gone on
-    # purpose; AGENTS.md says to remove/archive the doc, so flag the leftovers.
+    # A removed stack's doc goes with it (AGENTS.md), so flag the leftovers.
     for doc in sorted(SERVICE_DOCS.glob("*.md")):
         if doc.name in ("README.md", "_template.md"):
             continue
         if not (STACKS / doc.stem).is_dir():
             finding(
                 f"docs/services/{doc.name}",
-                f"documents '{doc.stem}', which has no stacks/{doc.stem}/ — remove or archive it",
+                f"documents '{doc.stem}', which has no stacks/{doc.stem}/ — remove it",
             )
 
     for path, msg in findings:

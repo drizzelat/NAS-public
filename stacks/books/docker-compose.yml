@@ -1,4 +1,10 @@
 # Shelfmark book library. Docs: docs/services/books.md
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   shelfmark:
     image: ghcr.io/calibrain/shelfmark:v1.3.15@sha256:9602290324993c801b319d3166b202b96bd9039af2416f0916dae03a5bdca815
@@ -22,6 +28,7 @@ services:
       - media_net
       - proxy_books
     restart: unless-stopped
+    logging: *default-logging
 networks:
   proxy_books:
     external: true

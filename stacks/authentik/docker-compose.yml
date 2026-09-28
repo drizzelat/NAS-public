@@ -1,4 +1,10 @@
 # postgres migrated 15/16→18 (versioned datadir) on 2026-07-02
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgresql:
     labels:
@@ -6,8 +12,9 @@ services:
       nas.backup.user: authentik
       nas.backup.db: authentik
       nas.backup.dir: /mnt/apps/authentik/dumps
-    image: docker.io/library/postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    image: docker.io/library/postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     restart: unless-stopped
+    logging: *default-logging
     security_opt:
       - no-new-privileges=true
     deploy:
@@ -36,8 +43,9 @@ services:
       - authentik_net
 
   server:
-    image: ghcr.io/goauthentik/server:2026.8.2@sha256:ff8489a5af4f4fe415ffd180a8e3c10b120bc2592d13d79dac050d977f7b9ecd
+    image: ghcr.io/goauthentik/server:2026.8.3@sha256:ab9b4e8cc4ab3f8d1198d2db6aeea66bafea1963b3f2843589e0d163f97d9849
     restart: unless-stopped
+    logging: *default-logging
     security_opt:
       - no-new-privileges=true
     deploy:
@@ -66,8 +74,9 @@ services:
       - proxy_authentik
 
   worker:
-    image: ghcr.io/goauthentik/server:2026.8.2@sha256:ff8489a5af4f4fe415ffd180a8e3c10b120bc2592d13d79dac050d977f7b9ecd
+    image: ghcr.io/goauthentik/server:2026.8.3@sha256:ab9b4e8cc4ab3f8d1198d2db6aeea66bafea1963b3f2843589e0d163f97d9849
     restart: unless-stopped
+    logging: *default-logging
     security_opt:
       - no-new-privileges=true
     deploy:

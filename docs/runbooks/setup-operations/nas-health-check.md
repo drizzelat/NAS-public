@@ -5,7 +5,7 @@ that runs **Claude Code headless on the self-hosted runner** every night at
 **06:30 Vienna**, dispatched by a host cron — see [On-time trigger](#on-time-trigger).
 Claude follows the checklist in
 [`.github/nas-health-check.md`](../../../.github/nas-health-check.md): SSH into the
-host, read the Komodo API, work through 19 checks, and print a report
+host, read the Komodo API, work through 12 checks, and print a report
 ending in `HEALTH: OK` or `HEALTH: FAIL`. Anything but `OK` turns the run red —
 **GitHub's workflow-failure email is the alert**, same channel as
 `deploy-stacks`. Green runs are silent.
@@ -63,12 +63,8 @@ list in [`scripts/nas-health-probe.sh`](../../../scripts/nas-health-probe.sh)
 and anything else exits `111` having run nothing. The verb table the agent works
 from is in [`.github/nas-health-check.md`](../../../.github/nas-health-check.md).
 
-Until 2026-09-06 the job held `truenas_ed25519` — `truenas_admin`, `NOPASSWD:
-ALL`, i.e. root on the NAS — to run a read-only report on the most frequently
-scheduled job on the runner. That was
-[SEC-1](../../architecture-review-2026-08-20.md#sec-1--github-account-compromise-equals-nas-root)
-step 3. `NAS_SSH_KEY` stayed a repo secret for `deploy-portainer-app.yml`, which mutated the host.
-Both were deleted on 2026-09-17 (SVC-2 Phase 3), so no CI job holds a `truenas_admin` key.
+No CI job holds a `truenas_admin` key (root on the NAS). Keep it that way: a read-only report
+does not need one.
 
 ### What still needs root, and how little of it
 
@@ -86,11 +82,16 @@ clone. Two things are different:
 - **`midclt`** authenticates over the middleware socket as the calling user and
   applies that user's privilege allowlist, so an unprivileged user gets nothing.
   Four exact calls are granted instead.
+- **The Hetzner token** (`/root/.config/hetzner-readonly.token`, 0600) is root-only, so the
+  `storagebox` verb goes through
+  [`scripts/nas-hetzner-snapshots.sh`](../../../scripts/nas-hetzner-snapshots.sh) — another
+  no-argument helper. It prints snapshot metadata; the token never leaves the host.
 
 The grants live on the user, not in a file:
 
 ```text
 nashealth ALL=(ALL) NOPASSWD: /mnt/apps/scripts/nas-health-smart.sh,
+  /mnt/apps/scripts/nas-hetzner-snapshots.sh,
   /usr/bin/midclt call alert.list, /usr/bin/midclt call disk.query,
   /usr/bin/midclt call cloudsync.query
 ```
@@ -149,11 +150,13 @@ Run from a workstation with the vault unlocked (`scripts/secrets.sh unlock`).
 ```sh
 NAS=truenas_admin@192.168.178.111; KEY=secrets/ssh/truenas_ed25519
 
-# 1. Install both scripts on the data pool, root-owned so nashealth cannot edit them.
-scp -i "$KEY" scripts/nas-health-probe.sh scripts/nas-health-smart.sh "$NAS:/tmp/"
+# 1. Install the three scripts on the data pool, root-owned so nashealth cannot edit them.
+scp -i "$KEY" scripts/nas-health-probe.sh scripts/nas-health-smart.sh \
+  scripts/nas-hetzner-snapshots.sh "$NAS:/tmp/"
 ssh -i "$KEY" "$NAS" 'sudo -n install -m 755 -o root -g root \
-  /tmp/nas-health-probe.sh /tmp/nas-health-smart.sh /mnt/apps/scripts/ &&
-  rm -f /tmp/nas-health-probe.sh /tmp/nas-health-smart.sh'
+  /tmp/nas-health-probe.sh /tmp/nas-health-smart.sh /tmp/nas-hetzner-snapshots.sh \
+  /mnt/apps/scripts/ &&
+  rm -f /tmp/nas-health-probe.sh /tmp/nas-health-smart.sh /tmp/nas-hetzner-snapshots.sh'
 
 # 2. Home directory. Must be under /mnt or TrueNAS refuses to store an SSH key.
 ssh -i "$KEY" "$NAS" 'sudo -n install -d -m 755 -o root -g root /mnt/apps/nas-health'
@@ -173,6 +176,7 @@ print(json.dumps({
   "sudo_commands": [],
   "sudo_commands_nopasswd": [
     "/mnt/apps/scripts/nas-health-smart.sh",
+    "/mnt/apps/scripts/nas-hetzner-snapshots.sh",
     "/usr/bin/midclt call alert.list",
     "/usr/bin/midclt call disk.query",
     "/usr/bin/midclt call cloudsync.query",
@@ -211,9 +215,9 @@ scp -i $K $H:/etc/shadow /tmp/x      # scp: Connection closed
 ssh -i $K -o ExitOnForwardFailure=yes -R 19998:127.0.0.1:22 -N $H   # forwarding failed
 ```
 
-**Re-install both scripts after every change to them in this repo.** `version`
+**Re-install the scripts after every change to them in this repo.** `version`
 prints the `sha256` of the installed copies; compare with
-`sha256sum scripts/nas-health-probe.sh scripts/nas-health-smart.sh`. A verb the
+`sha256sum scripts/nas-health-probe.sh scripts/nas-health-smart.sh scripts/nas-hetzner-snapshots.sh`. A verb the
 checklist names but the host does not have makes those checks SKIP, not FAIL.
 
 The probe also serves [`deploy-state-probe`](deploy-state-probe.md)'s `host-copies` verb, and that
@@ -396,12 +400,6 @@ tail -2 /var/log/nas-health-trigger.log
 - The agent's SSH key is *enforced* read-only by the forced command, not merely
   instructed — a workflow that lands on `main` can no longer reach the host
   through it. The job carries no write-scoped Git/rollback credentials either.
-  Until 2026-09-17 it also held `PORTAINER_API_TOKEN`, which is write-scoped
-  ([SEC-3](../../architecture-review-2026-08-20.md#sec-3--portainer-token-scope-claims-are-wrong)).
-  It now reads through the Komodo service user `probe-read`: Read plus Inspect, no Execute,
+  It reads through the Komodo service user `probe-read`: Read plus Inspect, no Execute,
   no Write. Inspect still shows container environments, so the checklist pipes
   `InspectContainer` straight into `jq` ([komodo.md](../../services/komodo.md)).
-
-## Last updated
-
-2026-09-11

@@ -44,21 +44,20 @@ that account is for humans and this key does not open it.
 | `help` | the verb list the host actually has | — |
 | `host` | failed systemd units, `NTPSynchronized`, boot time | 3 |
 | `alerts` | `alert.list` | 2 |
-| `pools` | `zpool status` + `zpool list -o name,capacity,health` | 4, 6 |
-| `datasets` | `zfs list -o name,mountpoint` | 9 |
-| `snapshots` | `zfs list -t snapshot -o name,creation`, oldest first | 7, 8 |
+| `pools` | `zpool status` + `zpool list -o name,capacity,health` | 4 |
+| `datasets` | `zfs list -o name,mountpoint` | 6 |
 | `smart` | `smartctl -H -A` **and** `-l selftest` for every scanned device | 5 |
 | `disks` | `disk.query` | 5 |
-| `cloudsync` | last 200 lines of the chain log + `cloudsync.query` task state | 11 |
-| `dumps DIR...` | `ls -l` of each dir, `gzip -t` and completion marker of its newest `*.sql.gz` | 10 |
-| `paths PATH...` | `OK`/`MISSING` per path | 9 |
-| `repo-head` | `git rev-parse HEAD` of the on-host clone | 12 |
-| `boot-guard` | the docker ordering drop-in, verbatim | 13 |
-| `yaml2json` | YAML on **stdin** → JSON on stdout (the runner has no PyYAML) | 14 |
-| `version` | `sha256` of the two installed scripts | — |
+| `cloudsync` | last 200 lines of the chain log + `cloudsync.query` task state | 7 |
+| `paths PATH...` | `OK`/`MISSING` per path | 6 |
+| `yaml2json` | YAML on **stdin** → JSON on stdout (the runner has no PyYAML) | 8 |
+| `version` | `sha256` of the installed scripts | — |
 
-`DIR`/`PATH` arguments must be absolute under `/mnt` with no `..` and no characters
-outside `A-Za-z0-9._/-`; anything else is refused. `dumps` and `paths` take as many
+`snapshots`, `dumps`, `repo-head`, `boot-guard` and `storagebox` exist too, and belong to the
+deterministic probe below — do not call them here.
+
+`PATH` arguments must be absolute under `/mnt` with no `..` and no characters
+outside `A-Za-z0-9._/-`; anything else is refused. `paths` takes as many
 arguments as you like — pass the whole list in one call.
 
 - **Komodo API** (the `probe-read` service user):
@@ -76,7 +75,7 @@ arguments as you like — pass the whole list in one call.
     nothing.
 - **Never let `InspectContainer` output reach the context.** It carries every
   container's environment, secrets included. Pipe it straight into `jq` in the same
-  command and select only the field you need (check 18).
+  command and select only the field you need (check 12).
 - No Docker access over SSH — read container state through the Komodo API.
 - The runner is on the LAN with outbound internet, so it can probe endpoints directly
   (`openssl s_client`, `curl`). A tool the check needs missing from the runner image →
@@ -92,18 +91,17 @@ for again on every turn after it. Late turns cost the most: by the last checks e
 re-reads well over 100k tokens, so a result pulled in at the start is paid for dozens of
 times.
 
-- One verb = one `ssh`, and several verbs serve more than one check: `pools` covers 4
-  and 6, `snapshots` covers 7 and 8, `dumps`/`paths` take a whole list at once.
+- One verb = one `ssh`, and `paths` takes a whole list at once.
 - Never re-fetch data already in context.
-- Checks 5 and 14 come with helpers in `.github/scripts/` that print only what the check
+- Checks 5 and 8 come with helpers in `.github/scripts/` that print only what the check
   judges. Run them as the check says, and never gather that data by hand as well.
 - Filter at the source. Pipe through `jq`/`grep`/`head` in the same command rather than
   pulling a whole API listing or log into context to read three fields out of it.
 - **Never read a repo doc whole** — no `cat`, no `sed -n '1,200p'`, no `Read` of
   `docs/scheduled-tasks.md`, `docs/network.md` or `docs/storage.md`. Pull the section:
   - cadences: `grep -n '^###' docs/scheduled-tasks.md` — most headings carry theirs;
-    Cloud Sync, snapshot tasks and disk health need the body, e.g.
-    `sed -n '/^### Periodic ZFS snapshot tasks/,/^### /p' docs/scheduled-tasks.md`
+    Cloud Sync needs the body, e.g.
+    `sed -n '/^### Cloud Sync/,/^### /p' docs/scheduled-tasks.md`
   - NAS LAN IP: `sed -n '/^## NAS host/,/^## /p' docs/network.md`; A1/VPS addresses:
     `sed -n '/^## Cloud hosts/,/^## /p' docs/network.md`
   - mount-table paths: `sed -n '/^## Shares/,/^## /p' docs/storage.md | grep -oE '/mnt/[A-Za-z0-9._/-]+' | sort -u`;
@@ -123,6 +121,14 @@ times.
   with the error, not SKIP.
 
 ## Checks
+
+**Seven checks are not here any more.** Snapshot recency and retention, scrub age, dump
+freshness and integrity, cert expiry, the on-host repo clone and the boot-guard drop-in are
+yes/no, so they moved to
+[`.github/scripts/nas-deterministic-checks.sh`](scripts/nas-deterministic-checks.sh), which the
+[deploy-state probe](../docs/runbooks/setup-operations/deploy-state-probe.md) runs four times a
+day — sooner than nightly and at no token cost. Do not re-do them here: a finding of theirs turns
+that probe's run red on its own. What is left is what needs judgement.
 
 Freshness rule for every recency check: read the documented cadence from the repo
 source the check names, then allow slack — **cadence + 2 h** for hourly/daily jobs,
@@ -158,28 +164,12 @@ source the check names, then allow slack — **cadence + 2 h** for hourly/daily 
    or `media_errors` > 0 / `percentage_used` > 80 (NVMe). From the self-test log: FAIL
    if the newest completed self-test did not pass, warn if it is older than the SMART
    cadence in `docs/scheduled-tasks.md` plus slack. `apps` is single-disk, no redundancy.
-6. **Scrub age** — the `scan:` line of the same `pools` output. Per pool, last completed
-   scrub younger than the scrub threshold in `docs/scheduled-tasks.md` (disk-health
-   section) plus slack.
-7. **Snapshot recency** — `docs/scheduled-tasks.md` (periodic ZFS snapshot tasks) lists
-   which datasets have tasks and at what cadence. Per listed dataset, the newest
-   snapshot (`snapshots` verb) must be younger than its cadence plus slack. Datasets
-   documented as intentionally unprotected are not failures.
-8. **Snapshot retention** — the same listing from the other end. Per snapshotted
-   dataset the **oldest** `auto-*` snapshot must be younger than that task's documented
-   retention plus 1 day; older means pruning stopped and the pool is filling — FAIL.
-   Separately, warn on any **non-`auto-`** snapshot older than 2 days: cloud sync takes
-   temporary snapshots per push and deletes them after, so a lingering one is leaked.
-   Two deliberate exceptions, do not warn on them: `apps/npm@pre-caddy-2026-09-06`, the
-   NPMplus rollback point kept on purpose (`docs/services/caddy.md`, `docs/archive/npm.md`,
-   `docs/runbooks/setup-operations/caddy-migration.md`), and `apps/portainer@pre-removal-2026-09-17`,
-   Portainer's state kept after its removal (`docs/archive/portainer.md`).
-9. **Storage drift** — two directions, repo against host:
+6. **Storage drift** — two directions, repo against host:
    - **Missing bind-mount paths (FAIL).** Collect every host path (`/mnt/...`) on the
      left of a `volumes:` entry across `stacks/*/docker-compose.yml`, pass the whole
      list to `paths` in one call. Not harmless: Docker creates a root-owned empty dir and
      the app comes up with empty state *looking* healthy. Only stacks running **on the
-     NAS** — one whose Komodo Stack is on another Server (check 14) is on a VPS and
+     NAS** — one whose Komodo Stack is on another Server (check 8) is on a VPS and
      its paths do not exist here.
    - **Orphan datasets (warning, never FAIL).** The `datasets` verb against those paths
      plus the mount table in `docs/storage.md`. Report datasets backing no stack and
@@ -192,23 +182,7 @@ source the check names, then allow slack — **cadence + 2 h** for hourly/daily 
 
 ### Backups
 
-10. **DB dumps — freshness and integrity.** Dump directories are the `nas.backup.dir`
-    labels across `stacks/*/docker-compose.yml` — that is how `scripts/pg-dump-backup.sh`
-    discovers what to dump, so a new labelled DB is covered without editing this file.
-    Pass every directory to `dumps` in one call. Per dir:
-    - newest `*.sql.gz` younger than the dump job's cadence (`docs/scheduled-tasks.md`)
-      plus slack;
-    - the verb's `gzip -t:` line must read `OK` — FAIL on `FAILED`;
-    - the verb's `complete:` line must read `OK`. `MISSING` means the dump carries no end
-      marker, i.e. the dumper died mid-stream — `gzip -t` still passes on that file
-      because the *container* is intact, so this is the only signal that catches a
-      truncated dump. FAIL on `MISSING`;
-    - size sane against the other retained dumps in the listing: FAIL below 50% of their
-      median or under 1 KiB, warn below 80%. A first-ever dump has nothing to compare
-      against — note it.
-    - A dump dir for a stack on another Server still lives here (the remote dump
-      streams back) — do not skip it.
-11. **Cloud sync chain** — only offsite protection for the non-redundant `apps` pool, and
+7. **Cloud sync chain** — only offsite protection for the non-redundant `apps` pool, and
     nothing else alerts on it going stale. The `cloudsync` verb returns the log tail (path is `LOG=` in `scripts/cloudsync-chain.sh`).
     The last `chain done (fail=N)` line must be younger than the chain's cadence
     (`docs/scheduled-tasks.md`) plus slack, with `N` = 0. FAIL on a non-zero `fail=`, a
@@ -220,20 +194,7 @@ source the check names, then allow slack — **cadence + 2 h** for hourly/daily 
 
 ### Repo vs live
 
-12. **On-host repo clone fresh** — the host runs cron scripts from a live clone of this
-    repo; its path is in `docs/runbooks/setup-operations/nas-repo-autopull.md`. The
-    `repo-head` verb should return this checkout's `git rev-parse HEAD`. If they differ,
-    PASS anyway when the workflow's commit is < 1 h old (the puller may not have caught
-    up — interval in the runbook); otherwise FAIL, the auto-pull cron is likely broken.
-13. **Docker boot-guard drop-in** — `scripts/docker-boot-guard.sh` in this checkout
-    generates a systemd drop-in (target path is in the script). The `boot-guard` verb
-    returns the live file — compare it against what the current script would generate.
-    FAIL if the file is missing, contains a bare `$` (systemd expands `$VAR` in unit
-    files), or otherwise diverges from the generator — a stale drop-in races dockerd
-    against the ZFS mount at the next reboot. It only regenerates at boot, so a repo-side
-    edit stays divergent until someone re-runs the script — say so in *Action needed*
-    with the command.
-14. **Deployed stacks match the repo** — `kr ListStacks '{"limit":0}'`, reading `.name`,
+8. **Deployed stacks match the repo** — `kr ListStacks '{"limit":0}'`, reading `.name`,
     `.info.server_id` (the Server name comes from `ListServers`) and `.info.state` per Stack.
     A Stack's name is its folder name under `stacks/`.
     - Komodo Stack with no matching repo folder → FAIL (untracked, cannot be redeployed
@@ -267,7 +228,7 @@ source the check names, then allow slack — **cadence + 2 h** for hourly/daily 
       - `NO REPO COMPOSE` → FAIL: a compose project no folder explains.
       - `ERROR` → FAIL with the error, naming what went unchecked.
 
-15. **Cloudflare range drift** — two files pin Cloudflare's published IP ranges, and
+9. **Cloudflare range drift** — two files pin Cloudflare's published IP ranges, and
     they are load-bearing in different ways: `stacks/caddy/Caddyfile`
     (`trusted_proxies static …`) decides whose `CF-Connecting-IP` is believed, and the
     `geo $cf_edge` block in `stacks/micro-vps-ingress/docker-compose.yml` decides who may
@@ -292,12 +253,12 @@ source the check names, then allow slack — **cadence + 2 h** for hourly/daily 
 
 ### Edge
 
-16. **Suspicious external traffic, last 24 h** — the Caddy access log is the only record
+10. **Suspicious external traffic, last 24 h** — the Caddy access log is the only record
     of what reached the edge. Needs `GRAFANA_TOKEN` (Viewer service account); unset →
     **SKIP**. Query VictoriaLogs through Grafana's datasource proxy — the stores publish
     no host port.
 
-    **`--resolve` to the NAS LAN IP, exactly as check 19 does.** `grafana.example.com`
+    **`--resolve` to the NAS LAN IP.** `grafana.example.com`
     is LAN-only in Caddy but still resolves *publicly* to Cloudflare, so a runner whose
     DNS is not AdGuard would be sent to Cloudflare, then to the VPS, which drops it — the
     name is not in the SNI allowlist. The connection would hang and the check would FAIL
@@ -332,7 +293,7 @@ source the check names, then allow slack — **cadence + 2 h** for hourly/daily 
 
       Any hit with a status other than `403` is a FAIL: the probe got past the edge. Hits
       that are *all* `403` are a `warn:` with the count and top client, not a FAIL — the
-      edge (a CrowdSec ban, AppSec or a Caddy block) refused every one, and check 17 says
+      edge (a CrowdSec ban, AppSec or a Caddy block) refused every one, and check 11 says
       which. A standing-ban IP still knocking is exactly this case.
 
       The `grafana` exclusion is not cosmetic: this checklist's own LogsQL goes through
@@ -357,7 +318,7 @@ source the check names, then allow slack — **cadence + 2 h** for hourly/daily 
       rate limit is aimed at a Cloudflare PoP again, or the A1's address changed and
       `docs/network.md` is stale. Both are worth a human. See `docs/services/caddy.md` →
       Real client IP behind Cloudflare. Expect ~100 monitor rows in 15 m; near-zero means
-      Kuma itself is down, which is check 18's job, not this one.
+      Kuma itself is down, which is check 12's job, not this one.
 
       > Do **not** write this as `asn_org:"Cloudflare"` over all traffic. Two reasons: the
       > `monitor` rows carry no `asn_org` at all (Vector skips enrichment for them), and a
@@ -365,7 +326,7 @@ source the check names, then allow slack — **cadence + 2 h** for hourly/daily 
       > form has a real false-positive source. Kuma's known-good client IP has neither
       > problem.
 
-17. **CrowdSec remediation, last 24 h** — the companion to check 16: that check says what
+11. **CrowdSec remediation, last 24 h** — the companion to check 10: that check says what
     reached the edge, this one says what CrowdSec did about it. **Over the same 24 h
     window**, because a local ban defaults to 4 h and the nightly run is ~11 h behind the
     traffic it is reading — an instant decisions query says nothing about whether the
@@ -389,7 +350,7 @@ source the check names, then allow slack — **cadence + 2 h** for hourly/daily 
       ```
 
     - **AppSec inband rules that blocked**, by `rule_name`, plus the request total from
-      `cs_appsec_block_total` in the same shape. That total is the same event check 16
+      `cs_appsec_block_total` in the same shape. That total is the same event check 10
       counts as `403`s, from the other side: quote both, and say so when they agree.
 
       ```
@@ -402,7 +363,7 @@ source the check names, then allow slack — **cadence + 2 h** for hourly/daily 
       > it as `0` — exactly the rules you most want to see. The `offset`/`or` form takes
       > the delta where there is history and the whole counter where there is not. A
       > `crowdsec` restart resets these counters, so a negative delta is a restart, not a
-      > quiet night; check 18 covers the restart itself.
+      > quiet night; check 12 covers the restart itself.
     - **Decisions in force right now**: `cs_active_decisions{origin!="CAPI"}`, unchanged.
       `origin="cscli"` rows are the standing manual bans in
       `docs/runbooks/setup-operations/crowdsec-bouncer.md` → Standing manual bans; match
@@ -410,39 +371,21 @@ source the check names, then allow slack — **cadence + 2 h** for hourly/daily 
       the table is a `warn:` with its `origin` and `reason`.
 
     None of the three is a FAIL on its own — the remediation layer working is good news,
-    and check 16 already FAILs on any of the traffic that got past it. Any non-zero count is a `warn:` with the
-    scenario names and counts, and goes in *Action needed* only when check 16 shows the
+    and check 10 already FAILs on any of the traffic that got past it. Any non-zero count is a `warn:` with the
+    scenario names and counts, and goes in *Action needed* only when check 10 shows the
     source was still served (a `200`) after the scenario fired. All three empty is a
     one-line PASS. If `cs_active_decisions` is absent entirely, even unfiltered, the
-    CrowdSec scrape target is down — that is a FAIL, and check 18 should already show it.
+    CrowdSec scrape target is down — that is a FAIL, and check 12 should already show it.
 
 ### Services
 
-18. **Containers** — per Komodo Server, `kr ListDockerContainers '{"server":"<name>"}'`, every
+12. **Containers** — per Komodo Server, `kr ListDockerContainers '{"server":"<name>"}'`, every
     state, filtered at the source to `.name`, `.state` and `.status`. FAIL for any container
     restarting, exited non-zero, or running-but-`unhealthy`. `Exited (0)` (run-once/init) is
     fine. Running-but-unhealthy whose last healthcheck log shows the probe binary missing from
     the image is a known false alarm — note it, do not FAIL. Read that log with
     `kr InspectContainer '{"server":"<name>","container":"<c>"}' | jq -r '.State.Health.Log[-1].Output'`,
     in one command, never unfiltered.
-19. **Certificate expiry** — nothing else alerts before a cert lapses. Public hostnames
-    from the SNI map in `stacks/micro-vps-ingress/docker-compose.yml`
-    and the separately-hosted names in `docs/network.md` (the Oracle A1 host terminates
-    its own TLS). For NAS-served names probe Caddy on the LAN, so you get the
-    **origin** cert rather than Cloudflare's:
-    `echo | openssl s_client -connect <nas-lan-ip>:443 -servername <host> 2>/dev/null | openssl x509 -noout -dates`
-    — Caddy's plain `:443`, **not** `:8443`, which expects a PROXY-protocol header and
-    will not complete a raw handshake
-    (host and LAN IP from `docs/network.md`); for off-NAS names probe that host's
-    public IP the same way. **Judge remaining time against the cert's own lifetime**
-    (`-dates` gives `notBefore` and `notAfter`) rather than against a fixed number of
-    days: issuers differ and short-lived certs are increasingly common, so a flat
-    "under 7 days = FAIL" would fail every night on a healthy short-lived renewal.
-    - lifetime ≤ 10 days: FAIL under 24 h remaining, warn under 48 h;
-    - longer-lived cert: FAIL under 7 days, warn under 14.
-
-    A name handing back no cert at all is a FAIL — quote the error.
-
 ## Report
 
 Markdown to stdout: one table row per check —

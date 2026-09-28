@@ -13,13 +13,11 @@ picks up from here.
 ## Provisioned instance (as-built) — `a1-matrix`
 
 First run of this runbook, 2026-07-08. This host is provisioned and is the Komodo Server
-`a1-vps` (a Portainer node, endpoint 5, until 2026-09-17). Besides its periphery and Tailscale it runs the `a1-vps-*` stacks: its
+`a1-vps`. Besides its periphery and Tailscale it runs the `a1-vps-*` stacks: its
 original role, the [Matrix host](matrix-deploy.md), plus the external
 [Uptime Kuma](../../services/a1-vps-kuma.md) watchdog, a [Beszel agent](../../services/a1-vps-beszel-agent.md),
 two Tor bridges ([obfs4](../../services/a1-vps-tor-bridge.md), [WebTunnel](../../services/a1-vps-webtunnel.md)) and an
-[NTP Pool server](../../services/a1-vps-ntp.md). The Komodo Phase 0 evaluation ran here until 2026-09-15
-([komodo-migration](komodo-migration.md)). The public ingress stays on the AMD micro
-(the once-considered plan to move ingress onto this A1 was dropped). The node was **renamed
+[NTP Pool server](../../services/a1-vps-ntp.md). The public ingress stays on the AMD micro. The node was **renamed
 `a1-ingress` → `a1-matrix`** to match its role — on the host,
 `sudo tailscale up --hostname=a1-matrix --accept-routes --ssh`, then re-approve in the Tailscale
 admin console if prompted. Connections use the tailnet IP `100.64.0.13` (Komodo periphery) and
@@ -37,7 +35,7 @@ breaks.
 | Tailnet IP | `100.64.0.13` (hostname `a1-matrix`, `--accept-routes`, **`--accept-dns=false`** — see deviation) |
 | SSH | `ssh -i secrets/ssh/ssh-a1-key.key -p 2222 ubuntu@198.51.100.20` — **port 2222** (moved 2026-07-08), key-only, public IP only |
 | SSH key | vault `secrets.enc/ssh/ssh-a1-key.key.age` → `unlock` restores to `secrets/ssh/` ([secret-sync.md](secret-sync.md)) |
-| Firewall (host) | iptables `ACCEPT` 80/443/2222 (and 22, now unused) before the Oracle `REJECT`, persisted via `netfilter-persistent` |
+| Firewall (host) | iptables `ACCEPT` 80/443/2222 (and 22, now unused) plus `udp/123` for the [NTP server](../../services/a1-vps-ntp.md), before the Oracle `REJECT`, persisted via `netfilter-persistent` |
 | Firewall (cloud) | Security List **shared with the micro's subnet** → 80/443/22/2222 allowed, plus 4443/9443 for the Tor bridge and 123/udp for the [NTP server](../../services/a1-vps-ntp.md) (Docker DNATs those, so they need no host rule) |
 | Hardening | `PasswordAuthentication no` (image default) + `PermitRootLogin no` via `/etc/ssh/sshd_config.d/99-hardening.conf`; **fail2ban** active; **rpcbind** masked |
 | OS updates | automatic every night: `unattended-upgrades` at 22:15 UTC (security, `-updates`, Docker 29.x), reboot at **23:15 UTC** when one is required — [os-updates.md](os-updates.md) |
@@ -51,7 +49,7 @@ breaks.
   `ssh.socket` (drop-in `/etc/systemd/system/ssh.socket.d/override.conf`), **not** `sshd_config Port`
   (Phase 3 below now says so). Use explicit `ListenStream=0.0.0.0:2222` **and**
   `ListenStream=[::]:2222`; a bare `ListenStream=2222` binds IPv6-only and refuses all IPv4/public
-  SSH. See [matrix-deploy.md](matrix-deploy.md) Deployment log for the full gotcha.
+  SSH. Verify a real external IPv4 connection before dropping the old port.
 - **Resized to 2 OCPU / 12 GB** in place (was 1 OCPU / 5.8 GB) — reboot survived it.
 - **100 GB block volume added**, mounted `/opt/matrix` for Matrix data (attach is a console action).
 - **`tailscale set --accept-dns=false`** — MagicDNS was hijacking system DNS to a dead resolver and
@@ -134,6 +132,10 @@ Ports must be open in **both** — opening only one is the classic Oracle gotcha
    sudo netfilter-persistent save
    ```
    > `8120` (Komodo periphery) is **not** opened here — it binds the tailnet IP only (Phase 5).
+   >
+   > A **published** container port needs no rule of its own: Docker DNATs it and it traverses
+   > `FORWARD`, never `INPUT`. A container on `network_mode: host` does need one — that is why the
+   > A1 carries `-A INPUT -p udp -m udp --dport 123 -j ACCEPT` for chrony.
 
 ## Phase 3 — Harden SSH
 
@@ -175,7 +177,7 @@ Ports must be open in **both** — opening only one is the classic Oracle gotcha
 ## Phase 5 — Add to Komodo as a Server
 
 The periphery is **applied over SSH, never by Komodo** — Komodo deploys stacks *through* it, so it
-must never be torn down by its own deploys (plan F12). Bind it to the **tailnet IP only**, never
+must never be torn down by its own deploys. Bind it to the **tailnet IP only**, never
 public.
 
 1. **Periphery compose** — the repo is the source of truth:
@@ -210,9 +212,3 @@ A hardened, tailnet-joined Docker host that Komodo can deploy stacks to. From he
 > **Record the facts.** When you actually provision, capture `<A1_PUBLIC_IP>`, `<A1_TAILNET_IP>`,
 > `<SSH_PORT>`, and the instance name in [docs/network.md](../../network.md) → Cloud hosts as part
 > of whichever follow-on runbook you run — don't leave them only here.
-
-## Last updated
-
-2026-09-17 — Phase 5 adds a Komodo periphery instead of a Portainer agent (SVC-2 Phase 3).
-
-2026-09-11

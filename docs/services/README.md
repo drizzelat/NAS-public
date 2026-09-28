@@ -20,7 +20,9 @@ One file per service. File name matches the stack folder name under `stacks/`.
 | [Homarr](homarr.md) | `stacks/homarr/` | Dashboard / start page for all apps and services |
 | [Immich](immich.md) | `stacks/immich/` | Self-hosted photo and video backup and gallery with ML features |
 | [Jellyfin (+ Seerr)](jellyfin.md) | `stacks/jellyfin/` | Media player (public, Authentik SSO) and its request UI (LAN-only) |
+| [Komodo Core](komodo.md) | `stacks/komodo/` (deployed by itself, not CI) | The control plane: deploys every stack through a periphery on each host |
 | [Uptime Kuma](kuma.md) | `stacks/kuma/` | Internal uptime monitoring; the external watchdog is [A1 Uptime Kuma](a1-vps-kuma.md) |
+| [NAS periphery](nas-periphery.md) | `stacks/nas-periphery/` (applied by hand, not by Komodo) | Komodo periphery on the NAS |
 | [Mealie](mealie.md) | `stacks/mealie/` | Recipe manager and meal planner (public via Authentik OIDC) |
 | [Observability](observability.md) | `stacks/observability/` | Vector + VictoriaLogs + VictoriaMetrics + Grafana — traffic and service analytics; replaced GoAccess |
 | [Paperless-ngx](paperless.md) | `stacks/paperless/` | Document management — searchable archive of scanned documents |
@@ -33,6 +35,7 @@ One file per service. File name matches the stack folder name under `stacks/`.
 
 | Service | Stack | Description |
 | --- | --- | --- |
+| [A1 periphery](a1-vps-periphery.md) | `stacks/a1-vps-periphery/` (applied over SSH, not by Komodo) | Komodo periphery on the A1 |
 | [A1 Beszel agent](a1-vps-beszel-agent.md) | `stacks/a1-vps-beszel-agent/` | Beszel agent reporting the A1 to the hub on the NAS (WebSocket, outbound) |
 | [A1 Uptime Kuma](a1-vps-kuma.md) | `stacks/a1-vps-kuma/` | External watchdog: stays up when the NAS or home internet is down. On the A1, not the ingress VPS, so it does not share a failure domain with what it watches |
 | [A1 Matrix](a1-vps-matrix.md) | `stacks/a1-vps-matrix/` | Matrix homeserver (Synapse + Postgres + Caddy + Element Web + mautrix-whatsapp); its Caddy also fronts the WebTunnel bridge |
@@ -40,19 +43,7 @@ One file per service. File name matches the stack folder name under `stacks/`.
 | [A1 Tor bridge](a1-vps-tor-bridge.md) | `stacks/a1-vps-tor-bridge/` | Tor obfs4 bridge — unlisted, never an exit; egress capped at 1 TiB/month |
 | [A1 WebTunnel bridge](a1-vps-webtunnel.md) | `stacks/a1-vps-webtunnel/` | Tor WebTunnel bridge behind the Matrix Caddy, from a self-built arm64 image rebuilt on upstream fixes; egress capped at 1 TiB/month |
 | [VPS Beszel agent](micro-vps-beszel-agent.md) | `stacks/micro-vps-beszel-agent/` | Beszel agent reporting the micro VPS to the hub on the NAS (WebSocket, outbound) |
+| [VPS periphery](micro-vps-periphery.md) | `stacks/micro-vps-periphery/` (applied over SSH, not by Komodo) | Komodo periphery on the micro VPS |
 | [VPS ingress](micro-vps-ingress.md) | `stacks/micro-vps-ingress/` | Public front door: nginx stream with an SNI allowlist and a Cloudflare-only gate, forwarding `:443` to Caddy `:8443` over Tailscale |
-
-## Archived
-
-Stacks that no longer run. Kept for bootstrap history and rollback.
-
-| Service | Archived | Replaced by |
-| ------- | -------- | ----------- |
-| [nginx Proxy Manager](../archive/npm.md) | 2026-09-07 | [caddy](caddy.md) |
-| [File Browser](../archive/filebrowser.md) | 2026-09-09 | [files](files.md) |
-| [QDirStat](../archive/qdirstat.md) | 2026-09-15 | nothing, no longer needed |
-| [Portainer](../archive/portainer.md) | 2026-09-17 | [komodo](komodo.md) |
-| [A1 Portainer agent](../archive/a1-vps-agent.md) | 2026-09-17 | [a1-vps-periphery](a1-vps-periphery.md) |
-| [micro VPS Portainer agent](../archive/micro-vps-agent.md) | 2026-09-17 | [micro-vps-periphery](micro-vps-periphery.md) |
 
 > AI agents: when you add a service, add a row to this table and create the corresponding `<name>.md` file using [`_template.md`](_template.md).

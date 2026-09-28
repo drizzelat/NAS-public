@@ -1,3 +1,9 @@
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   files:
     # FileBrowser Quantum — the maintained fork; filebrowser/filebrowser was archived
@@ -5,6 +11,7 @@ services:
     image: gtstef/filebrowser:1.5.6-stable@sha256:7c5d7ac8ffda31294d278063cf9d2e04303b39e6dce1f4c691342240ca7703b8
     container_name: files
     restart: unless-stopped
+    logging: *default-logging
     # Matches /mnt/data/smb_share ownership; the image's own user is 1000.
     user: 568:568
     security_opt:

@@ -7,9 +7,7 @@ Komodo Periphery on the Ampere A1 VPS (**aarch64**). It is the agent Komodo Core
 does the work. If it is down, Komodo can neither deploy nor inspect anything here. Containers keep
 running either way.
 
-Added 2026-09-15 in Phase 1 of the [Komodo migration](../runbooks/setup-operations/komodo-migration.md).
-Running since 2026-09-15, Server state `Ok`. **Every stack on this host is Komodo's since 2026-09-15**
-(Phase 2, §9): all six deploy through this periphery. The Portainer agent `a1-vps-agent` was removed on 2026-09-17.
+All six A1 stacks deploy through it.
 
 ## Stack
 
@@ -22,9 +20,8 @@ Running since 2026-09-15, Server state `Ok`. **Every stack on this host is Komod
 
 ## Why not Komodo
 
-The periphery is the transport its own server deploys through, the same shape as the Portainer
-agents had ([archive/a1-vps-agent.md](../archive/a1-vps-agent.md)): recreating it from Komodo drops the connection mid-command.
-Plan findings F9 and F12. Enforced by its absence from `komodo/owned-stacks`, so a push that changes
+The periphery is the transport its own server deploys through,: recreating it from Komodo drops the connection mid-command
+([komodo.md → Rules](komodo.md#peripheries-are-hand-applied)). Enforced by its absence from `komodo/owned-stacks`, so a push that changes
 this file deploys nothing, and by `HAND_APPLIED` in the deploy-state probe.
 
 ## Access
@@ -36,12 +33,11 @@ this file deploys nothing, and by `HAND_APPLIED` in the deploy-state probe.
 | UI | None. Managed from Komodo Core |
 
 **Host network, not a published port, on purpose.** Docker SNATs traffic arriving on a published
-port to the bridge gateway on this host (`172.22.0.1` on the A1, captured with `tcpdump` on
-2026-09-15), so `PERIPHERY_ALLOWED_IPS: 100.64.0.11` refused Core with `401` until the periphery
+port to the bridge gateway on this host (`172.22.0.1` on the A1), so `PERIPHERY_ALLOWED_IPS: 100.64.0.11` refused Core with `401` until the periphery
 moved onto the host network. There it sees the NAS's real tailnet address.
 
 **Never start it without `PERIPHERY_CORE_PUBLIC_KEYS`.** An inbound periphery with no accepted key is an
-unauthenticated Docker socket on `:8120` (F15). Terminals are disabled (`PERIPHERY_DISABLE_TERMINALS`).
+unauthenticated Docker socket on `:8120`. Terminals are disabled (`PERIPHERY_DISABLE_TERMINALS`).
 
 ## Volumes / data
 
@@ -75,14 +71,10 @@ The `up -d` recreates the periphery, so Komodo shows Server `a1-vps` as unreacha
 ## Version pinning
 
 Pinned to `2.3.3@sha256:…`, the multi-arch manifest list, identical on all three hosts. Core and every
-periphery move together (F2): Renovate groups the two images and holds them back from the merge
+periphery move together ([komodo.md → Upgrade](komodo.md#upgrade)): Renovate groups the two images and holds them back from the merge
 sweep, so bump Core first, then apply the three peripheries by hand.
 
 ## Related
 
 - [komodo](komodo.md) — Core, the server this agent answers to
 - [nas-periphery](nas-periphery.md), [a1-vps-periphery](a1-vps-periphery.md), [micro-vps-periphery](micro-vps-periphery.md)
-
-## Last updated
-
-2026-09-15 — every A1 stack now deploys through this periphery (Phase 2).

@@ -214,24 +214,16 @@ healthchecks, `deploy.resources.limits`, config on `/mnt/apps`, bulk on `/mnt/da
 
 > **Auth choice.** RomM has its own login (first-run admin, Step 7). Native auth + LAN/Tailscale
 > gating is enough. Authentik SSO/OIDC is optional and can be layered later like
-> [Mealie](mealie-authentik-oidc.md) — not required for first bring-up. RomM does support OIDC
+> [Mealie](../../services/mealie.md) — not required for first bring-up. RomM does support OIDC
 > (`OIDC_*` env, see its `env.template`).
 
 ## Step 6 — Deploy
 
-RomM has env in the vault, and CI holds no vault key, so the stack is created from a workstation
-(when RomM was first deployed on 2026-07-13 CI still held the key and did all of this on the push):
-
-1. Push `stacks/romm/` with its `secrets.enc/portainer-env/romm.env.age`, together with (or after)
-   the `proxy_romm` network and vhost in `stacks/caddy/` — **`proxy_romm` must exist before RomM
-   starts**. `deploy-stacks` redeploys `caddy` and stops at `romm` with
-   `is NEW and its env lives in the vault` — expected.
-2. `scripts/secrets.sh push romm` — creates the stack from `main` with its env.
-3. `gh workflow run deploy-stacks.yml -f stacks=romm` — health-checks it. Later pushes fire the
-   webhook it has.
-
-The workflow discovers the stack→webhook map live from `GET /api/stacks`; there is nothing to
-register by hand ([portainer-webhook-deploy](portainer-webhook-deploy.md)).
+The standard new-stack path ([new-service.md](new-service.md)): `scripts/secrets.sh edit romm` and
+`scripts/secrets.sh komodo-vars romm` from the workstation **before** merging, then merge one PR
+with `stacks/romm/`, its `[[stack]]` entry and `owned-stacks` line, and the `proxy_romm` network and
+vhost in `stacks/caddy/`. `deploy-stacks` deploys `caddy` (creating `proxy_romm`), then creates and
+deploys `romm` with the health gate.
 
 ## Step 7 — First run
 
@@ -486,7 +478,3 @@ on the client — back those up separately if they matter.
 | NZB job finished but RomM never sees it | By design — SABnzbd finishes in `/data`; the move into `roms/<platform>` is a manual `rsync` + `chown 1000:1000`, then Scan (Step 8c). |
 | RomM lists `.par2` / `.nzb` / `.sfv` entries | Whole SABnzbd job dir was copied into the library instead of just the payload. Delete the junk, re-Scan (Step 8c). |
 | Prowlarr can't reach qBittorrent/SABnzbd | Wrong port. Both share gluetun's netns: qBittorrent is **8082** (`WEBUI_PORT`), SABnzbd **8080**. Host is `gluetun`, not the container name. |
-
-## Last updated
-
-2026-09-11

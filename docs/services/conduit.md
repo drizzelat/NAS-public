@@ -24,7 +24,7 @@ stresses IP diversity, and the home line is a different network entirely.
 
 - **Stack folder:** `stacks/conduit/`
 - **Compose file:** `stacks/conduit/docker-compose.yml`
-- **Deploy:** Komodo Stack `conduit` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `conduit` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 - **Image:** `ghcr.io/psiphon-inc/conduit/cli`, Psiphon's official CLI image, which has the Psiphon
   network config built in.
@@ -125,9 +125,3 @@ a restore, just with a new key and no reputation.
   `--metrics-addr` here and the `conduit` target in `stacks/observability/victoriametrics/scrape.yml`.
 - **Running, but `Connected: 0` for days** → normal for a new key. Past a week, look for broker errors
   in the log and check that `conduit_is_live` is `1`.
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack.
-
-2026-09-15

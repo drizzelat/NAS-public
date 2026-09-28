@@ -1,17 +1,17 @@
-# Komodo ResourceSync `komodo-resources`: Servers, the Repo, the reconcile Procedure and all 30 Stacks. Applied
-# by hand after reading the pending diff (docs/services/komodo.md). Entry rules and absences: komodo-migration.md §4.
+# Komodo ResourceSync `komodo-resources`: Servers, the Repo, the Procedures and all 30 Stacks. Applied
+# by hand after reading the pending diff (docs/services/komodo.md). Entry rules and absences: docs/services/komodo.md → Rules.
 
 [[server]]
 name = "nas"
 [server.config]
-address = "https://192.168.178.111:8120"  # periphery root /mnt/apps/komodo, not /etc (F4)
+address = "https://192.168.178.111:8120"  # periphery root /mnt/apps/komodo, not /etc
 enabled = true
 auto_prune = false  # decided 2026-09-15: no image prune before Komodo owns the stacks
 
 [[server]]
 name = "micro-vps"
 [server.config]
-address = "https://100.64.0.12:8120"  # inbound over the tailnet (F6)
+address = "https://100.64.0.12:8120"  # inbound over the tailnet
 enabled = true
 auto_prune = false  # decided 2026-09-15: no image prune before Komodo owns the stacks
 
@@ -37,7 +37,7 @@ repo = "drizzelat/NAS"
 branch = "main"
 git_account = "drizzelat"  # read-only token, created in the UI at bootstrap
 
-# The reconcile backstop for Komodo-owned stacks (F10, F16): a deploy-stacks run GitHub evicted, or a
+# The reconcile backstop for Komodo-owned stacks: a deploy-stacks run GitHub evicted, or a
 # DeployStack dropped because the stack was busy, is picked up within the hour. With nothing pending
 # DeployStackIfChanged recreates nothing. Deploys from here get no health gate; the §1 probe sees them.
 [[procedure]]
@@ -58,7 +58,7 @@ executions = [
   { execution.type = "BatchDeployStackIfChanged", execution.params.pattern = "a1-vps-beszel-agent, a1-vps-ntp, a1-vps-tor-bridge, a1-vps-webtunnel, a1-vps-matrix, a1-vps-kuma, micro-vps-beszel-agent, micro-vps-ingress, beszel, homarr, mealie, romm, books, games, files, paperless, immich, arr, downloads, jellyfin, conduit, snowflake, observability, kuma, authentik, adguard, tailscale, caddy" },
 ]
 
-# The runner's own deploy path (plan F27): no CI job deploys the runner it runs on. Hourly, and the
+# The runner's own deploy path: no CI job deploys the runner it runs on. Hourly, and the
 # Stack's pre_deploy waits until no job is running, so the recreate lands between jobs.
 [[procedure]]
 name = "deploy-runner"
@@ -74,6 +74,54 @@ webhook_enabled = false
 name = "Deploy github-runner if changed"
 executions = [
   { execution.type = "DeployStackIfChanged", execution.params.stack = "github-runner" },
+]
+
+# The three procedures a fresh Core creates, declared so a change to them shows in the sync diff.
+# Schedules are in Core's local time (empty timezone).
+[[procedure]]
+name = "Backup Core Database"
+description = "Triggers the Core database backup at the scheduled time."
+tags = ["system"]
+[procedure.config]
+schedule_format = "English"
+schedule = "Every day at 01:00"
+schedule_enabled = true
+
+[[procedure.config.stage]]
+name = "Stage 1"
+executions = [
+  { execution.type = "BackupCoreDatabase", execution.params = {} },
+]
+
+# A deploy path outside review: the digest pins and CI own every Stack's image.
+[[procedure]]
+name = "Global Auto Update"
+description = "Pulls and auto updates Stacks and Deployments using 'poll_for_updates' or 'auto_update'."
+tags = ["system"]
+[procedure.config]
+schedule_format = "English"
+schedule = "Every day at 03:00"
+schedule_enabled = false
+
+[[procedure.config.stage]]
+name = "Stage 1"
+executions = [
+  { execution.type = "GlobalAutoUpdate", execution.params.skip_auto_update = false },
+]
+
+[[procedure]]
+name = "Rotate Server Keys"
+description = "Rotates all currently connected Server keys."
+tags = ["system"]
+[procedure.config]
+schedule_format = "English"
+schedule = "Every day at 06:00"
+schedule_enabled = true
+
+[[procedure.config.stage]]
+name = "Stage 1"
+executions = [
+  { execution.type = "RotateAllServerKeys", execution.params = {} },
 ]
 
 [[stack]]
@@ -303,7 +351,7 @@ project_name = "files"
 auto_pull = true
 destroy_before_deploy = false
 webhook_enabled = true
-# Fails the deploy unless /config shows the clone's files; a re-clone orphans the mount (F28).
+# Fails the deploy unless /config shows the clone's files; a re-clone orphans the mount.
 post_deploy.command = "sh ../../scripts/komodo/mount-matches.sh files /config ."
 environment = """
 FILES_OIDC_CLIENT_ID=[[FILES__FILES_OIDC_CLIENT_ID]]
@@ -426,7 +474,7 @@ project_name = "observability"
 auto_pull = true
 destroy_before_deploy = false
 webhook_enabled = true
-# Fails the deploy unless each config mount shows the clone's files; a re-clone orphans them (F28).
+# Fails the deploy unless each config mount shows the clone's files; a re-clone orphans them.
 post_deploy.command = """
 sh ../../scripts/komodo/mount-matches.sh vector /etc/vector vector
 sh ../../scripts/komodo/mount-matches.sh victoriametrics /etc/victoriametrics victoriametrics
@@ -462,7 +510,7 @@ project_name = "authentik"
 auto_pull = true
 destroy_before_deploy = false
 webhook_enabled = true
-# Fails the deploy if the worker's blueprints are not the clone's: a re-clone orphans the mount (F28).
+# Fails the deploy if the worker's blueprints are not the clone's: a re-clone orphans the mount.
 post_deploy.command = "sh ../../scripts/komodo/mount-matches.sh authentik-worker-1 /blueprints/nas blueprints"
 environment = """
 PG_PASS=[[AUTHENTIK__PG_PASS]]
@@ -512,7 +560,7 @@ auto_pull = true
 destroy_before_deploy = false
 webhook_enabled = true
 # A Caddyfile-only change leaves the container Running, so the reload is the deploy. Lines chain with &&:
-# a mounted Caddyfile that is not the clone's (a re-clone orphans the mount, F28) fails before reloading.
+# a mounted Caddyfile that is not the clone's (a re-clone orphans the mount) fails before reloading.
 post_deploy.command = """
 docker exec caddy cat /etc/caddy/Caddyfile | cmp - Caddyfile
 docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile

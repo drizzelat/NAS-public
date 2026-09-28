@@ -17,8 +17,10 @@ This repository is the single source of truth for the home NAS. It contains all 
 | **Storage layout** | [`docs/storage.md`](docs/storage.md) |
 | **Scheduled tasks** | [`docs/scheduled-tasks.md`](docs/scheduled-tasks.md) |
 | **How-to runbooks** | [`docs/runbooks/`](docs/runbooks/) |
+| **Roadmap** (decided, not built) | [`docs/roadmap.md`](docs/roadmap.md) |
+| **Service ideas** (shortlist, nothing chosen) | [`docs/service-ideas.md`](docs/service-ideas.md) |
+| **Architecture review** (2026-09-25, open findings + plan) | [`docs/architecture-review-2026-09-25.md`](docs/architecture-review-2026-09-25.md) |
 | **Docker stacks** | [`stacks/`](stacks/) |
-| **Architecture review** (2026-08-20) | [`docs/architecture-review-2026-08-20.md`](docs/architecture-review-2026-08-20.md) |
 
 ## How stacks work
 

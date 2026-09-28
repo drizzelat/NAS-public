@@ -681,10 +681,11 @@
           "instant": true
         }
       ],
-      "description": "Both directions for the relays (Tor bridges read + written, Snowflake in + out, Conduit up + down) and for NTP (queries in + replies out); upload only for Kiwix, since the download is fetching the files for ourselves. chrony counts packets, not bytes, so NTP is derived: 76 B per packet (48 B NTP + 8 UDP + 20 IPv4) and one reply per query that ratelimit did not drop."
+      "description": "Both directions for the relays (Tor bridges read + written, Snowflake in + out, Conduit up + down) and for NTP (queries in + replies out); upload only for Kiwix, since the download is fetching the files for ourselves. chrony counts packets, not bytes, so NTP is derived: 76 B per packet (48 B NTP + 8 UDP + 20 IPv4) and one reply per query that ratelimit did not drop. A v6 packet is 96 B and serverstats does not split by family, so this is a lower bound."
     },
     {
       "id": 10,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Throughput per service",
       "gridPos": {
@@ -955,6 +956,7 @@
     },
     {
       "id": 13,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Bridge throughput",
       "gridPos": {
@@ -1337,6 +1339,7 @@
     },
     {
       "id": 20,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Conduit clients",
       "gridPos": {
@@ -1425,7 +1428,7 @@
             "type": "prometheus",
             "uid": "victoriametrics"
           },
-          "expr": "sum(conduit_connected_clients)",
+          "expr": "avg_over_time((sum(conduit_connected_clients))[$__interval:30s])",
           "legendFormat": "connected"
         },
         {
@@ -1434,7 +1437,7 @@
             "type": "prometheus",
             "uid": "victoriametrics"
           },
-          "expr": "sum(conduit_connecting_clients)",
+          "expr": "avg_over_time((sum(conduit_connecting_clients))[$__interval:30s])",
           "legendFormat": "connecting"
         },
         {
@@ -1451,6 +1454,7 @@
     },
     {
       "id": 21,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Conduit throughput",
       "gridPos": {
@@ -1681,6 +1685,7 @@
     },
     {
       "id": 25,
+      "interval": "5m",
       "type": "timeseries",
       "title": "NTP queries",
       "gridPos": {
@@ -2018,11 +2023,12 @@
     },
     {
       "id": 37,
+      "interval": "5m",
       "type": "timeseries",
       "title": "NTP bandwidth",
       "gridPos": {
         "h": 8,
-        "w": 16,
+        "w": 12,
         "x": 0,
         "y": 53
       },
@@ -2128,7 +2134,7 @@
           "legendFormat": "in + out"
         }
       ],
-      "description": "Derived, not measured: chrony exposes packet counts only. Every packet is 76 B on the wire (48 B NTP payload + 8 UDP + 20 IPv4 — the server has no IPv6 and no NTS, so the payload never varies), and one reply leaves per query that ratelimit did not drop. Ethernet framing (18 B per frame) is not counted, and neither is the query traffic to our own upstreams, which is a packet every few minutes."
+      "description": "Derived, not measured: chrony exposes packet counts only. Every packet is 76 B on the wire (48 B NTP payload + 8 UDP + 20 IPv4 — NTS is off; a v6 packet is 96 B and serverstats does not split by family, so this is a lower bound), and one reply leaves per query that ratelimit did not drop. Ethernet framing (18 B per frame) is not counted, and neither is the query traffic to our own upstreams, which is a packet every few minutes."
     },
     {
       "id": 38,
@@ -2136,8 +2142,8 @@
       "title": "NTP data, selected range",
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 16,
+        "w": 6,
+        "x": 12,
         "y": 53
       },
       "datasource": {
@@ -2238,6 +2244,105 @@
       "description": "Same 76 B per packet as the panel on the left. Out is what counts against the A1's Oracle egress budget (10 TB/month, shared with the bridges and Matrix); a day of pool traffic is well under a gigabyte of it."
     },
     {
+      "id": 39,
+      "type": "stat",
+      "title": "NTP queries by IP family, selected range",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 53
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "IPv4"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "IPv6"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "clamp_min(1 - sum(increase(node_netstat_Udp6_InDatagrams{job=\"ntp-netstat\"}[$__range])) / clamp_min(sum(increase(chrony_serverstats_ntp_packets_received_total[$__range])), 1), 0)",
+          "legendFormat": "IPv4",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "clamp_max(sum(increase(node_netstat_Udp6_InDatagrams{job=\"ntp-netstat\"}[$__range])) / clamp_min(sum(increase(chrony_serverstats_ntp_packets_received_total[$__range])), 1), 1)",
+          "legendFormat": "IPv6",
+          "instant": true
+        }
+      ],
+      "description": "Share of the queries chrony received. chrony does not split its counters by family, so IPv6 is the A1 host's Udp6 InDatagrams (job ntp-netstat; NTP is nearly all the UDP it gets over v6) and IPv4 is the rest of chrony's count. No data until the ntp-netstat exporter is up, and too low for IPv6 while the range reaches back before it started."
+    },
+    {
       "id": 29,
       "type": "row",
       "title": "Kiwix seeding (NAS, qBittorrent)",
@@ -2252,6 +2357,7 @@
     },
     {
       "id": 30,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Upload",
       "gridPos": {
@@ -2348,7 +2454,7 @@
             "type": "prometheus",
             "uid": "victoriametrics"
           },
-          "expr": "max(qbittorrent_global_upload_speed_bytes)",
+          "expr": "avg_over_time((max(qbittorrent_global_upload_speed_bytes))[$__interval:30s])",
           "legendFormat": "all torrents"
         }
       ],
@@ -2356,6 +2462,7 @@
     },
     {
       "id": 31,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Kiwix peers",
       "gridPos": {
@@ -2415,7 +2522,7 @@
             "type": "prometheus",
             "uid": "victoriametrics"
           },
-          "expr": "sum(qbittorrent_torrent_leechers{name=~\".+\\\\.zim\"})",
+          "expr": "avg_over_time((sum(qbittorrent_torrent_leechers{name=~\".+\\\\.zim\"}))[$__interval:30s])",
           "legendFormat": "leechers (downloading)"
         },
         {
@@ -2424,7 +2531,7 @@
             "type": "prometheus",
             "uid": "victoriametrics"
           },
-          "expr": "sum(qbittorrent_torrent_seeders{name=~\".+\\\\.zim\"})",
+          "expr": "avg_over_time((sum(qbittorrent_torrent_seeders{name=~\".+\\\\.zim\"}))[$__interval:30s])",
           "legendFormat": "seeders"
         }
       ],

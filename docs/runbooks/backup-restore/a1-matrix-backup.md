@@ -4,12 +4,7 @@
 
 The Ampere A1 (`a1-matrix`) is the one host in the estate that is deliberately **not** the NAS —
 Matrix keeps working while the NAS reboots or resilvers. The cost of that independence is that
-none of the NAS's snapshot, replication or cloud-sync machinery reaches it. Until 2026-08-21 the
-Synapse database, the media store and the WhatsApp bridge's session state existed in exactly one
-copy, on one Oracle instance
-([GAP-2](../../architecture-review-2026-08-20.md#gap-2--a1-matrix-host-has-no-backup)).
-
-The fix pulls that data from the NAS into `apps/a1-matrix`, which the existing 03:00 chain then carries
+none of the NAS's snapshot, replication or cloud-sync machinery reaches it. So this pulls the data from the NAS into `apps/a1-matrix`, which the existing 03:00 chain then carries
 offsite with no extra task — [`cloudsync-chain.sh`](../../../scripts/cloudsync-chain.sh) discovers
 leaf datasets under `apps`, so a new dataset is backed up by construction.
 
@@ -23,10 +18,8 @@ leaf datasets under `apps`, so a new dataset is backed up by construction.
 | Uptime Kuma state (`/opt/kuma/data`) | ~3.5 MB | same script | `/mnt/apps/a1-matrix/kuma` |
 | Signing key | 4 KB | already in the age vault at `secrets.enc/ssh/example.com.signing.key.age` | — |
 
-The A1 also hosts the estate's **external watchdog** since
-[STR-2](../../architecture-review-2026-08-20.md#str-2--the-external-watchdog-is-inside-what-it-watches).
-Its SQLite DB used to sit in a named volume with no backup at all; it is now a host bind and rides
-along here. Service doc: [a1-vps-kuma.md](../../services/a1-vps-kuma.md).
+The A1 also hosts the estate's **external watchdog**. Its SQLite DB is a host bind and rides along
+here. Service doc: [a1-vps-kuma.md](../../services/a1-vps-kuma.md).
 
 **The bridge's session state is in Postgres, not on disk.** `mautrix_whatsapp` holds the WhatsApp
 pairing, so the DB dump is what saves you from re-pairing every bridge by QR.
@@ -35,7 +28,7 @@ pairing, so the DB dump is what saves you from re-pairing every bridge by QR.
 **Not covered here: configuration, because it is in git.** `homeserver.yaml`, the log config, both
 appservice registrations, the Caddyfile and Element's `config.json` are inline `configs:` in
 [`stacks/a1-vps-matrix/docker-compose.yml`](../../../stacks/a1-vps-matrix/docker-compose.yml), with
-their secrets in the vault ([GAP-2](../../architecture-review-2026-08-20.md#gap-2--a1-matrix-host-has-no-backup)).
+their secrets in the vault.
 The exception is the WhatsApp bridge's own `config.yaml` + `registration.yaml` under
 `/opt/matrix/bridges/whatsapp/`: host-side (the bridge rewrites them on upgrade) and not synced.
 On a rebuild, regenerate them per [matrix-deploy](../setup-operations/matrix-deploy.md) Phase 6 with
@@ -99,8 +92,8 @@ The A1's host key is pinned in `/root/.ssh/known_hosts` as `[100.64.0.13]:2222`.
 | 03:00 | `cloudsync-chain.sh` — picks up `apps/a1-matrix` offsite |
 
 Both run from the auto-pulled on-host clone, so editing the scripts and pushing is the whole
-deployment step. Local ZFS history comes from the recursive `apps` snapshot task (4-hourly, 3-day
-retention), which covers the new dataset automatically.
+deployment step. Local ZFS history comes from the recursive `apps` snapshot tasks (4-hourly for 3 days, then daily,
+weekly and monthly tiers), which cover the new dataset automatically.
 
 The file sync uses `--delete`, so each mirror is true: a file deleted on the A1 disappears from the
 mirror on the next run. Deletion history is the snapshot task and the offsite copy, not an
@@ -177,7 +170,3 @@ Uptime-Kuma push heartbeat (`/root/.config/a1-file-backup-kuma-push.url`,
   `ssh-keygen -R '[100.64.0.13]:2222'` then `ssh-keyscan -p 2222 -t ed25519 100.64.0.13 >> /root/.ssh/known_hosts`.
 - **Dump reports `SKIP a1/synapse: container 'matrix-postgres' is not running`** — the stack is
   down on the A1, not a backup fault.
-
-## Last updated
-
-2026-09-11

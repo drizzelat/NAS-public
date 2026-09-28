@@ -2,8 +2,7 @@
 
 ## Overview
 
-Shelfmark, a Calibre-compatible book library manager. Split out of the old `mediaserver` stack on
-2026-08-21 ([STR-1](../architecture-review-2026-08-20.md#str-1--split-the-15-service-mediaserver-stack)).
+Shelfmark, a Calibre-compatible book library manager. Split out of the old `mediaserver` stack.
 
 A one-service stack is the point: it used to share a single Renovate PR, a single risk verdict and
 a single rollback with fourteen unrelated containers.
@@ -12,7 +11,7 @@ a single rollback with fourteen unrelated containers.
 
 - **Stack folder:** `stacks/books/`
 - **Compose file:** `stacks/books/docker-compose.yml`
-- **Deploy:** Komodo Stack `books` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `books` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 
 ## Access
@@ -65,9 +64,3 @@ Pinned `tag@sha256:digest`; Renovate proposes bumps, now in their own PR.
 
 - **Library empty after a restore** → the `/books` bind (`/mnt/data/mediaserver/data/media/books`),
   not the config dataset.
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack.
-
-2026-09-11

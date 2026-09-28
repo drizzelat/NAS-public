@@ -8,7 +8,7 @@ Beszel is a lightweight server monitoring dashboard. The hub collects metrics fr
 
 - **Stack folder:** `stacks/beszel/`
 - **Compose file:** `stacks/beszel/docker-compose.yml`
-- **Deploy:** Komodo Stack `beszel` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `beszel` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 
 ## Access
@@ -79,7 +79,7 @@ After the stack is up, do this in the Beszel hub web UI:
 ### Restart / redeploy
 
 - Komodo → Stacks → `beszel` → **Deploy** (or **Restart**).
-- Or push to `stacks/beszel/` → the runner deploys it through Komodo ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)).
+- Or push to `stacks/beszel/` → the runner deploys it through Komodo ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)).
 
 ### Upgrade
 
@@ -97,9 +97,3 @@ After the stack is up, do this in the Beszel hub web UI:
 - **Wrong links in notifications** → set `APP_URL` to the real hub URL.
 - **Hub container down after a reboot, logs a bind error on `100.64.0.11:8090`** → `tailscale`
   was not up yet when `beszel` started. Redeploy `beszel`.
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables.
-
-2026-09-11

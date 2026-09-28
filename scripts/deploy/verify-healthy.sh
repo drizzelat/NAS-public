@@ -8,6 +8,7 @@ set -uo pipefail
 # Phase 1 waits for CONVERGENCE (containers run this repo's pins), phase 2 judges
 # health — health alone passes on the PREVIOUS deploy's containers.
 TRIES=40; GAP=6        # ~4 min of health polling
+STABLE_SECS=60        # clean this long, with no restart, before a stack counts as healthy
 CONVERGE_STALL=240    # 4 min of nothing changing -> stop waiting
 CONVERGE_MAX=2700     # 45 min absolute ceiling, backstop only
 
@@ -31,6 +32,24 @@ health_log() {  # health_log <stack> <service>
   kapi read/InspectStackContainer "$(jq -nc --arg s "$1" --arg v "$2" '{stack:$s,service:$v}')" 2>/dev/null \
     | jq -r '(.State.Health.Log // []) | (last // {}) | (.Output // "")' 2>/dev/null \
     || echo ""
+}
+
+# "name count" per container. ListStackServices carries no restart count, and a
+# crash loop that restarts between two polls reads `running` every time (#547's crowdsec).
+restart_counts() {  # restart_counts <stack> <containers-json>
+  local row svc n
+  for row in $(printf '%s' "$2" | jq -r '.[] | "\(.Names[0])|\(.Service)"'); do
+    svc=${row#*|}
+    n=$(kapi read/InspectStackContainer "$(jq -nc --arg s "$1" --arg v "$svc" '{stack:$s,service:$v}')" 2>/dev/null \
+      | jq -r '.RestartCount // empty' 2>/dev/null) || n=""
+    [ -z "$n" ] || echo "${row%%|*} $n"
+  done
+}
+
+# Names whose RestartCount rose. A recreated container starts again at 0, so only a rise counts.
+restarted() {  # restarted <baseline> <now>  -> names
+  awk 'NR==FNR { b[$1] = $2; next } ($1 in b) && $2 > b[$1] { print $1 }' \
+    <(printf '%s\n' "$1") <(printf '%s\n' "$2") | xargs
 }
 
 # Running containers whose digest this repo does not pin. RUNNING only — an
@@ -120,6 +139,7 @@ wait_converged() {  # wait_converged <stack>
 # back), 2 NOT CONVERGED. Prints live — do not wrap in $(...).
 check_stack() {  # check_stack <stack>
   local stack="$1" json="" hard_bad="" unhealthy_run="" starting=""
+  local in_window=0 clean_for=0 prev="" now="" rose="" c restarted_any=""
   LAST_DETAIL=""
   # Propagate wait_converged's code verbatim — collapsing 2 into 1 is what let a
   # slow pull revert a good commit.
@@ -140,15 +160,38 @@ check_stack() {  # check_stack <stack>
     # starting: healthcheck still in start_period — keep waiting.
     starting=$(printf '%s' "$json" \
       | jq -r '.[] | select(.Status|test("health: starting")) | .Names[0]')
+    # Every poll, not just clean ones: a loop that alternates `restarting`/`running` must
+    # count too, or the budget could run out on a `running` poll and pass it.
+    now=$(restart_counts "$stack" "$json")
+    rose=$(restarted "$prev" "$now")
+    [ -z "$now" ] || prev="$now"
+    for c in $rose; do
+      case " $restarted_any " in *" $c "*) ;; *) echo "restarted while verifying: $c"; restarted_any="$restarted_any $c" ;; esac
+    done
     if [ -z "$hard_bad" ] && [ -z "$unhealthy_run" ] && [ -z "$starting" ]; then
-      return 0
+      # Clean once is not healthy: a crash loop reads `running` between restarts. Hold the
+      # stack clean for STABLE_SECS; a restart inside the window starts it again.
+      if [ "$in_window" = 1 ] && [ -z "$rose" ]; then
+        clean_for=$((clean_for + GAP))
+        [ "$clean_for" -lt "$STABLE_SECS" ] || return 0
+      else
+        in_window=1; clean_for=0
+      fi
+    else
+      in_window=0; clean_for=0
     fi
     sleep "$GAP"
   done
 
+  # Budget ran out inside a clean window that nothing restarted in: slow to start, not broken.
+  if [ "$in_window" = 1 ] && [ -z "$restarted_any" ]; then
+    echo "OK: $stack clean for ${clean_for}s of ${STABLE_SECS}s when the poll budget ran out"
+    return 0
+  fi
+
   # Budget exhausted. A missing probe binary (curl/wget not in the image) is a
   # false alarm, not a failure.
-  local genuine="$hard_bad" c log svc
+  local genuine="$hard_bad $restarted_any" c log svc
   for c in $unhealthy_run; do
     svc=$(printf '%s' "$json" | jq -r --arg n "$c" '.[] | select(.Names[0] == $n) | .Service')
     log=$(health_log "$stack" "$svc")
@@ -165,6 +208,8 @@ check_stack() {  # check_stack <stack>
   fi
   LAST_DETAIL=$(printf '%s' "$json" | jq -r '.[] | "  \(.Names[0]): \(.State) / \(.Status)"' 2>/dev/null \
     || echo "  (no container data)")
+  restarted_any=$(echo "$restarted_any" | xargs)
+  [ -z "$restarted_any" ] || LAST_DETAIL="$(printf '%s\n  restarted while verifying: %s' "$LAST_DETAIL" "$restarted_any")"
   return 1
 }
 

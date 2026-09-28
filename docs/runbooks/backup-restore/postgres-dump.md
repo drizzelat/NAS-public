@@ -29,16 +29,17 @@ name: `-- PostgreSQL database dump complete` for `pg_dump`, `-- Dump completed` 
 `mariadb-dump`. No marker → the file is discarded and the failure is emailed, and
 retention pruning is skipped that run, so a bad night can never delete good history.
 
-The nightly health check asserts the same marker independently (check 10, `complete:`
-line of the `dumps` verb) — see [nas-health-check](../setup-operations/nas-health-check.md).
+The deterministic probe asserts the same marker independently, four times a day, from the
+`complete:` line of the `dumps` verb — check 7 of
+[deploy-state-probe](../setup-operations/deploy-state-probe.md). It checks **every labelled
+database**, not the newest file per directory: a dir holding two DBs (the A1's) hid a failure
+of one of them behind the other's fresh dump until 2026-09-25.
 
 ## How a database opts in
 
 **A database is backed up because its own compose file says so, not because a script remembers
-it.** The script discovers targets at runtime from Docker labels
-([STR-5](../../architecture-review-2026-08-20.md#str-5--dump-list-is-hardcoded-not-discovered));
-until 2026-08-21 it carried a hardcoded container-name table, which is exactly why the Matrix
-Synapse DB went unbacked-up and why moving a stack meant remembering to edit a path.
+it.** The script discovers targets at runtime from Docker labels, so a new database cannot be
+forgotten the way a hardcoded list once forgot the Matrix Synapse DB.
 
 Add these to the **database service** in `stacks/<name>/docker-compose.yml`:
 
@@ -127,6 +128,19 @@ streams the dump back over that connection, so **`nas.backup.dir` is always a pa
 even for a remote database. Setup and restore: [a1-matrix-backup.md](a1-matrix-backup.md).
 
 Adding another host is that one line plus the key work — nothing else in the script changes.
+
+**A remote dump carries the tailnet's failure modes.** The stream crosses the `tailscale`
+container on the NAS, so anything that interrupts *that* process looks like a dump error with
+no cause visible on either database host. On 2026-09-25 tailscaled was OOM-killed inside its
+128M limit while the 213 MB `synapse` dump went through it; `synapse` had just landed, so the
+run failed on `mautrix_whatsapp` alone and the earlier dump looked healthy. When exactly one
+`a1` database fails and the DB itself is fine, check the transport first:
+
+```bash
+sudo journalctl -k --since "<the run>" | grep -E "Killed process.*tailscaled"
+```
+
+Diagnosis and fix: [tailscale.md](../../services/tailscale.md) → Common failures.
 
 ## Schedule it
 

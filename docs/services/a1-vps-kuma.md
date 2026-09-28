@@ -5,10 +5,9 @@
 Uptime Kuma acting as the **external** watchdog for the NAS: if the house loses power, the home
 internet drops, or Tailscale breaks, this instance stays up and alerts.
 
-It runs on the **Ampere A1**, deliberately *not* on the AMD micro that serves the public ingress.
-Until 2026-08-21 it ran on the ingress VPS itself, which meant the one outage it most needed to
-catch — that VPS dying — took the watchdog down with it
-([STR-2](../architecture-review-2026-08-20.md#str-2--the-external-watchdog-is-inside-what-it-watches)).
+It runs on the **Ampere A1**, deliberately *not* on the AMD micro that serves the public ingress:
+there, the one outage it most needs to catch — that VPS dying — would take the watchdog down with
+it.
 
 > **Still not a complete answer.** Both Oracle instances and the NAS are operated by the same
 > person on the same accounts. A watchdog you run cannot report that everything you run is down —
@@ -18,8 +17,8 @@ catch — that VPS dying — took the watchdog down with it
 
 - **Stack folder:** `stacks/a1-vps-kuma/`
 - **Compose file:** `stacks/a1-vps-kuma/docker-compose.yml`
-- **Deploy:** Komodo Stack `a1-vps-kuma` on Server `a1-vps`, adopted 2026-09-15
-  ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its folder deploys it
+- **Deploy:** Komodo Stack `a1-vps-kuma` on Server `a1-vps`
+  ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its folder deploys it
   through Komodo.
 
 ## Access
@@ -71,6 +70,10 @@ answered from inside the estate. That is now covered by **healthchecks.io**: all
 their own check every minute, and an alerter not operated here raises the alarm when they stop.
 See the [external-heartbeat runbook](../runbooks/setup-operations/external-heartbeat.md).
 
+**Container logs** are capped at 10 MB × 3 files per container (`x-logging` in the compose file):
+Docker's `json-file` default never rotates. Enforced by
+[`compose-policy.py`](../../.github/scripts/compose-policy.py).
+
 ## Operations
 
 ### Restart / redeploy
@@ -95,9 +98,3 @@ through Komodo).
   initialised a fresh DB. Stop it, restore `/opt/kuma/data`, start again.
 - **Not reachable at `100.64.0.13:3001`** — the port binds the tailnet IP only; check
   `tailscale status` on both ends.
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2), last on the A1: deploys through the Komodo Stack.
-
-2026-09-11

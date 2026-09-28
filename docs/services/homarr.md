@@ -8,7 +8,7 @@ Homarr is a sleek, modern dashboard that puts all of your apps and services at y
 
 - **Stack folder:** `stacks/homarr/`
 - **Compose file:** `stacks/homarr/docker-compose.yml`
-- **Deploy:** Komodo Stack `homarr` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `homarr` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 
 ## Access
@@ -49,8 +49,7 @@ Kept in the vault (`scripts/secrets.sh edit homarr`); `scripts/secrets.sh push h
     as Kuma; bypasses Docker UDP hairpin NAT on the published `:53`). AdGuard's
     `*.example.com` rewrite returns the NAS LAN IP (`192.168.178.111`, Caddy `:443`),
     covering c-ares lookups. The stack joins `proxy_adguard` for this.
-  - **The 16-entry `extra_hosts` block was removed 2026-08-21**
-    ([STR-4](../architecture-review-2026-08-20.md#str-4--homarr-extra_hosts-block)). It
+  - **Do not bring back an `extra_hosts` block.** The old 16-entry one
     duplicated AdGuard's wildcard, hardcoded the NAS IP into a repo whose premise is one
     source of truth, and went stale silently — by the time it was removed it was already
     missing `shelfmark`, `romm`, `filebrowser`, `questarr` and others. Verified inside the
@@ -78,7 +77,7 @@ After the stack is up, do this in the Homarr web UI:
 ### Restart / redeploy
 
 - Komodo → Stacks → `homarr` → **Deploy** (or **Restart**).
-- Or push to `stacks/homarr/` → the runner deploys it through Komodo ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)).
+- Or push to `stacks/homarr/` → the runner deploys it through Komodo ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)).
 
 ### Upgrade
 
@@ -96,9 +95,3 @@ After the stack is up, do this in the Homarr web UI:
 - **Integration shows 525 / unreachable** → hostname resolving via Cloudflare instead of locally. Check `dns: [172.16.25.3]` is present and AdGuard is up — c-ares lookups skip `/etc/hosts`, so AdGuard being down breaks every integration hostname (see Notes, and the DNS single-point-of-failure note in the architecture review). Diagnose inside the container: `node -e 'require("dns").resolve4("<host>",(e,a)=>console.log(a))'` — Cloudflare IPs mean DNS layer broken, `192.168.178.111` means look elsewhere.
 - **Backend crashes with `JavaScript heap out of memory`** (UI errors, websocket drops; container stays "running" — the internal supervisor restarts node) → memory limit too low for the icon cache job (~28k icons). Limit is 1G in the compose file; don't lower it back to 512M.
 - Cosmetic dashboard only — **not on any critical path**; safe to rebuild from scratch if needed.
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables.
-
-2026-09-11

@@ -52,6 +52,11 @@ scrape_configs:
     static_configs:
       - targets: ["100.64.0.13:9037"]
 
+  # The A1 host's UDP counters, for the NTP IPv4/IPv6 split; host network, so the tailnet IP directly.
+  - job_name: ntp-netstat
+    static_configs:
+      - targets: ["100.64.0.13:9038"]
+
   # qBittorrent exporter in gluetun's namespace (downloads stack), over proxy_downloads.
   # Per-torrent series are labelled by name only; Kiwix panels select name=~".+\\.zim".
   - job_name: qbittorrent

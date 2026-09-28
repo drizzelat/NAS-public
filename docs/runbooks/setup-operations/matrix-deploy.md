@@ -6,14 +6,10 @@ resilvering, or power-cut. Federated with the public Matrix network, single sign
 existing Authentik, and future-proofed for **mautrix bridges** (WhatsApp / Signal / Discord
 now; anything later as a 3-line change).
 
-> **Status: live — Phase 6 (WhatsApp bridge) done; Signal/Discord bridges not started.** Nightly
-> backups to the NAS run since 2026-08-21 ([a1-matrix-backup](../backup-restore/a1-matrix-backup.md)),
-> and since the same day the configs this runbook describes as host files are inline `configs:` in
-> the compose file ([a1-vps-matrix.md](../../services/a1-vps-matrix.md)). See the **Deployment log**
-> below for exactly where this stands and how to resume. Values in `<ANGLE_BRACKETS>` are filled in as you provision.
-> Substitute your own for every `example.com` if you copy this elsewhere.
+> **Status: live.** Values in `<ANGLE_BRACKETS>` are filled in as you provision. Substitute your own
+> for every `example.com` if you copy this elsewhere.
 
-## Deployment log (resume here)
+## As built
 
 Live values discovered/decided during the build (fill the `<ANGLE_BRACKETS>` with these):
 
@@ -25,126 +21,24 @@ Live values discovered/decided during the build (fill the `<ANGLE_BRACKETS>` wit
 | SSH command | `ssh -i secrets/ssh/ssh-a1-key.key -p 2222 ubuntu@198.51.100.20` (public IP — **not** the tailnet IP; tailscale SSH is ACL-blocked and intercepts port 22 on the tailnet interface) |
 | Block-volume device | `/dev/sdb`, mounted `/opt/matrix` **by UUID** `153236b6-951d-4118-b45f-12571cea83c1` (since 2026-09-16). Not by `/dev/oracleoci/oraclevda`: the boot disk carries that name too — [os-updates.md](os-updates.md#prerequisite-mount-data-volumes-by-uuid) |
 
-**Phase 1 — host prep: ✅ COMPLETE (2026-07-08).**
-- Instance `instance-20260708-0942`, arm64, Ubuntu 24.04, resized to **2 OCPU / 12 GB**.
-- Firewall: Security List + host iptables allow 80/443/2222 (and still 22 in the Security List — optional to close).
-- **SSH moved to 2222, 22 closed.** Gotcha: Ubuntu 24.04 ssh is **socket-activated** — the port is set in `ssh.socket`, *not* `sshd_config Port` (the runbook/a1-provision Phase 3 text is wrong on this). Override lives at `/etc/systemd/system/ssh.socket.d/override.conf`. A bare `ListenStream=<port>` makes **IPv6-only** listeners → all IPv4/public SSH is refused (self-lockout). Must list **both** families: `ListenStream=0.0.0.0:2222` **and** `ListenStream=[::]:2222`. Verify a real external IPv4 connection before dropping the old port.
-- Docker + Compose installed; Tailscale joined.
-- **DNS fix (required):** tailscale MagicDNS (`CorpDNS`, override-local-DNS) hijacked system DNS to `100.100.100.100`, which failed → all `docker pull`/public lookups broke. Fixed & persists: `sudo tailscale set --accept-dns=false` (NAS reached by IP, not MagicDNS). Confirmed: `docker pull` works, `tailscale ping nas` → pong.
-- **Block volume:** 100 GB attached (console), `mkfs.ext4`, fstab with the `x-systemd.*` docker-ordering guard, mounted `/opt/matrix` (~98 GB). The fstab source was `/dev/oracleoci/oraclevda` until 2026-09-16, now the UUID. Attach is a console/OCI action — no OCI CLI on host or workstation.
-- **Break-glass while SSH is down:** the Portainer agent (endpoint 5 `a1-vps`, token in gitignored `secrets/portainer-migrate.config.ps1`) can run a privileged `--pid=host` container that chroots `/host` and runs `systemctl`. Agent image is distroless (no shell) — side-load `busybox` via `POST /api/endpoints/5/docker/images/load` (host DNS may be down, so a normal pull won't work). This is how SSH was recovered mid-build.
+**State:** Phases 1–6 are built — host, DNS delegation, Synapse, Authentik SSO, Element Web and the
+WhatsApp bridge. Signal and Discord bridges are not started (6.3). Backups run
+([a1-matrix-backup](../backup-restore/a1-matrix-backup.md)). The configs that the phases below
+describe as host files under `/opt/matrix/` are now inline `configs:` in the compose file, with
+secrets from Komodo Variables ([a1-vps-matrix.md](../../services/a1-vps-matrix.md)); the bridge's
+own `config.yaml` + `registration.yaml` are still host files.
 
-**Phase 2 — Cloudflare DNS: ✅ COMPLETE (2026-07-08).** On `example.com`:
-1. `A  matrix  198.51.100.20` — **Proxy: DNS only (grey cloud)**. Verified: public DNS returns
-   `198.51.100.20` (not a CF proxy IP).
-2. Redirect Rule — When `Hostname eq example.com` AND `URI Path starts_with /.well-known/matrix/`; Then dynamic redirect `concat("https://matrix.example.com", http.request.uri.path)`, 301, preserve query. Verified: `example.com/.well-known/matrix/server` → `301 Location: https://matrix.example.com/.well-known/matrix/server` at the CF edge.
+Gotchas from the build that the phases do not already carry:
 
-- **LAN split-horizon: ✅ DONE (2026-07-08).** Both fixes applied: (a) AdGuard DNS rewrite
-  `matrix.example.com → 198.51.100.20` overrides the `*.example.com → NAS` wildcard (no NPM
-  proxy host added); (b) at the time, a `/.well-known/matrix/` redirect on the apex NPM proxy host
-  mirrored the CF redirect. **(b) is no longer needed:** the bare apex is not rewritten in AdGuard
-  any more, so LAN clients get the Cloudflare redirect like everyone else (verified 2026-09-11:
-  `301` to `matrix.example.com`), and NPM is gone. Full note in Phase 2 §4 below.
-
-**Phase 3 — Postgres + Synapse base: ✅ COMPLETE (2026-07-08).** Homeserver live and federating.
-
-- Stack `stacks/a1-vps-matrix/` (postgres 18-alpine + synapse v1.156.0 + caddy 2, all pinned `@sha256`) deployed via GitOps to endpoint 5. `PG_PASS` in `secrets.enc/portainer-env/a1-vps-matrix.env.age`.
-- Host files bootstrapped under `/opt/matrix/` **before** the merge: `synapse/homeserver.yaml` (+ signing key, backed up to `/opt/matrix/_backup/` — **still stash in Bitwarden**), `synapse/appservices/`, `caddy/Caddyfile`. Postgres data on the block volume.
-- **Config gotcha (fixed in this runbook):** `url_preview_enabled: true` makes Synapse refuse to start unless `url_preview_ip_range_blacklist` is also set ("you must specify an explicit target IP address blacklist"). First deploy crash-looped on this; added the standard blacklist (see 3.3) and restarted. Deploy health-check passed after the fix.
-- Break-glass local `@admin:example.com` created (3.6); password in Bitwarden. `password_config.enabled: false` normally — flip true + restart to use it.
-- **Verified (3.7):** `federationtester.matrix.org` → `FederationOK: true`; `/_matrix/federation/v1/version` → Synapse 1.156.0 over HTTPS (Caddy LE cert issued); apex + `matrix` `.well-known/{server,client}` all return correct JSON.
-
-**Phase 4 — Authentik SSO (OIDC): ✅ COMPLETE (2026-07-09).** Login via Authentik works; `@stefan:example.com` is a Synapse admin.
-
-- Authentik OAuth2/OIDC provider `Matrix` + application slug `matrix` (issuer `https://auth.example.com/application/o/matrix/`), scopes `openid + email + profile`, redirect `https://matrix.example.com/_synapse/client/oidc/callback`. App bound to the account = login allowlist.
-- `oidc_providers` block **inlined in `/opt/matrix/synapse/homeserver.yaml`** (Synapse does **not** expand env vars there — client id/secret are literal in the host file, never in git; backup at `homeserver.yaml.bak-preoidc`). `synapse.handlers.oidc` preloads the provider on boot and fetches `.well-known/openid-configuration` + `jwks` → both `200`.
-- Login verified via `app.element.io` → homeserver `https://matrix.example.com` → **Continue with Authentik** → lands as `@stefan:example.com`. Promoted admin: `UPDATE users SET admin=1` on `matrix-postgres` (confirmed `admin=1`).
-- **Gotcha:** first attempt failed at the Authentik authorize step with *"Client identifier (client_id) is missing or invalid"* — the pasted client_id didn't match the provider's actual value. Re-copied the exact **Client ID** from Provider → Matrix → Protocol settings; restart; login worked. (Discovery/jwks `200` does **not** validate client_id — that only surfaces at authorize.)
-- **Harmless log noise:** `org.matrix.msc2965/auth_{metadata,issuer}` → `404` (next-gen-auth probing) and `Failed to listen on 0.0.0.0 … continuing because listening on [::]` (dual-stack quirk; `[::]` covers IPv4).
-
-**Phase 5 — Element Web: ✅ COMPLETE (2026-07-09).** Browser client live at `https://element.example.com`.
-
-- `element` service (`vectorim/element-web:v1.12.23`, pinned `@sha256`) added to `stacks/a1-vps-matrix/docker-compose.yml`; deployed via GitOps to endpoint 5. arm64 image (A1 is aarch64).
-- Config host-side at `/opt/matrix/element/config.json` (`default_server_config` → `base_url https://matrix.example.com`, `server_name example.com`; `disable_guests`, `default_country_code DE`). Bind mount — bootstrapped **before** the compose push (else Docker auto-creates it as a directory).
-- Exposure: **Cloudflare grey-cloud** `A element 198.51.100.20`; Caddy site block `element.example.com { reverse_proxy element:80 }` appended to `/opt/matrix/caddy/Caddyfile` (backup `Caddyfile.bak-preelement`), `caddy reload`. LE cert issued via HTTP-01.
-- LAN split-horizon: AdGuard DNS rewrite `element.example.com → 198.51.100.20` (public IP, hairpin) overrides the `*.example.com → NAS` wildcard.
-- **Verified:** `https://element.example.com` → HTTP 200, `/config.json` serves correct homeserver, LE cert valid.
-
-**Phase 6 — WhatsApp bridge: ✅ COMPLETE (2026-07-09).** `mautrix-whatsapp` (bridgev2,
-`v0.2606.0`, pinned `@sha256`, arm64) live on `matrix_net`; shared `doublepuppet` appservice in
-place so own-account messages appear as `@stefan`. Signal/Discord not yet deployed.
-
-- **Shared double-puppet appservice (6.0.1) built:** `/opt/matrix/synapse/appservices/doublepuppet.yaml`
-  (namespace `@.*:example.com`, non-exclusive); tokens hand-generated. Wired into
-  `homeserver.yaml` `app_service_config_files`; the bridge references it via
-  `double_puppet.secrets: { example.com: as_token:<TOKEN> }`.
-- **DB** `mautrix_whatsapp` created `LC_COLLATE=C`. Config/registration are host bind mounts under
-  `/opt/matrix/bridges/whatsapp/` (a compose change is a git push; a *config* change is SSH + edit +
-  `docker restart`).
-- **Gotchas hit + fixed (all folded into Phase 6.2 below):**
-  1. **Stale image via lexical tag sort** — `v0.9.0` (a 2023 bridgev1 build) sorts *above*
-     `v0.26xx` as a string; it logged "outdated WhatsApp web protocol". Re-pinned to the
-     numerically-latest CalVer tag `v0.2606.0` (bridgev2). Required wiping the bridge dir + DB.
-  2. **`sender_localpart` random** → Synapse `403 "Application service has not registered this
-     user (@whatsappbot)"`. Forced `sender_localpart: whatsappbot`.
-  3. **`PermissionError`** crash-loop — root-owned `registration.yaml` copy unreadable by Synapse;
-     `chown --reference` the appservices dir + `chmod 644`.
-  4. **E2EE `/sync` 500** — `NotImplementedError`, "We no longer support AS users using /sync".
-     Switched to `encryption.appservice: true` (MSC3202) + `experimental_features` in
-     `homeserver.yaml`.
-  5. **`502 Connection refused`** on the appservice ping — bridgev2 defaults
-     `appservice.hostname: 127.0.0.1`; set `0.0.0.0`, and `appservice.address:
-     http://mautrix-whatsapp:29318` (service name, not localhost).
-  6. **WhatsApp history/old chats never imported (`whatsapp_history_sync_notification` = 0
-     across every relink)** — the *actual* blocker. The generated config ships **top-level
-     `backfill.enabled: false`**, so the bridge never requests message history from the phone
-     nor stores history-sync payloads. Symptom is deceptive: contacts + group **portals still
-     appear** (that's *app-state* sync, independent of backfill) so it looks half-working.
-     Fix: set top-level `backfill: enabled: true` (leave `backfill.queue.enabled: false` —
-     the queue is Beeper-only; Synapse can't MSC2716-insert, so history lands as a forward
-     backfill into each new portal at creation). Also set the network block
-     `network.history_sync.request_full_sync: true` + `full_sync_config.days_limit: 1095` to
-     pull ~3 yr instead of 3 mo. **Both only take effect on a genuinely fresh device pair** —
-     `logout` in the bot room + remove the linked device on the phone, then `login qr`. After a
-     fresh pair with backfill on: 214 conversations / 32 545 messages staged, then drained into
-     portals. Old media may fail with `download ... status code 403 / no url present` — that's
-     expired media purged from WhatsApp's servers (text still backfills; ♻️ can't recover it).
-     A secondary trap during diagnosis: repeated link/unlink **without restarting the bridge**
-     leaves a dead in-memory device store (`store is nil` / `Returning noop device in
-     GetStore` / `invalid use of deleted device`) after a `device_removed` — `docker restart
-     matrix-mautrix-whatsapp` reloads the device from the DB and clears it.
-  7. **Red shield on every bridged message + wrong contact names + chats bumped by contact
-     re-sync** — three found on first real use, all avoidable at setup:
-     - **Shield (`"The sender of the event does not match the owner of the device that sent
-       it"`)** — Synapse was missing `msc3202_device_masquerading` and
-       `msc3984_appservice_key_query` from `experimental_features` (only 3 of the 5 flags were
-       set; the earlier runbook wrongly claimed masquerading needs no flag). Without them the
-       bridge can't encrypt as the puppet's device and clients can't fetch the puppet's device
-       keys. Add both, restart Synapse. **Not retroactive** — messages already backfilled keep
-       their shields; only history re-paired *after* the flags are set is clean.
-     - **Wrong names** — `network.displayname_template` shipped without `.FullName`/`.FirstName`,
-       so address-book names (present in `whatsmeow_contacts.full_name`) were never used; contacts
-       showed self-set WhatsApp name or number. Fix: lead the template with
-       `{{or .FullName .FirstName …}}`.
-     - **Contact re-sync bumps every chat** — running a manual contact sync *after* portals exist
-       rewrites each ghost's profile; those `m.room.member` state events sort as recent activity
-       and float every chat to the top with no real message. With the `.FullName` template, the
-       one automatic sync-on-link already names portals correctly — never manually re-sync.
-     Because none of these are retroactively fixable, the clean path (no important data yet) was:
-     set the 5 MSC flags + fixed template + QoL (`archive_tag: m.lowpriority`,
-     `enable_status_broadcast: false`) → `logout` + purge portals/rooms + wipe the
-     `mautrix_whatsapp` portal/message/history/crypto tables → one fresh `login qr`.
-- **Verified:** `Homeserver -> appservice connection works`, `End-to-bridge encryption is in
-  appservice mode`, `Bridge started`; container `RestartCount=0`. WhatsApp account link (QR) is the
-  user step. **History import verified** after enabling `backfill.enabled` (see gotcha 6): a fresh
-  pair staged 214 conversations / 32 545 messages, which drained into portals.
-- **Auto-switch to native Matrix when the contact also has Matrix: not built — impossible
-  self-hosted.** WhatsApp gives the bridge no signal about a contact's Matrix presence; the
-  "detect the other side, switch transport" feature is Beeper-proprietary (server-side, closed).
-  Double puppeting (own messages show as you) *is* enabled; native Matrix with a contact is a manual
-  separate DM if they share their MXID.
-
-**Phase 7+ — Signal/Discord, backups: ⬜ NOT STARTED.**
+- **Authentik "Client identifier (client_id) is missing or invalid"** at the authorize step means
+  the pasted client id does not match the provider's. Discovery and `jwks` answering `200` does
+  **not** validate it; that only surfaces at authorize.
+- **A dead WhatsApp device store after repeated link/unlink** (`store is nil`, `invalid use of
+  deleted device`): `docker restart matrix-mautrix-whatsapp` reloads the device from the DB.
+- **"Switch to native Matrix when the contact has it" is impossible self-hosted.** WhatsApp gives the
+  bridge no signal about a contact's Matrix presence; that feature is Beeper-proprietary.
+- Harmless log noise: `org.matrix.msc2965/auth_{metadata,issuer}` → `404`, and `Failed to listen on
+  0.0.0.0 … continuing because listening on [::]`.
 
 ## Design decisions (locked)
 
@@ -165,7 +59,7 @@ place so own-account messages appear as `@stefan`. Signal/Discord not yet deploy
 > working** (access tokens don't re-auth) — only *new* logins fail. The **break-glass local
 > admin** (Phase 3, created via shared secret) is the recovery path: temporarily flip
 > `password_config.enabled: true` and log in locally. This mirrors the Mealie
-> `ALLOW_PASSWORD_LOGIN` pattern — see [mealie-authentik-oidc.md](mealie-authentik-oidc.md).
+> `ALLOW_PASSWORD_LOGIN` pattern — see [mealie.md](../../services/mealie.md).
 
 ## Architecture at a glance
 
@@ -214,10 +108,9 @@ place so own-account messages appear as `@stefan`. Signal/Discord not yet deploy
 ## Phase 1 — Provision the Oracle A1 host
 
 > **Shortcut — the host already exists.** The generic build (instance, both firewall layers, SSH
-> hardening, Docker, Tailscale, Portainer agent) is its own reusable runbook
+> hardening, Docker, Tailscale, Komodo periphery) is its own reusable runbook
 > — [a1-provision.md](a1-provision.md) — and for this deployment it's **already done**: the A1
-> `a1-matrix` (`instance-20260708-0942`, tailnet `100.64.0.13`) is provisioned and currently
-> runs only the Portainer agent + Tailscale. **This A1 is the Matrix host — Matrix is all it
+> `a1-matrix` (`instance-20260708-0942`, tailnet `100.64.0.13`). **This A1 is the Matrix host — Matrix is all it
 > runs.** The public ingress stays on the **AMD micro**, so nothing contends for host ports 80/443
 > and there is nothing to co-locate. Two deltas remain before Matrix fits:
 > **resize** the A1 in place from its as-built 1 OCPU / 5.8 GB to **2 OCPU / 12 GB** (survives
@@ -294,15 +187,13 @@ place so own-account messages appear as `@stefan`. Signal/Discord not yet deploy
    Note the new **A1 tailnet IP** → `<A1_TAILNET_IP>`. Approve it in the Tailscale admin console.
    Verify it can reach the NAS: `tailscale ping nas`.
 
-7. **Deploy path = normal GitOps.** The stack lives at **`stacks/a1-vps-matrix/`** — the
-   `a1-vps-*` prefix is what routes it: the deploy workflow
-   ([deploy-stacks.yml](../../../.github/workflows/deploy-stacks.yml)) deploys `a1-vps-*`
-   folders to the **A1 Portainer Agent endpoint** (agent installed in
-   [a1-provision.md](a1-provision.md)). No repo clone on the host is needed: everything the
-   compose file references outside the repo is a **host bind mount under `/opt/matrix/`**
-   (Synapse config, Caddyfile, bridge configs, runtime-mutable `registration.yaml`), which you
-   bootstrap by hand in Phases 3–6 **before** the stack folder lands on `main`. Secrets go in
-   `secrets.enc/portainer-env/a1-vps-matrix.env` ([secret-sync.md](secret-sync.md)).
+7. **Deploy path = the normal one.** The stack lives at **`stacks/a1-vps-matrix/`**; its `[[stack]]`
+   entry in `komodo/resources.toml` puts it on Server `a1-vps`, and `deploy-stacks` deploys it
+   through the A1's periphery ([deploy-stacks.md](deploy-stacks.md)). Anything the compose file
+   references outside the repo is a **host bind mount under `/opt/matrix/`** (data, and the
+   bridge's runtime-mutable `config.yaml` + `registration.yaml`), which you bootstrap by hand
+   **before** the stack folder lands on `main`. Secrets go in the vault
+   ([secret-sync.md](secret-sync.md)).
 
 ## Phase 2 — DNS & delegation (Cloudflare)
 
@@ -343,9 +234,7 @@ place so own-account messages appear as `@stefan`. Signal/Discord not yet deploy
    - **Apex `.well-known` on LAN** — as long as AdGuard does **not** rewrite the bare apex
      `example.com`, LAN clients resolve it publicly and hit the Phase 2 Cloudflare redirect like
      everyone else, so `@stefan:example.com` auto-discovery works with nothing on the NAS. That
-     is the current state (verified 2026-09-11). At build time AdGuard *did* rewrite the apex to
-     the NAS, and a `location /.well-known/matrix/ { return 301 … }` on the apex NPM proxy host
-     mirrored the Cloudflare rule; both are gone. If an apex rewrite is ever added back, the NAS
+     is the current state. If an apex rewrite is ever added back in AdGuard, the NAS
      Caddy needs a `example.com` site with
      `redir /.well-known/matrix/* https://matrix.example.com{uri} 301` — the `*.example.com`
      wildcard site does not cover the apex. Federation is unaffected either way — federating
@@ -425,10 +314,9 @@ networks:
 > **Pin every image `tag@sha256:digest` before you commit** — repo rule (Renovate manages the
 > pins). `latest` above is a placeholder for the first pull only.
 
-`${PG_PASS}` is supplied by Portainer at deploy time: put it in
-`secrets/portainer-env/a1-vps-matrix.env`, encrypt to `secrets.enc/portainer-env/a1-vps-matrix.env`
-and commit — [secret-sync.md](secret-sync.md). `scripts/secrets.sh push a1-vps-matrix` creates the
-stack with that env and applies every later change; CI never decrypts the vault.
+`${PG_PASS}` comes from the Komodo Variable `A1_VPS_MATRIX__PG_PASS`: put it in the vault with
+`scripts/secrets.sh edit a1-vps-matrix`, then `scripts/secrets.sh komodo-vars a1-vps-matrix` before
+merging ([secret-sync.md](secret-sync.md)). CI never decrypts the vault.
 
 ### 3.2 Generate the initial Synapse config
 
@@ -535,8 +423,8 @@ open, grey-cloud lets LE reach the origin).
 
 ### 3.5 Bring it up
 
-Commit `stacks/a1-vps-matrix/` + the encrypted env file and merge to `main`. The deploy workflow
-sees the new `a1-vps-*` folder, creates the stack on the A1 Portainer endpoint and starts it.
+Commit `stacks/a1-vps-matrix/` with its `[[stack]]` entry and `owned-stacks` line and merge to
+`main`. `deploy-stacks` creates the Komodo Stack and starts it.
 Then on the A1:
 
 ```sh
@@ -564,7 +452,7 @@ sudo docker exec -it matrix-synapse register_new_matrix_user \
 ## Phase 4 — Authentik SSO (OIDC)  ✅ DONE (2026-07-09)
 
 Mirror the Mealie OIDC pattern — including the **scopes gotcha** that cost you a debugging session
-there ([mealie-authentik-oidc.md](mealie-authentik-oidc.md) "Difficulties").
+there ([mealie.md → Common failures](../../services/mealie.md#common-failures)).
 
 1. **Authentik → Providers → Create → OAuth2/OpenID Connect:**
    - Redirect URI (strict): `https://matrix.example.com/_synapse/client/oidc/callback`
@@ -620,7 +508,7 @@ this. To host it, add to the compose:
 `/opt/matrix/element/config.json` → set `default_server_config` to `base_url:
 https://matrix.example.com` and `server_name: example.com`. Add a Caddy site block for
 `element.example.com` (`reverse_proxy element:80`) and a matching grey-cloud DNS record.
-Decide exposure: public, or keep it LAN-only via the NAS/NPM if you prefer. Mobile/desktop apps
+Decide exposure: public, or keep it LAN-only via the NAS Caddy if you prefer. Mobile/desktop apps
 don't need this at all.
 
 ## Phase 6 — Bridges (mautrix)
@@ -879,9 +767,6 @@ NAS's nightly Hetzner Cloud Sync carries it offsite. See
   `block_non_admin_invites` if it becomes a problem.
 - **fail2ban** on SSH (installed Phase 1). Consider CrowdSec later
   ([crowdsec-bouncer.md](crowdsec-bouncer.md)) if you add an L7 proxy.
-- **Portainer:** the A1 Agent endpoint (set up in [a1-provision.md](a1-provision.md)) is the
-  deploy path here, not just visibility — `stacks/a1-vps-matrix/` deploys through it via
-  [deploy-stacks.yml](../../../.github/workflows/deploy-stacks.yml) like every other stack.
 
 ## Phase 9 — Verification checklist
 
@@ -909,61 +794,3 @@ NAS's nightly Hetzner Cloud Sync carries it offsite. See
 - **Moderation** — Draupnir bot + policy rooms once federation traffic grows.
 - **Media offloading** — S3-compatible media store (e.g. to the NAS or Backblaze) if media grows
   past the block volume.
-
-## Repo changes this runbook produces
-
-When you execute it, commit in this order (one-line subjects, no trailer — repo commit style):
-
-1. `feat(stacks): add a1-vps-matrix homeserver stack` — `stacks/a1-vps-matrix/` (compose +
-   Caddyfile + `homeserver.yaml` template + bridge config templates + a `README`) **plus**
-   `secrets.enc/portainer-env/a1-vps-matrix.env` (age-encrypted `PG_PASS`). The `a1-vps-` prefix
-   is load-bearing: it's what makes deploy-stacks.yml target the A1 endpoint. **Never commit real
-   secrets in the clear** — OIDC client secret, `registration_shared_secret`, `as_token`s, and
-   the **signing key** live in host-side config under `/opt/matrix/` / the age vault, not the repo.
-2. `docs(services): add a1-vps-matrix service doc` — `docs/services/a1-vps-matrix.md` from `_template.md`
-   (Access = SSO; Volumes = `/opt/matrix/*`; Dependencies = Authentik, Postgres, Caddy, Tailscale;
-   Operations = restart/upgrade/restore/common-failures).
-3. `docs: register matrix host + ports` — `docs/network.md` (the A1 host row, `matrix.example.com`
-   grey-cloud note, that federation is delegated to :443 and 8448 is **not** exposed) and, if you
-   add the Portainer agent, `docs/services/micro-vps-ingress.md`-style host notes for the A1.
-4. `docs: schedule matrix backup` — row in `docs/scheduled-tasks.md`.
-5. `docs(runbooks): index matrix deploy runbook` — add this file to
-   [runbooks/README.md](../README.md).
-
-> *(Superseded 2026-08-21: the configs are inline `configs:` in the compose file with secrets from
-> the vault; only the bridge's own `config.yaml` + `registration.yaml` stay host-side —
-> [a1-vps-matrix.md](../../services/a1-vps-matrix.md) → Operations. The note below is the build-time
-> state.)*
->
-> **One deviation worth documenting:** the stack deploys via normal Portainer GitOps, but its
-> *configs* (`homeserver.yaml`, Caddyfile, bridge configs, `registration.yaml`) are **host-side
-> files under `/opt/matrix/`**, bootstrapped and edited by hand on the A1 — the Portainer Agent
-> can't carry sibling files, and mautrix rewrites `registration.yaml` at runtime. Note this in
-> `docs/services/a1-vps-matrix.md` → Operations: a compose change is a git push, a *config*
-> change is SSH + edit + `docker restart`.
-
-## Last updated
-
-2026-07-09 — Phase 6 (WhatsApp bridge) live: `mautrix-whatsapp` bridgev2 `v0.2606.0` (pinned,
-arm64) + shared `doublepuppet` appservice deployed via GitOps; `mautrix_whatsapp` DB (LC_COLLATE
-C); E2EE over appservice (MSC3202) with `experimental_features` added to `homeserver.yaml`. Five
-gotchas fixed and folded into Phase 6.2 (stale lexical tag → CalVer pin, random `sender_localpart`,
-appservices file ownership, AS-user `/sync` 500 → MSC3202, bridgev2 `hostname 127.0.0.1` → 0.0.0.0).
-Auto-switch to native Matrix for Matrix-having contacts documented as **not possible** self-hosted
-(Beeper-only). WhatsApp QR link is the remaining user action. Signal/Discord not started.
-
-2026-07-09 — Phase 5 (Element Web) complete: `element` service (`vectorim/element-web:v1.12.23`,
-arm64, pinned) deployed via GitOps; host config `/opt/matrix/element/config.json`; Caddy block +
-Cloudflare grey-cloud `element` record + AdGuard rewrite added; served at `element.example.com`
-(HTTP 200, LE cert). Host files bootstrapped before the compose push per the bind-mount ordering rule.
-
-2026-07-09 — Phase 4 (Authentik SSO / OIDC) complete: provider+app `matrix` created, `oidc_providers`
-inlined in host `homeserver.yaml`, login verified via Element (`Continue with Authentik` →
-`@stefan:example.com`), account promoted to Synapse admin. Gotcha logged: wrong client_id paste
-fails only at the Authentik authorize step, not at boot-time discovery.
-
-2026-07-08 — Phase 3 (Postgres + Synapse base) deployed and verified: homeserver live at
-`matrix.example.com`, Federation Tester green, break-glass admin created. Fixed the
-`url_preview_ip_range_blacklist` requirement that crash-looped the first deploy. Phase 2 LAN
-split-horizon (AdGuard `matrix` rewrite + apex NPM `.well-known` redirect) applied — LAN clients
-now reach the homeserver. Signing key backed up encrypted to `secrets.enc/ssh/`.

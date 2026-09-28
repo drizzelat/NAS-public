@@ -10,7 +10,7 @@ generates shopping lists. Mobile-friendly UI with a REST API.
 
 - **Stack folder:** `stacks/mealie/`
 - **Compose file:** `stacks/mealie/docker-compose.yml`
-- **Deploy:** Komodo Stack `mealie` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `mealie` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 
 ## Access
@@ -186,7 +186,7 @@ curl "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" 
 ### Restart / redeploy
 
 - Komodo → Stacks → `mealie` → **Deploy** (or **Restart**).
-- Or push to `stacks/mealie/` → the runner deploys it through Komodo ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)).
+- Or push to `stacks/mealie/` → the runner deploys it through Komodo ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)).
 
 ### Upgrade
 
@@ -223,8 +223,7 @@ curl "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" 
   Authentik OAuth2 provider is missing scope mappings, so `userinfo` omits `email`/`name`. Fix in
   Authentik: provider → Advanced protocol settings → **Scopes** = `openid` + `email` + `profile`;
   also ensure the user has an email set. No Mealie redeploy needed. See
-  [authentik doc](authentik.md) step 6 and the
-  [mealie-authentik-oidc runbook](../runbooks/setup-operations/mealie-authentik-oidc.md).
+  [authentik doc](authentik.md) step 6.
 - **OIDC login refused after a Mealie upgrade, log says `[OIDC] email_verified claim is missing or
   false; refusing to authenticate`** → v3.21+ enforcement plus Authentik's default
   `email_verified: False`. Set `OIDC_REQUIRES_EMAIL_VERIFICATION=false` (compose, or through the vault and
@@ -235,9 +234,3 @@ curl "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" 
   a **Share** link instead, which bypasses permissions regardless of household privacy).
 - **AI parsing / video import 404s** → Basis-URL missing the trailing slash or `/openai/`
   segment, or a retired model name (`gemini-2.5-flash`/`2.0-flash`). See AI recipe parsing above.
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables.
-
-2026-09-11

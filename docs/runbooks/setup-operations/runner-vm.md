@@ -3,9 +3,8 @@
 ## Overview
 
 A classic TrueNAS virtual machine, `runnervm`, that hosts the self-hosted GitHub Actions runner
-(SEC-1 step 4, [komodo-migration.md §6](komodo-migration.md#6-sec-1-step-4--the-runner-into-a-vm)).
 The runner executes workflow code inside a VM, not in a container on the NAS host it deploys to.
-Built 2026-09-17, runner moved in the same day. Not a stack: the VM itself is TrueNAS config, and
+Not a stack: the VM itself is TrueNAS config, and
 Docker inside it runs its [periphery](../../services/runner-vm-periphery.md) and the
 [runner](../../services/github-runner.md).
 
@@ -25,7 +24,7 @@ Docker inside it runs its [periphery](../../services/runner-vm-periphery.md) and
 | Docker | 29.x from docker.com, majors held; `ubuntu` is not in the `docker` group |
 | Komodo Server | `runner-vm`, `https://192.168.178.34:8120` |
 
-**Why a classic VM, and why `br0`** (plan F33):
+**Why a classic VM, and why `br0`:**
 - **Not Incus.** From TrueNAS 25.04.2 new VMs belong on the libvirt Virtual Machines screen. Incus
   VMs are legacy: no autostart, and their future is uncertain.
 - **A bridge.** A classic VM's NIC attaches to a physical interface or a bridge. Attached to `enp2s0`
@@ -37,7 +36,6 @@ Docker inside it runs its [periphery](../../services/runner-vm-periphery.md) and
 broken AdGuard would leave the runner unable to reach GitHub, and CI is how AdGuard gets fixed. The
 NAS host itself resolves `1.1.1.1` first, which is what the runner used while it ran there. Jobs never
 rely on LAN names: every one that reaches a LAN-only host passes `--resolve` to the NAS's address.
-Set 2026-09-17; the old netplan file is `/etc/netplan/50-cloud-init.yaml.bak-20260917`.
 
 ## Rebuild
 
@@ -87,9 +85,3 @@ and emails them only after 24 hours. Kuma does not watch the VM.
   Machines → `runnervm` → Start. If it is running, SSH in and check `sudo docker ps`.
 - **The VM came up on another address** → the FritzBox reservation is gone. Re-pin
   `00:a0:98:30:ac:6c` to `192.168.178.34`; the periphery binds only that address.
-
-## Last updated
-
-2026-09-17 — the runner moved in (PR 11); DNS set to `1.1.1.1` then AdGuard.
-
-2026-09-17 — built (SVC-2 Phase 3, PR 10).

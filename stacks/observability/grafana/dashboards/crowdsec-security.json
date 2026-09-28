@@ -390,6 +390,7 @@
     },
     {
       "id": 9,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Bucket pours/s by scenario",
       "gridPos": {
@@ -442,6 +443,7 @@
     },
     {
       "id": 10,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Buckets instantiated vs underflowed/s",
       "gridPos": {
@@ -502,6 +504,7 @@
     },
     {
       "id": 11,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Lines parsed/s by source",
       "gridPos": {
@@ -552,6 +555,7 @@
     },
     {
       "id": 12,
+      "interval": "5m",
       "type": "timeseries",
       "title": "LAPI requests/s by bouncer and route",
       "gridPos": {
@@ -657,6 +661,7 @@
     },
     {
       "id": 14,
+      "interval": "5m",
       "type": "timeseries",
       "title": "LAPI p95 latency by endpoint",
       "gridPos": {

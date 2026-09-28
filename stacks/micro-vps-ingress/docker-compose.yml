@@ -1,9 +1,26 @@
 # nginx.conf is inlined as a Compose `config`: Portainer ships only compose content
 # to Agent endpoints, not sibling files. Docs: docs/services/micro-vps-ingress.md
+
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   nginx:
-    image: nginx:alpine@sha256:62ff2089abf5a9ed33bd232895bef5e22f7bb4b200675cec49a5ebc48e3d4ac8
+    image: nginx:alpine@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2
     restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges=true
+    # 954 MiB host with no swap: the cap is what protects sshd and the periphery.
+    # Peak RSS in a month of Beszel history is 7.7 MB.
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 128M
     network_mode: host
     # Bump `config-rev` whenever the inlined config changes — a `configs.*.content`
     # change alone does not always recreate the container.

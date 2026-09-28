@@ -1,11 +1,18 @@
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   mongo:
-    image: docker.io/library/mongo:8.0.30@sha256:4a0f30875898413139bec44c73c02a05fed172578de65b644dcdcee143ae7306
+    image: docker.io/library/mongo:8.0.32@sha256:4968f22d0c6c10ef29952f3e807f62872ba22b3312f25803564fbfc08255efc2
     container_name: komodo-mongo
     labels:
       komodo.skip: ""   # Komodo's StopAllContainers must never stop its own database
     command: ["--quiet", "--wiredTigerCacheSizeGB", "0.25"]
     restart: unless-stopped
+    logging: *default-logging
     security_opt:
       - no-new-privileges=true
     healthcheck:
@@ -33,6 +40,7 @@ services:
     container_name: komodo-core
     init: true
     restart: unless-stopped
+    logging: *default-logging
     security_opt:
       - no-new-privileges=true
     depends_on:

@@ -11,7 +11,7 @@ lives in [`docs/storage.md`](storage.md); this file is the compute/chassis side.
 | Motherboard  | ASRock N100M (microATX, N100 SoC)                                    |
 | RAM          | 32GB DDR4, non-ECC, 1x 32GB — board has a single DIMM slot (maxed)  |
 | Boot/iGPU    | Intel UHD Graphics (Alder Lake-N, integrated) — QuickSync           |
-| Case         | Jonsbo N4                                                            |
+| Case         | Jonsbo N4 — 6× 3.5" (4 hot-swap on a backplane, 2 fixed) + 2× 2.5" drive bays |
 | PSU          | FSP Dagger Pro SDA2-650 (650W, SFX, 80+ Gold)                        |
 
 > **RAM is maxed.** N100M has one DIMM slot, populated with the largest single stick (32GB).
@@ -29,6 +29,11 @@ SATA, so a PCIe SATA card adds the rest.
 | Onboard M.2           | NVMe                  | `apps` pool NVMe SSD                     |
 
 Drives themselves (boot SSD, 2x 4TB HDD mirror, NVMe) → see [`docs/storage.md`](storage.md).
+Expansion slots: a long PCIe 3.0 slot (x2 electrical) and a PCIe 3.0 x1 slot.
+
+Planned: an ASM1166 (6-port) in the long slot, the ASM1064 moved to the x1 slot — 12 SATA ports for
+four more HDDs and an `apps` mirror SSD →
+[`docs/roadmap.md`](roadmap.md#9-hdd-expansion--a-media-pool).
 
 ## GPU / transcoding
 
@@ -52,4 +57,6 @@ GPU.
 
 - **No UPS yet.** On mains loss the host drops uncleanly — ZFS + nightly Hetzner backup are the
   safety net. See [`docs/runbooks/incident-response/host-reboot-power-loss.md`](runbooks/incident-response/host-reboot-power-loss.md).
-  Candidate future add: UPS with USB/NUT to TrueNAS for graceful shutdown.
+- **Planned:** a line-interactive UPS with a **USB (HID) data link** so the TrueNAS UPS service (NUT)
+  can shut the host down cleanly — sizing, the shutdown trigger and what else goes on the battery are
+  in [`docs/roadmap.md`](roadmap.md#6-ups). A UPS with no data link protects the hardware, not the pool.

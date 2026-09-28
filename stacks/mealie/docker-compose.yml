@@ -1,3 +1,9 @@
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     labels:
@@ -5,9 +11,10 @@ services:
       nas.backup.user: mealie
       nas.backup.db: mealie
       nas.backup.dir: /mnt/apps/mealie/dumps
-    image: docker.io/library/postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
+    image: docker.io/library/postgres:18.6@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
     container_name: mealie-db
     restart: unless-stopped
+    logging: *default-logging
     security_opt:
       - no-new-privileges=true
     healthcheck:
@@ -31,9 +38,10 @@ services:
       PGDATA: /var/lib/postgresql/18/docker
 
   mealie:
-    image: ghcr.io/mealie-recipes/mealie:v3.27.0@sha256:ba24b88462380fb59a6c7d04c6d9e607e0b6b04e31306592181186bcdab1952b
+    image: ghcr.io/mealie-recipes/mealie:v3.28.0@sha256:8b02290f4d1806f02acac6f25f6d48a3c965612fda1f8e914d5af533276f8688
     container_name: mealie
     restart: unless-stopped
+    logging: *default-logging
     security_opt:
       - no-new-privileges=true
     healthcheck:

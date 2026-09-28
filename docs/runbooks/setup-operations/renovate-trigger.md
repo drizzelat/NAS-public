@@ -101,6 +101,45 @@ GitHub cron every 10 min of 03+04 UTC ─▶ same workflow, fallback trigger onl
                                                                     ─▶ each merge ─▶ deploy-stacks ─▶ Komodo DeployStack
 ```
 
+## Alerting (dead-man's switch)
+
+Since the `schedule:` removal this cron is Renovate's **only** trigger, so a broken
+cron entry, a moved script path or an expired token would stop image updates
+indefinitely with every dashboard green. The script therefore alerts both ways, the
+same pattern as [`pg-dump-backup.sh`](../../../scripts/pg-dump-backup.sh):
+
+- **Failure** (no token, GitHub unreachable, any non-204) → logs the error, mails
+  `[NAS] Renovate trigger FAILED` through TrueNAS `mail.send`, exits non-zero. At most
+  two mails a day (04:15 + 05:15).
+- **Success** → pings an Uptime-Kuma **push** monitor if
+  `/root/.config/renovate-trigger-kuma-push.url` holds a URL. No ping for ~26 h means
+  the cron did not run or every dispatch failed — the case a failure mail cannot cover.
+
+Setup (once): on the [A1 Kuma](../../services/a1-vps-kuma.md) create a **Push** monitor
+`renovate-trigger`, heartbeat interval ~26 h, then on the NAS:
+
+```sh
+echo 'https://kuma…/api/push/XXXX?status=up' | sudo tee /root/.config/renovate-trigger-kuma-push.url
+sudo chmod 600 /root/.config/renovate-trigger-kuma-push.url
+```
+
+No file = no ping (safe default); failures still mail. Listed with the other heartbeats in
+[kuma-monitors → Heartbeats](kuma-monitors.md#c-heartbeats-push).
+
+**Live since 2026-09-23** against the NAS Kuma (`kuma.example.com`), which needed one extra step:
+the NAS resolves through `1.1.1.1` (nameserver1), so that name answered with the Cloudflare
+addresses and the push came back **HTTP 525** — the vhost is `lan_only`, so nothing serves it from
+the public side. Fixed with a host entry in the TrueNAS network configuration, which `/etc/nsswitch.conf`
+(`hosts: files dns`) consults first, so the ping now lands on Caddy at the LAN IP:
+
+```sh
+sudo midclt call network.configuration.update '{"hosts": ["192.168.178.111 kuma.example.com"]}'
+```
+
+Any other NAS-side script pointed at a LAN-only vhost hits the same wall. A monitor on the A1 Kuma
+(`http://100.64.0.13:3001`, an IP literal on the tailnet) avoids it, and covers the case this one
+cannot: the NAS being down takes its own Kuma down with it.
+
 ## Auth (dedicated fine-grained PAT)
 
 `workflow_dispatch` needs a token with **Actions: read and write** on this repo.
@@ -233,7 +272,8 @@ sudo midclt call cronjob.query '[]' '{"select":["id","description","command","sc
 ```
 
 Success = HTTP **204** from the dispatch endpoint (logged as `dispatched …`). Any
-other status logs `ERROR: dispatch got HTTP <code>` and the cron exits non-zero.
+other status logs `ERROR: dispatch got HTTP <code>`, mails the failure and the cron exits
+non-zero — see [Alerting](#alerting-dead-mans-switch).
 
 ## Gotchas
 

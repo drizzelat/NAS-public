@@ -2,9 +2,8 @@
 
 ## Overview
 
-GameVault game-library server and its own Postgres. Split out of the old `mediaserver` stack on
-2026-08-21 ([STR-1](../architecture-review-2026-08-20.md#str-1--split-the-15-service-mediaserver-stack))
-— it is not media at all, and it carries a database, which is reason enough not to share a
+GameVault game-library server and its own Postgres. Split out of the old `mediaserver` stack — it
+is not media at all, and it carries a database, which is reason enough not to share a
 rollback with a subtitle fetcher.
 
 ### Containers
@@ -18,7 +17,7 @@ rollback with a subtitle fetcher.
 
 - **Stack folder:** `stacks/games/`
 - **Compose file:** `stacks/games/docker-compose.yml`
-- **Deploy:** Komodo Stack `games` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `games` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 
 ## Access
@@ -59,8 +58,7 @@ LAN-only — not in the VPS SNI allowlist, and Caddy's `lan_only` snippet aborts
 
 `gamevault-db` carries the `nas.backup.*` labels that
 [`pg-dump-backup.sh`](../../scripts/pg-dump-backup.sh) discovers, so the nightly logical dump
-followed the service into this stack automatically — no script edit
-([STR-5](../architecture-review-2026-08-20.md#str-5--dump-list-is-hardcoded-not-discovered)).
+followed the service into this stack automatically — no script edit.
 Dumps land in `/mnt/apps/mediaserver/config/gamevault/dumps`.
 
 ## Operations
@@ -91,11 +89,5 @@ are merged by hand; the GameVault image goes through the normal review sweep. Ga
 
 - **Backend won't start / DB connection refused** → `gamevault-db` unhealthy, or `GAMEVAULT_DB_PW`
   missing from the stack env. This stack has its own vault entry now
-  (`secrets.enc/portainer-env/games.env.age`), separate from the old `mediaserver` one.
+  (`secrets.enc/stack-env/games.env.age`), separate from the old `mediaserver` one.
 - **Library empty** → `/files` mount, `/mnt/data/mediaserver/data/media/games`.
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables.
-
-2026-09-11

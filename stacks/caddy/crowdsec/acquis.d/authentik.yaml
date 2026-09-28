@@ -1,0 +1,13 @@
+# Authentik's failed-login events exist only on the container's stdout — it writes no
+# log file — so this is a docker datasource, reached through the GET-only
+# crowdsec-socket-proxy rather than the raw socket. See docs/services/caddy.md.
+source: docker
+docker_host: tcp://crowdsec-socket-proxy:2375
+container_name:
+  # The API name with its leading slash stripped, so the compose project prefix counts.
+  # A missing container is not an error here: CrowdSec keeps watching for it to appear.
+  - authentik-server-1
+labels:
+  # firix/authentik-logs filters on evt.Parsed.program in ['authentik','authentik-server'],
+  # and crowdsecurity/non-syslog sets program from this type. Do not rename it.
+  type: authentik-server

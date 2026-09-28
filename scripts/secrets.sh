@@ -5,8 +5,8 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-PLAIN_DIR="$REPO_ROOT/secrets/portainer-env"          # gitignored plaintext (device-local source of truth)
-ENC_DIR="$REPO_ROOT/secrets.enc/portainer-env"        # committed ciphertext
+PLAIN_DIR="$REPO_ROOT/secrets/stack-env"          # gitignored plaintext (device-local source of truth)
+ENC_DIR="$REPO_ROOT/secrets.enc/stack-env"        # committed ciphertext
 SSH_PLAIN_DIR="$REPO_ROOT/secrets/ssh"                # gitignored plaintext SSH keys (truenas + vps)
 SSH_ENC_DIR="$REPO_ROOT/secrets.enc/ssh"              # committed ciphertext SSH keys
 KEY_PLAIN="$REPO_ROOT/secrets/age-key.txt"            # gitignored private identity (this device)
@@ -14,6 +14,11 @@ KEY_ENC="$REPO_ROOT/secrets.enc/age-key.age"          # committed, passphrase-wr
 RECIPIENT_FILE="$REPO_ROOT/secrets.enc/age-recipient.txt"  # committed public key
 BIN_DIR="$REPO_ROOT/scripts/.bin"                     # gitignored age binaries (auto-bootstrapped)
 AGE_VERSION="v1.2.1"
+
+# One-time move for a checkout unlocked before the rename from portainer-env/.
+if [ -d "$REPO_ROOT/secrets/portainer-env" ] && [ ! -e "$PLAIN_DIR" ]; then
+  mv "$REPO_ROOT/secrets/portainer-env" "$PLAIN_DIR"
+fi
 
 c_red()  { printf '\033[31m%s\033[0m\n' "$*"; }
 c_grn()  { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -167,11 +172,11 @@ env_array() {  # env_array <stack> -> JSON array on stdout
 }
 
 # --- Komodo Variables: workstation-only, like push -------------------------------------
-# komodo/resources.toml gives each Stack its env as KEY=[[<STACK>__<KEY>]] (komodo-migration.md §4).
+# komodo/resources.toml gives each Stack its env as KEY=[[<STACK>__<KEY>]] (docs/services/komodo.md → Rules).
 # komodo-vars writes exactly the Variables it references, from the vault. Docs: secret-sync.md
 KOMODO_TOML="$REPO_ROOT/komodo/resources.toml"
 # Identifiers, not secrets. A secret Variable is masked everywhere in Komodo's deploy logs, so a short
-# common value garbles them (F18). Every key not named here is written as a secret.
+# common value garbles them. Every key not named here is written as a secret.
 KOMODO_NON_SECRET="AUTHENTIK__AUTHENTIK_IMAGE AUTHENTIK__AUTHENTIK_TAG AUTHENTIK__COMPOSE_PORT_HTTP AUTHENTIK__COMPOSE_PORT_HTTPS"
 # shellcheck source=scripts/komodo/lib.sh
 . "$REPO_ROOT/scripts/komodo/lib.sh"

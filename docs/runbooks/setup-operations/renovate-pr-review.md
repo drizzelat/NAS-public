@@ -160,15 +160,16 @@ Komodo's hourly `reconcile-owned` Procedure clean up, [deploy-stacks.md](deploy-
 
 **Two things the sweep refuses to merge, whatever the review said.**
 
-1. **`MERGE_SKIP` stacks** — matched on touched paths, currently none. It held `portainer`, the
-   control plane, until Portainer's removal on 2026-09-17.
+1. **`MERGE_SKIP` stacks** — matched on touched paths, currently none.
 2. **`MERGE_SKIP_IMAGES`** — matched on the **image a PR bumps**, not the stack folder:
    `postgres`, `valkey/valkey`, `redis`, `mariadb`, `ghcr.io/goauthentik/server`,
-   `ghcr.io/immich-app/postgres`, `ghcr.io/drizzelat/nas-caddy`. A bad bump here means data
-   loss, a full auth lockout or the whole edge down, so no risk verdict — deterministic or
-   otherwise — merges one unattended. `nas-caddy` is there for a different reason than the
-   rest: it is built from this repo, and its digest PR shows the new digest but not which
-   branch's Dockerfile produced it. See [caddy.md](../../services/caddy.md).
+   `ghcr.io/immich-app/postgres`, `ghcr.io/drizzelat/nas-caddy`, `ghcr.io/drizzelat/nas-jellyfin`.
+   A bad bump here means data loss, a full auth lockout or the whole edge down, so no risk
+   verdict — deterministic or otherwise — merges one unattended. The two `drizzelat` images are
+   there for a different reason than the rest: they are built from this repo, and their PRs show
+   the new digest but not which branch's Dockerfile produced it. A new Jellyfin release in
+   `nas-jellyfin` also carries patches to test first. See [caddy.md](../../services/caddy.md) and
+   [jellyfin-abr-image](jellyfin-abr-image.md).
 
 > **Why image-level and not per-stack.** Renovate groups by `{{packageFileDir}}`, so an
 > `immich` PR can carry `immich-server` *and* the pgvecto Postgres. Skipping the whole stack
@@ -176,11 +177,10 @@ Komodo's hourly `reconcile-owned` Procedure clean up, [deploy-stacks.md](deploy-
 > database waits. The regex anchors on `[:@]` after the repo path, so `postgres` does not
 > match `postgres-exporter`.
 >
-> **This closes a real gap, and it is the opposite of what
-> [SEC-6](../../architecture-review-2026-08-20.md#sec-6--llm-verdict-is-a-required-merge-gate)
-> proposed.** That finding argued the LLM verdict could be downgraded to advisory *because*
+> **This closes a real gap, and it is why the LLM verdict stays a required gate.** An earlier
+> review argued the LLM verdict could be downgraded to advisory *because*
 > the stateful paths were "already hand-held via `MERGE_SKIP` and `needs-manual-review`". They
-> were not: `MERGE_SKIP` held only `portainer`, and the `needs-manual-review` label plus
+> were not: `MERGE_SKIP` held only the old control plane, and the `needs-manual-review` label plus
 > `automerge: false` in [`renovate.json`](../../../renovate.json) only govern **Renovate's own**
 > automerge — this sweep merges with `gh pr merge` and never read either. Database and SSO
 > bumps were auto-merging on `RISK: LOW`. Downgrading the LLM would have made that worse, so
@@ -291,11 +291,38 @@ Once a day at most, and only when something is genuinely stuck. Everything else
 you hear about stays as it was: a red `deploy-stacks`, a red health check, a PR
 comment on something that needs a decision.
 
+### The soak: nothing merges until its image is 3 days old
+
+A compromised upstream release is built to look like a harmless patch, and the Claude pass reads
+release notes the attacker wrote. The soak is what stops one: most are found and pulled within days.
+It has two halves, because Renovate can only date some images.
+
+- **Renovate** (`renovate.json`): `minimumReleaseAge` 3 days (GitHub Actions: 7) with
+  `internalChecksFilter: strict`, so it proposes the newest release that **has** aged instead of
+  waiting on the newest one. That second part is what used to strand fast-releasing images.
+- **The sweep** ([`soak.sh`](../../../scripts/review/soak.sh)): Renovate 44 has no release
+  timestamp for any `ghcr.io`, `lscr.io`, `mcr.microsoft.com` or `quay.io` image, about two thirds
+  of the stack images, so `minimumReleaseAgeBehaviour` is `timestamp-optional` and those pass
+  Renovate at once. The sweep then holds every stack PR whose newest added image was **built**
+  under `SOAK_HOURS` (72) ago: the config's `created`, read for the arch that host pulls by
+  [`image-age.sh`](../../../scripts/review/image-age.sh). A missing, 1970 (reproducible build) or
+  future `created` counts from the PR's head commit instead, which is never older than the release.
+- **It prints `#<n>: newest image built <h>h ago — soaking until 72h.`** and moves on; the PR merges
+  in the first window after that. The stale-clearance alarm counts from the end of the soak, not
+  from the clearance.
+- **An image that rebuilds more often than every 3 days** never ages in its PR, because Renovate
+  keeps moving the PR to the newest digest. It waits for a quiet spell or a hand-merge.
+- **A security fix wanted now is a hand-merge**, like the held stateful images.
+- **No `renovate/stability-days` status** (`statusCheckNames.minimumReleaseAge: null`). The App's
+  token has Commit statuses read-only, and Renovate 44 answers a refused status POST with
+  `Repository has changed during renovation - aborting` (`exitCode 6`, job still green). From the
+  SEC-2 merge on 2026-09-25 until this was set, every run pushed one branch and opened no PR.
+  `internalChecksFilter: strict` does the holding; the status only reported it.
+
 ## Where the logic lives
 
-This workflow carried **817 lines**, nearly all bash inside YAML
-([CPX-1](../../architecture-review-2026-08-20.md#cpx-1--1500-lines-of-bash-inside-yaml)). It is
-now **250 lines** of orchestration, with the substance in real files:
+The workflow is orchestration only; the substance is in real files, so it can be linted and run by
+hand:
 
 | Script | Layer |
 | --- | --- |
@@ -305,6 +332,8 @@ now **250 lines** of orchestration, with the substance in real files:
 | [`scripts/review/decide-verdict.sh`](../../../scripts/review/decide-verdict.sh) | Layer 3 — combines both into the status + automerge flag |
 | [`scripts/review/comment.sh`](../../../scripts/review/comment.sh) | The PR comment, posted only when a human is needed |
 | [`scripts/review/merge-sweep.sh`](../../../scripts/review/merge-sweep.sh) | Layer 4 — the 05:00 sweep |
+| [`scripts/review/soak.sh`](../../../scripts/review/soak.sh), [`image-age.sh`](../../../scripts/review/image-age.sh) | The soak in the sweep: when each added image was built |
+| [`scripts/review/registry.sh`](../../../scripts/review/registry.sh) | Registry API helpers shared by the delta script and `image-age.sh` |
 | [`scripts/review/stale-alarm.sh`](../../../scripts/review/stale-alarm.sh) | The cleared-but-unmerged alarm |
 
 Four short steps stay inline (the agent-should-run test, the CLI install, and the two
@@ -343,14 +372,15 @@ Nothing beyond what the health check already needs:
 
 Plus two things outside the workflow file:
 
-- **`renovate-review` as a required check on `main`**, alongside `validate`:
+- **`renovate-review` as a required check on `main`**, alongside `validate` and `docs-drift`:
 
   ```sh
   gh api -X PATCH repos/drizzelat/NAS/branches/main/protection/required_status_checks \
-    -f 'contexts[]=validate' -f 'contexts[]=renovate-review'
+    -f 'contexts[]=validate' -f 'contexts[]=docs-drift' -f 'contexts[]=renovate-review'
   ```
 
-  Add it only once the workflow that posts it is on `main`, or every open PR is
+  The PATCH replaces the whole list, so name every existing context. Add it only once the
+  workflow that posts it is on `main`, or every open PR is
   blocked until it gets re-reviewed (`gh workflow run renovate-pr-review.yml -f pr=<N>`).
 
 - **The merge-sweep host cron** — see the [Renovate trigger
@@ -434,7 +464,6 @@ Remaining floating tags are on stateless services — `caddy:2-alpine` (the A1's
 Matrix edge) and `nginx:alpine` (the micro VPS ingress) — plus
 `ghcr.io/immich-app/postgres:18-vectorchord0.5.3`, whose bespoke vendor tag
 cannot be pinned finer; layer 1 surfaces its `PG_VERSION` changes instead.
-(`portainer-ee` has since moved off `latest` to an explicit version.)
 
 ## Troubleshooting
 

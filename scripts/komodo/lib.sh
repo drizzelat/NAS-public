@@ -45,7 +45,7 @@ komodo_deploy() {
   id=$(kapi read/GetStack "$(jq -nc --arg s "$stack" '{stack:$s}')" | jq -r '._id."$oid" // empty') || return 3
   [ -n "$id" ] || { komodo_err "no Komodo Stack named $stack"; return 3; }
   # An execute sent while the stack is busy is dropped, with only a Core log line to show for it
-  # (komodo-migration.md F16). Wait for the stack to go idle first.
+  # (docs/services/komodo.md → Rules). Wait for the stack to go idle first.
   for i in $(seq 1 120); do
     status=$(kapi read/GetStackActionState "$(jq -nc --arg s "$id" '{stack:$s}')" | jq -r '[.[]] | any') || return 3
     [ "$status" = false ] && break
@@ -66,7 +66,7 @@ komodo_deploy() {
     [ -n "$rec" ] && break
     sleep 5
   done
-  [ -n "$rec" ] || { komodo_err "Komodo took DeployStack for $stack but wrote no record within 60s (dropped as busy? F16)"; return 3; }
+  [ -n "$rec" ] || { komodo_err "Komodo took DeployStack for $stack but wrote no record within 60s (dropped as busy?)"; return 3; }
   echo "Komodo is deploying $stack (update $rec)"
   for i in $(seq 1 "${KOMODO_DEPLOY_POLLS:-360}"); do  # 30 min at 5 s
     upd=$(kapi read/GetUpdate "$(jq -nc --arg r "$rec" '{id:$r}')") || { sleep 5; continue; }
@@ -86,7 +86,7 @@ komodo_deploy() {
   return 1
 }
 
-# komodo_stack_exists <stack> -> 0 when Komodo has a Stack of that name. limit 0: lists page at 50 (F32).
+# komodo_stack_exists <stack> -> 0 when Komodo has a Stack of that name. limit 0: lists page at 50.
 komodo_stack_exists() {
   local n
   n=$(kapi read/ListStacks "$(jq -nc --arg s "$1" '{query:{names:[$s]},limit:0}')" | jq 'length') || return 2
@@ -107,7 +107,7 @@ komodo_sync() {
     [ -n "$rec" ] && break
     sleep 5
   done
-  [ -n "$rec" ] || { komodo_err "RunSync for $type $name wrote no completed record within 3 min (busy? F16)"; return 1; }
+  [ -n "$rec" ] || { komodo_err "RunSync for $type $name wrote no completed record within 3 min (busy?)"; return 1; }
   upd=$(kapi read/GetUpdate "$(jq -nc --arg r "$rec" '{id:$r}')") || return 1
   if [ "$(printf '%s' "$upd" | jq -r '.success')" != true ]; then
     komodo_err "RunSync for $type $name failed (update $rec)"
@@ -118,7 +118,7 @@ komodo_sync() {
 }
 
 # komodo_create <stack> -> creates a new owned stack's Stack and refreshes reconcile-owned, from the
-# repo's komodo/resources.toml, through syncs filtered to them (komodo-migration.md F29). No deploy.
+# repo's komodo/resources.toml, through syncs filtered to them (docs/services/komodo.md → Rules). No deploy.
 komodo_create() {
   local stack="$1" toml vars have missing="" v
   toml="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/komodo/resources.toml"
@@ -145,7 +145,7 @@ komodo_create() {
 }
 
 # komodo_check_commit <stack> <sha> -> 0 when the Stack's deployed commit is <sha> or a descendant.
-# A pull can be 5 s stale and a re-cloned repo can strand a mount (komodo-migration.md F28).
+# A pull can be 5 s stale and a re-cloned repo can strand a mount (docs/services/komodo.md → Rules).
 komodo_check_commit() {
   local stack="$1" want="$2" got
   got=$(kapi read/GetStack "$(jq -nc --arg s "$stack" '{stack:$s}')" | jq -r '.info.deployed_hash // empty') || return 1
@@ -154,6 +154,6 @@ komodo_check_commit() {
   if git merge-base --is-ancestor "$want" "$got" 2>/dev/null; then
     echo "$stack: Komodo deployed $got, at or after $want"; return 0
   fi
-  komodo_err "$stack: Komodo deployed $got, which does not contain $want (a stale pull? komodo-migration.md F28)"
+  komodo_err "$stack: Komodo deployed $got, which does not contain $want (a stale pull? docs/services/komodo.md → Rules)"
   return 1
 }

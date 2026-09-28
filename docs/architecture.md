@@ -89,7 +89,7 @@ flowchart LR
   [a1-vps-matrix](services/a1-vps-matrix.md).
 - **Komodo Core on the NAS is the single control plane.** It deploys through a periphery agent on
   each host, reached on the LAN for the NAS and its runner VM and only on the tailnet for the VPSes —
-  [komodo](services/komodo.md). Portainer held this role until 2026-09-17.
+  [komodo](services/komodo.md).
 - **The GitHub runner runs in a VM on the NAS**, not on the host it deploys to. No job deploys it:
   Komodo recreates it between jobs — [github-runner](services/github-runner.md).
 
@@ -317,9 +317,9 @@ flowchart TB
 
   subgraph github["GitHub"]
     pr["pull request"]
-    gates["required checks, GitHub-hosted runners<br>validate (compose · Caddyfile · shellcheck) · renovate-review"]
+    gates["required checks, GitHub-hosted runners<br>validate (compose · policy · Caddyfile · shellcheck) · docs-drift · renovate-review"]
     sweep["merge sweep, 05:20 Vienna<br>only DELTA: NOOP or RISK: LOW"]
-    byhand["merge by hand<br>DBs · SSO · edge image · control plane · anything flagged"]
+    byhand["merge by hand<br>DBs · SSO · self-built images · control plane · anything flagged"]
     mainb[("main")]
   end
 
@@ -361,8 +361,11 @@ flowchart TB
 
 - **Renovate raises every image bump; nothing merges one blind.** Each stack PR gets an image-delta
   check and a Claude risk verdict (`renovate-review`), and the morning sweep merges only a no-op or
-  `RISK: LOW`. Databases, SSO, the edge image and the Komodo control plane are always merged by hand —
-  [scheduled-tasks.md → Renovate](scheduled-tasks.md#renovate--dependency-update-prs-github-not-host).
+  `RISK: LOW`. Databases, SSO, the self-built images and the Komodo control plane are always merged
+  by hand — [scheduled-tasks.md → Renovate](scheduled-tasks.md#renovate--dependency-update-prs-github-not-host).
+- **Self-built images** (`nas-caddy`, `nas-jellyfin`, the A1's Tor bridges) are built from their
+  `stacks/<name>/Dockerfile` by GitHub-hosted workflows and pushed to ghcr.io. Only `main` pushes;
+  a new build reaches a host when its compose pin moves in a pull request.
 - **`deploy-stacks` deploys only the stacks whose folder changed**, through Komodo. It creates a new
   owned stack first, checks the containers, and rolls a stack back if it comes up unhealthy. It never
   tears one down — [deploy-stacks](runbooks/setup-operations/deploy-stacks.md). Komodo's hourly

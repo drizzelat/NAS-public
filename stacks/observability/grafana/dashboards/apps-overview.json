@@ -370,6 +370,7 @@
     },
     {
       "id": 8,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Requests/s by app",
       "gridPos": {
@@ -424,6 +425,7 @@
     },
     {
       "id": 9,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Errors/s by app (4xx + 5xx)",
       "gridPos": {

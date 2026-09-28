@@ -8,7 +8,7 @@ Uptime Kuma is a self-hosted monitoring and status-page tool. It pings services 
 
 - **Stack folder:** `stacks/kuma/`
 - **Compose file:** `stacks/kuma/docker-compose.yml`
-- **Deploy:** Komodo Stack `kuma` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `kuma` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 
 ## Access
@@ -63,7 +63,7 @@ After the stack is up, do this in the Uptime Kuma web UI:
 ### Restart / redeploy
 
 - Komodo → Stacks → `kuma` → **Deploy** (or **Restart**).
-- Or push to `stacks/kuma/` → the runner deploys it through Komodo ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)).
+- Or push to `stacks/kuma/` → the runner deploys it through Komodo ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)).
 
 ### Upgrade
 
@@ -81,9 +81,3 @@ After the stack is up, do this in the Uptime Kuma web UI:
 - **`getaddrinfo EAI_AGAIN <name>`** → Kuma can't resolve DNS. Ensure `dns:` points at AdGuard's `proxy_adguard` container IP (`172.16.25.3`), **not** the host LAN IP `192.168.178.111` — host-IP DNS goes through Docker UDP hairpin NAT and silently times out. Verify: `docker exec uptime-kuma node -e 'require("dns").resolve4("adguard.example.com",console.log)'`.
 - **Container OOM / throttled** with many monitors → resource limits are 0.5 CPU / 512 MB; raise them in compose.
 - **Kuma is the in-house watchdog** — if it's down you lose internal alerting. The A1 Kuma and healthchecks.io are the layers that notice.
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack.
-
-2026-09-11

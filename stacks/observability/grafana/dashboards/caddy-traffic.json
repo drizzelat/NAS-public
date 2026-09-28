@@ -190,6 +190,7 @@
     },
     {
       "id": 5,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Requests by vhost",
       "gridPos": {
@@ -240,6 +241,7 @@
     },
     {
       "id": 6,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Status codes",
       "gridPos": {
@@ -333,6 +335,7 @@
     },
     {
       "id": 8,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Response bytes by vhost",
       "gridPos": {

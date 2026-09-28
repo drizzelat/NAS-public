@@ -3,8 +3,7 @@
 ## Overview
 
 Every download client, sharing a single ProtonVPN WireGuard tunnel via **gluetun**. Split out of
-the old 15-service `mediaserver` stack on 2026-08-21
-([STR-1](../architecture-review-2026-08-20.md#str-1--split-the-15-service-mediaserver-stack)).
+the old 15-service `mediaserver` stack.
 
 **These must stay one stack.** `qbittorrent`, `sabnzbd` and `flaresolverr` all run
 `network_mode: service:gluetun` — they share gluetun's network namespace and have no network at
@@ -25,7 +24,7 @@ all without it. That constraint is what makes this split line natural rather tha
 
 - **Stack folder:** `stacks/downloads/`
 - **Compose file:** `stacks/downloads/docker-compose.yml`
-- **Deploy:** Komodo Stack `downloads` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `downloads` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 
 ## Access
@@ -112,6 +111,10 @@ Every image is pinned `tag@sha256:digest`; Renovate proposes bumps. Because this
 stack, a gluetun bump gets **its own risk verdict and its own rollback** instead of sharing one
 with fourteen unrelated services.
 
+qbittorrent and sabnzbd are linuxserver images, updated only through the regex-versioning rules in
+`renovate.json` (see [arr.md → Upgrade](arr.md#upgrade)); the `_v<libtorrent>` part of the
+qbittorrent tag is ignored for ordering.
+
 ### Restore from backup
 
 1. Stop the stack.
@@ -138,9 +141,3 @@ with fourteen unrelated services.
   regenerated. `scripts/secrets.sh edit downloads`, `push downloads`.
 - **`arr` apps cannot reach the download client** → they address it as `gluetun:8082`, which needs
   `media_net`. `docker network inspect media_net` should list both gluetun and the arr containers.
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables.
-
-2026-09-14

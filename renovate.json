@@ -2,7 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
     "Merging stack images is NOT Renovate's job any more: .github/workflows/renovate-pr-review.yml reviews every stack PR (image delta + Claude risk verdict), publishes the verdict as the `renovate-review` commit status - a required check on main - and merges only the green ones (no-op or RISK: LOW) in the 05:00-06:00 window. Renovate still automerges github-actions bumps itself - they touch no stack and redeploy nothing, and they get a green renovate-review so the required check never deadlocks them.",
-    "No release-age soak: open a PR for the newest release as soon as it appears. Dropped minimumReleaseAge because fast-releasing images kept resetting the soak clock and stranded PRs needing hand-merges.",
+    "Release-age soak (SEC-2 in docs/architecture-review-2026-09-25.md): a release must be 3 days old (github-actions: 7) before Renovate proposes it, so a compromised upstream release is usually pulled before it reaches the sweep. internalChecksFilter=strict makes Renovate propose the newest release that HAS aged instead of waiting on the newest one, which is what stranded PRs when fast-releasing images kept resetting the clock. timestamp-optional, because Renovate 44 has no release timestamp for any ghcr.io, lscr.io, mcr.microsoft.com or quay.io image (about two thirds of the stack images): required would freeze them, so those pass here and scripts/review/soak.sh holds their PRs in the merge sweep until the image is 3 days old instead. A security fix wanted now is a hand-merge. statusCheckNames.minimumReleaseAge=null: Renovate posts no renovate/stability-days commit status. The App's token has Commit statuses read-only, Renovate 44 turns a refused status POST into REPOSITORY_CHANGED and aborts the whole run, and the job still shows green - from SEC-2's merge (2026-09-25) every run created one branch and stopped before opening its PR. internalChecksFilter=strict already does the holding; the status only reported it.",
     "ignorePrAuthor: match Renovate's own PRs by branch name, not by PR author. It is NOT set here - it is a global-only option, and Renovate answers `ignorePrAuthor` in renovate.json with a config warning (\"cannot be configured within a repository's config file\") and then ignores it. It lives as RENOVATE_IGNORE_PR_AUTHOR in .github/workflows/renovate.yml instead. Renovate authenticates with a GitHub App installation token, so its PRs are authored by the App's bot user - and were authored by the classic PAT's owner before that. Without it, changing the bot identity makes every already-open PR invisible to Renovate and it opens a duplicate for each one: it sat unset (as repo config) from 2026-08-22 to 2026-09-08, and PR #129 (portainer v2.44.0, opened under the PAT owner) went unseen for 40 days until it was hand-merged. Nothing but Renovate opens renovate/* branches in this repo.",
     "rebaseWhen=conflicted: do NOT rebase branches merely because they are behind main. With automerge on, Renovate's default (auto) rebases every open branch as soon as main moves - and Renovate merges at most one PR per run, so each morning's single merge pushed a new commit onto all remaining branches, reset their check-runs to pending, and left them unmergeable until the next run. Result: exactly one merge per day (always the daily github-runner digest PR) while everything else piled up. Branch protection on main has strict=false, so a behind-base branch merges fine; the rebase bought nothing. Stacks live in separate folders, so real conflicts are rare - and those still rebase."
   ],
@@ -11,6 +11,10 @@
   "prConcurrentLimit": 0,
   "prHourlyLimit": 0,
   "rebaseWhen": "conflicted",
+  "minimumReleaseAge": "3 days",
+  "minimumReleaseAgeBehaviour": "timestamp-optional",
+  "statusCheckNames": {"minimumReleaseAge": null},
+  "internalChecksFilter": "strict",
   "osvVulnerabilityAlerts": true,
   "vulnerabilityAlerts": {
     "labels": ["security"]
@@ -77,7 +81,7 @@
       "labels": ["major-update"]
     },
     {
-      "description": "Stateful / blast-radius-critical images (databases, cache, SSO, and the edge's own Caddy build): a bad bump means data loss, full auth lockout (authentik fronts the proxied services), or every site down (ghcr.io/drizzelat/nas-caddy is built from this repo, so its digest PR shows a new digest but not which branch built it). Since the review workflow now gates every stack PR, this rule no longer changes what merges — it keeps the needs-manual-review label so these PRs are obvious in the list and in the GitHub email, and it keeps automerge pinned false in case the docker-compose rule above is ever relaxed. immich-app/postgres is here too (its major/minor/patch are disabled below, so only digests move). Keep this list in sync with MERGE_SKIP_IMAGES in renovate-pr-review.yml, which is what actually holds these PRs back from the sweep.",
+      "description": "Stateful / blast-radius-critical images (databases, cache, SSO, and the edge's own Caddy build): a bad bump means data loss, full auth lockout (authentik fronts the proxied services), or every site down (ghcr.io/drizzelat/nas-caddy is built from this repo, so its digest PR shows a new digest but not which branch built it). ghcr.io/drizzelat/nas-jellyfin is here for the same reason, and because a new Jellyfin release in it needs the adaptive bitrate patches tested on a scratch instance first (docs/runbooks/setup-operations/jellyfin-abr-image.md). Since the review workflow now gates every stack PR, this rule no longer changes what merges — it keeps the needs-manual-review label so these PRs are obvious in the list and in the GitHub email, and it keeps automerge pinned false in case the docker-compose rule above is ever relaxed. immich-app/postgres is here too (its major/minor/patch are disabled below, so only digests move). Keep this list in sync with MERGE_SKIP_IMAGES in renovate-pr-review.yml, which is what actually holds these PRs back from the sweep.",
       "matchManagers": ["docker-compose"],
       "matchPackageNames": [
         "postgres",
@@ -88,13 +92,14 @@
         "ghcr.io/goauthentik/server",
         "ghcr.io/immich-app/postgres",
         "ghcr.io/drizzelat/nas-caddy",
+        "ghcr.io/drizzelat/nas-jellyfin",
         "docker.io/library/mongo"
       ],
       "automerge": false,
       "labels": ["needs-manual-review"]
     },
     {
-      "description": "Komodo is the CONTROL PLANE (docs/runbooks/setup-operations/komodo-migration.md F2): Core and all three peripheries must move together, a v2 minor can break the Core-periphery transport, and the peripheries are hand-applied, so a merged bump deploys nothing on its own and leaves every host drifting until someone applies it. Grouped so Core and Periphery arrive in one PR. Never swept up: both images are on MERGE_SKIP_IMAGES in renovate-pr-review.yml, and mongo sits in the stateful rule above.",
+      "description": "Komodo is the CONTROL PLANE (docs/services/komodo.md → Upgrade): Core and all three peripheries must move together, a v2 minor can break the Core-periphery transport, and the peripheries are hand-applied, so a merged bump deploys nothing on its own and leaves every host drifting until someone applies it. Grouped so Core and Periphery arrive in one PR. Never swept up: both images are on MERGE_SKIP_IMAGES in renovate-pr-review.yml, and mongo sits in the stateful rule above.",
       "matchManagers": ["docker-compose"],
       "matchPackageNames": ["ghcr.io/moghtech/komodo-core", "ghcr.io/moghtech/komodo-periphery"],
       "groupName": "komodo",
@@ -120,6 +125,20 @@
       "allowedVersions": "/^8\\.0\\.\\d+$/"
     },
     {
+      "description": "linuxserver tags end in -ls<N>, the image build number. Renovate's docker versioning reads that as a compatibility suffix, so 2.4.0.5397-ls151 and 2.4.0.5397-ls152 count as incompatible and every lscr.io image sat on its first pin, never offered an update (prowlarr stuck at -ls151 while upstream was at 2.6.5 -ls162). Regex versioning compares the ls number instead. This rule: four-part app versions (prowlarr, radarr, sonarr). Renovate only compares `revision` when `build` matched, hence the second rule for three-part versions. The jellyfin base (…ubu2404-ls38) matches neither: upstream moved it to an Ubuntu 26.04 base (ubu2604), which is a rebase of the patched build, not a bump.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["lscr.io/linuxserver/*"],
+      "matchCurrentValue": "/^\\d+\\.\\d+\\.\\d+\\.\\d+-ls\\d+$/",
+      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)\\.(?<build>\\d+)-ls(?<revision>\\d+)$"
+    },
+    {
+      "description": "linuxserver tags with a three-part app version (bazarr v1.5.6-ls352, sabnzbd 5.0.4-ls260, qbittorrent 5.2.2_v2.0.13-ls463): the ls number is the `build`. qbittorrent's _v<libtorrent> part is ignored, so a libtorrent bump does not strand it the same way.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["lscr.io/linuxserver/*"],
+      "matchCurrentValue": "/^v?\\d+\\.\\d+\\.\\d+(?:_v[\\d.]+)?-ls\\d+$/",
+      "versioning": "regex:^v?(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)(?:_v\\d+(?:\\.\\d+)*)?-ls(?<build>\\d+)$"
+    },
+    {
       "description": "App images that run irreversible DB schema migrations on first boot: gate MAJOR only to manual review. The deploy auto-rollback reverts the compose pin but NOT a migrated database, so a bad major = old image can't read the new schema = restore-from-dump. patch/minor/digest go through the review sweep like any other stack PR. Both immich images are listed so server + machine-learning never diverge across a major.",
       "matchManagers": ["docker-compose"],
       "matchPackageNames": [
@@ -139,9 +158,10 @@
       "enabled": false
     },
     {
-      "description": "GitHub Actions updates (actions/checkout etc.): auto-merge EVERY update type, including major. NO automergeSchedule — action bumps don't redeploy stacks, so the 05:00-06:00 redeploy window doesn't apply; merge as soon as checks pass. Digests stay pinned via helpers:pinGitHubActionDigests. Low blast radius: a bad action bump breaks CI (caught immediately, revert the pin), never a running service.",
+      "description": "GitHub Actions updates (actions/checkout etc.): auto-merge EVERY update type, including major, once the release is 7 days old (a compromised action runs with this repo's tokens). NO automergeSchedule — action bumps don't redeploy stacks, so the 05:00-06:00 redeploy window doesn't apply; merge as soon as checks pass. Digests stay pinned via helpers:pinGitHubActionDigests. Low blast radius: a bad action bump breaks CI (caught immediately, revert the pin), never a running service.",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["major", "minor", "patch", "digest", "pin", "pinDigest"],
+      "minimumReleaseAge": "7 days",
       "automerge": true,
       "automergeType": "pr",
       "platformAutomerge": false
@@ -157,6 +177,25 @@
       "description": "Everything stacks/caddy/Dockerfile builds from - both caddy base images and the Go modules of the customManager above - in one PR. Merging it only rebuilds ghcr.io/drizzelat/nas-caddy on main (build-caddy-image.yml); the edge moves when the digest PR that follows is merged by hand (MERGE_SKIP_IMAGES). One PR per batch = one build and one digest PR, not one of each per module.",
       "matchFileNames": ["stacks/caddy/Dockerfile"],
       "groupName": "caddy image build"
+    },
+    {
+      "description": "The .NET SDK that compiles the patched Jellyfin.Api.dll: major 9 only. Jellyfin's own global.json pins `\"version\": \"9.0.0\"` with `rollForward: latestMinor`, so any other major fails the build stage outright - Renovate's SDK 11 PR (#517) died on `Requested SDK version: 9.0.0 ... Installed SDKs: 11.0.100-rc.1`. This bound lifts when upstream moves global.json.",
+      "matchFileNames": ["stacks/jellyfin/Dockerfile"],
+      "matchPackageNames": ["mcr.microsoft.com/dotnet/sdk"],
+      "allowedVersions": "/^9\\./"
+    },
+    {
+      "description": "The Node image that builds jellyfin-web: up to 22. jellyfin-web's package.json asks for `npm >=9.6.4 <11.0.0`, and node 24 ships npm 11, so `npm ci` runs against an npm upstream does not support. Node 22 is the newest LTS that still ships npm 10.",
+      "matchFileNames": ["stacks/jellyfin/Dockerfile"],
+      "matchPackageNames": ["node"],
+      "allowedVersions": "<23"
+    },
+    {
+      "description": "Everything stacks/jellyfin/Dockerfile builds from - the linuxserver/jellyfin base, and the .NET SDK and Node images the patched Jellyfin.Api.dll and web client are compiled with - in one PR. Its build-jellyfin-image check shows whether the patches still apply to a new Jellyfin release. Merging it only rebuilds ghcr.io/drizzelat/nas-jellyfin on main; the server moves when the nas-jellyfin PR that follows is merged by hand (MERGE_SKIP_IMAGES).",
+      "matchFileNames": [
+        "stacks/jellyfin/Dockerfile"
+      ],
+      "groupName": "jellyfin image build"
     }
   ]
 }

@@ -9,7 +9,7 @@ nas="${1:?usage: deploy-state-probe.sh <nas-lan-ip>}"
 # shellcheck source=scripts/komodo/lib.sh
 . scripts/komodo/lib.sh
 
-# Applied by hand, never Komodo Stacks: the Komodo peripheries Komodo deploys through (F12).
+# Applied by hand, never Komodo Stacks: the Komodo peripheries Komodo deploys through.
 HAND_APPLIED="nas-periphery a1-vps-periphery micro-vps-periphery runner-vm-periphery"
 
 fails=0
@@ -34,11 +34,22 @@ probe() {
     "nashealth@$nas" "$@"
 }
 
-# limit 0 on every list call: Komodo otherwise returns a page of 50 and says nothing (F32).
+# limit 0 on every list call: Komodo otherwise returns a page of 50 and says nothing.
 declare -A server_name=() stack_server=() stack_state=() want_server=()
 if ! rows="$(kapi read/ListServers '{"limit":0}' | jq -r '.[] | [.id, .name, .info.state] | @tsv')"; then
   fail "Komodo ListServers failed, nothing checked"
-  finish
+  # 7. The deterministic half of the nightly health check: snapshots, scrubs, dumps,
+# certs, the on-host clone, the boot guard, the Storage Box.
+det_rc=0
+det_out="$(.github/scripts/nas-deterministic-checks.sh "$nas")" || det_rc=$?
+while IFS= read -r line; do
+  [[ -n "$line" && "$line" != RESULT* ]] || continue
+  say "$line"
+  [[ "$line" != FAIL* ]] || fails=$((fails + 1))
+done <<<"$det_out"
+[[ $det_rc -eq 0 || $det_rc -eq 1 ]] || fail "nas-deterministic-checks.sh exited $det_rc"
+
+finish
 fi
 while IFS=$'\t' read -r id name state; do
   [[ -n "$id" ]] || continue
@@ -49,7 +60,7 @@ for n in nas micro-vps a1-vps runner-vm; do
   [[ " ${server_name[*]} " == *" $n "* ]] || fail "no Komodo Server named $n"
 done
 
-# The server each Stack is declared on. komodo is self-managed and not in the ResourceSync (F9).
+# The server each Stack is declared on. komodo is self-managed and not in the ResourceSync.
 while IFS=$'\t' read -r name server; do
   want_server["$name"]="$server"
 done < <(awk '/^\[\[/ { s = ($0 == "[[stack]]") ; name = "" }
@@ -167,5 +178,46 @@ else
   done <<<"$copies"
   if [[ $fails -eq $before ]]; then pass "host copies: $n installed script(s) match the repo"; fi
 fi
+
+# 6. The ResourceSync: nothing applies an edit to an existing [[...]] entry but a human, so
+# pending changes older than one probe cycle were forgotten. Komodo refreshes the view hourly.
+SYNC_GRACE_S=$((6 * 3600))
+if ! sync="$(kapi read/GetResourceSync '{"sync":"komodo-resources"}')"; then
+  fail "sync: Komodo GetResourceSync failed, pending changes unchecked"
+else
+  read -r last_sha last_ts < <(git log -1 --format='%H %ct' -- komodo/resources.toml)
+  age=$(($(date +%s) - last_ts))
+  pending_hash="$(jq -r '.info.pending_hash // ""' <<<"$sync")"
+  sync_err="$(jq -r '[.info.pending_error // empty, (.info.remote_errors // [])[].contents // empty] | join("; ") | .[0:200]' <<<"$sync")"
+  pending="$(jq -r '[.info.resource_updates[]?.target.type] | group_by(.) | map("\(length) \(.[0])") | join(", ")' <<<"$sync")"
+  if [[ -n "$sync_err" ]]; then
+    fail "sync: komodo-resources cannot compute its pending changes: $sync_err"
+  elif ! git merge-base --is-ancestor "$last_sha" "$pending_hash" 2>/dev/null; then
+    if ((age > 2 * 3600)); then
+      fail "sync: the pending view is at ${pending_hash:-nothing}, older than ${last_sha:0:7}, the last komodo/resources.toml change; Komodo stopped refreshing it"
+    else
+      say "NOTE  sync: the pending view is not yet at ${last_sha:0:7}, the last komodo/resources.toml change"
+    fi
+  elif [[ -n "$pending" ]]; then
+    if ((age > SYNC_GRACE_S)); then
+      fail "sync: komodo-resources has pending changes ($pending), $((age / 3600)) h after ${last_sha:0:7}; read the diff and run the sync (docs/services/komodo.md)"
+    else
+      say "NOTE  sync: komodo-resources has pending changes ($pending) from ${last_sha:0:7}, $((age / 60)) min ago"
+    fi
+  else
+    pass "sync: komodo-resources has no pending changes at ${pending_hash:0:7}"
+  fi
+fi
+
+# 7. The deterministic half of the nightly health check: snapshots, scrubs, dumps,
+# certs, the on-host clone, the boot guard, the Storage Box.
+det_rc=0
+det_out="$(.github/scripts/nas-deterministic-checks.sh "$nas")" || det_rc=$?
+while IFS= read -r line; do
+  [[ -n "$line" && "$line" != RESULT* ]] || continue
+  say "$line"
+  [[ "$line" != FAIL* ]] || fails=$((fails + 1))
+done <<<"$det_out"
+[[ $det_rc -eq 0 || $det_rc -eq 1 ]] || fail "nas-deterministic-checks.sh exited $det_rc"
 
 finish

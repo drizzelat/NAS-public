@@ -28,8 +28,8 @@ second transport, not a second address.
   [`build-webtunnel-image.yml`](../../.github/workflows/build-webtunnel-image.yml). It holds the WebTunnel server built
   from Tor's source (fetched through the Go module proxy), Tor from `deb.torproject.org`, and Tor's own
   `start-tor.sh` / `get-bridge-line.sh` from the same release. The tag is the WebTunnel version.
-- **Deploy:** Komodo Stack `a1-vps-webtunnel` on Server `a1-vps`, adopted 2026-09-15
-  ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its folder deploys it
+- **Deploy:** Komodo Stack `a1-vps-webtunnel` on Server `a1-vps`
+  ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its folder deploys it
   through Komodo.
 - **Front door:** the `caddy` service of [a1-vps-matrix](a1-vps-matrix.md), over the
   `proxy_a1-vps-webtunnel` network that stack defines.
@@ -115,6 +115,10 @@ Let's Encrypt HTTP-01 challenge reaches the A1.
 - **Oracle AUP:** the same position as the obfs4 bridge.
 - **Rotating the path** (if it has leaked): put a new value in both vault entries, then push `a1-vps-matrix`
   first and `a1-vps-webtunnel` second. The bridge line changes, and users of the old one lose the bridge.
+
+**Container logs** are capped at 10 MB × 3 files per container (`x-logging` in the compose file):
+Docker's `json-file` default never rotates. Enforced by
+[`compose-policy.py`](../../.github/scripts/compose-policy.py).
 
 ## Operations
 
@@ -210,11 +214,3 @@ Nothing to restore (see Volumes).
 - **Image pull `denied` or `unauthorized` on the A1** → the GHCR package is still private.
 - **`tor-webtunnel` target down in Grafana, container running** → same checks as for the obfs4 bridge. From the NAS, run
   `sudo docker exec victoriametrics wget -qO- http://100.64.0.13:9036/metrics`.
-
-## Last updated
-
-2026-09-16 — `MetricsPortPolicy` also accepts the NAS tailnet IP (see the obfs4 bridge's Configuration).
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables.
-
-2026-09-11

@@ -57,7 +57,7 @@ The enrollment key is a **secret — do not commit it.**
    > the plan ever changes, turn it on deliberately, not by pasting a command that includes it.
 
    Over SSH, `truenas_admin` has passwordless sudo, so `sudo -n docker exec crowdsec cscli …`
-   works. There is no UI console for it any more; Portainer's went with it on 2026-09-17.
+   works.
 
 3. **Accept the instance** in the Console UI (Security Engines → pending enrollment). Nothing
    appears until you do.
@@ -94,4 +94,4 @@ must be non-zero, see [crowdsec-bouncer.md](crowdsec-bouncer.md) → The Caddy b
   and delete the console credentials file under `/etc/crowdsec` in the container.
 - Traffic volume (as opposed to blocked traffic) is **not** in the Console. It is Grafana at
   `grafana.example.com` ([observability.md](../../services/observability.md)), built from
-  `/mnt/apps/caddy/logs/access.log`; GoAccess, which NPMplus fed, went with the Caddy cutover.
+  `/mnt/apps/caddy/logs/access.log`.

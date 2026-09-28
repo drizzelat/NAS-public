@@ -1,3 +1,9 @@
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   romm-db:
     labels:
@@ -6,9 +12,10 @@ services:
       nas.backup.db: romm
       nas.backup.dir: /mnt/apps/romm/dumps
       nas.backup.engine: mariadb
-    image: docker.io/library/mariadb:12.3@sha256:adbf5727f3d6ffa0ea11109f948247d88d110edd3f43f8d4c134c0a09060c5f3
+    image: docker.io/library/mariadb:12.3@sha256:805c8e104bd563d5bfa24fadd3f31cd419ea859cb5277f32b5dbf2db714f9ed1
     container_name: romm-db
     restart: unless-stopped
+    logging: *default-logging
     security_opt:
       - no-new-privileges=true
     healthcheck:
@@ -31,9 +38,10 @@ services:
       MARIADB_PASSWORD: ${ROMM_DB_PW}
 
   romm:
-    image: docker.io/rommapp/romm:5.2.0@sha256:3512f2ca455782f90247271bed23116e6bc675bc74e379be2c41696e607ab11e
+    image: docker.io/rommapp/romm:5.3.1@sha256:0d66b4ea152a237c7f24b95e87459f46d3c596a7c0b35a82f26bc971487278b3
     container_name: romm
     restart: unless-stopped
+    logging: *default-logging
     security_opt:
       - no-new-privileges=true
     healthcheck:

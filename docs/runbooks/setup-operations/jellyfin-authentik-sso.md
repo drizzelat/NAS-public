@@ -1,20 +1,15 @@
 # Runbook: Expose Jellyfin publicly behind Authentik SSO
 
-> **Status: done — Jellyfin is public.** Executed 2026-07-11 on NPMplus, with as-built deviations
-> called out inline as **[as-built]** notes. **Since the 2026-09-07 Caddy cutover the edge half is
-> different:** the PROXY-protocol listener (step 0) is Caddy's `servers :8443`, the public login
-> block (step 6) is the `https://jellyfin.example.com:8443` site block answering `403`, and
-> "public vs LAN-only" is a Caddyfile vhost rather than an NPM Access List — see
-> [caddy.md](../../services/caddy.md) → Jellyfin's public edge. The NPMplus details below
-> (`custom_nginx/` hooks, Access Lists, `proxy_mediaserver`) are the historical record; the
-> Authentik, SSO-plugin, QuickConnect and Seerr decisions all still hold.
+> **Status: done — Jellyfin is public.** The edge half lives in the Caddyfile: the public login
+> block is the `https://jellyfin.example.com:8443` site block answering `403`
+> ([caddy.md → Jellyfin's public edge](../../services/caddy.md#jellyfins-public-edge)). This runbook
+> keeps the Authentik, SSO-plugin, QuickConnect and Seerr side, and how to rebuild it.
 
 ## Why
 
-Jellyfin is currently **LAN-only** (NPM `444` for outside clients — see
-[jellyfin.md](../../services/jellyfin.md) → Common failures). Goal: reach the **web UI** from
+Goal: reach the **web UI** from
 the internet without giving out Tailscale/VPN to the whole LAN, using **Authentik** for login —
-same single-sign-on story as [mealie](mealie-authentik-oidc.md) / [immich](../../services/immich.md).
+same single-sign-on story as [mealie](../../services/mealie.md) / [immich](../../services/immich.md).
 
 Jellyfin is **not** a Mealie-style config flip. Two hard facts from the Jellyfin project + SSO
 plugin docs shape everything (verified 2026-07-11, sources at the bottom):
@@ -35,7 +30,7 @@ Jellyfin username+password).
 (LAN-only), so it never traverses the public path.** That lets us:
 
 - Add SSO for the **web UI** (plugin) → requirement 2.
-- **Block the login endpoint at the public edge only** (NPM 403) → requirement 3, for the internet.
+- **Block the login endpoint at the public edge only** (Caddy `403`) → requirement 3, for the internet.
 - Leave native local auth **fully alive internally**, where Seerr (internal Docker network) and
   LAN/Tailscale apps use it → requirement 4 intact.
 
@@ -48,26 +43,22 @@ being private is what makes this clean instead of the cosmetic-only hack.
    Jellyfin has nothing native. Trade-off: third-party plugin, updates via Jellyfin's plugin
    catalog **outside** the repo's `tag@sha256` pinning (not Renovate-controlled), API-only config
    (no admin GUI), no logout-to-IdP callback.
-2. **Rejected: filebrowser-style Authentik forward-auth / proxy provider.** Two blockers, both
+2. **Rejected: Authentik forward-auth / proxy provider.** Two blockers, both
    confirmed in Jellyfin docs: (a) Jellyfin has **no trusted-header auth**, so behind the Authentik
    wall you'd still hit Jellyfin's own login = **double login**, and it never becomes Jellyfin's
    actual login; (b) forward-auth intercepts every request and **breaks all native clients and the
-   API** (they can't do the browser cookie flow). Filebrowser works only because filebrowser
-   *honors* proxy-auth headers — Jellyfin doesn't. So the proxy pattern is not usable here.
+   API** (they can't do the browser cookie flow). So the proxy pattern is not usable here.
 3. **"Remove login" = block the login endpoint at the public edge, not in Jellyfin.** The plugin
-   can't disable native auth, and Seerr/native-apps need it internally. So we return **403 at NPM**
+   can't disable native auth, and Seerr/native-apps need it internally. So the edge returns **403**
    for the login paths on the public hostname only. Real block on the internet, backend untouched
    for internal use.
-4. **Block at NPMplus, not (only) Cloudflare.** Cloudflare WAF can inspect paths **only when
-   orange-cloud** (it terminates client TLS at edge). Two reasons NPM is the primary block: it's on
-   our infra and always in the path regardless of Cloudflare cloud colour; and **orange-clouding
-   Jellyfin risks Cloudflare ToS §2.8** (streaming large video through the proxy) plus proxy
-   buffering/timeout on long transcodes. Optionally add the Cloudflare rule too (defense in depth)
-   while orange-cloud. If Jellyfin is later switched to **gray-cloud (DNS-only)** for streaming, the
-   NPM block still holds; a Cloudflare rule would not.
+4. **Block at the edge proxy, not Cloudflare.** Jellyfin is **gray-cloud (DNS-only)**: orange-clouding
+   it risks Cloudflare ToS §2.8 (streaming video through the proxy) plus buffering on long
+   transcodes, and a gray-cloud name gives Cloudflare no view of paths. The Caddy block is always
+   in the path.
 5. **Seerr stays private (LAN-only), on Jellyfin credentials — not migrated to its own OIDC.** The
-   plugin can't help Seerr anyway (unsupported). Seerr reaches Jellyfin over the internal
-   `proxy_mediaserver` network, so it's unaffected by the public SSO button *and* the public login
+   plugin can't help Seerr anyway (unsupported). Seerr reaches Jellyfin inside the `jellyfin`
+   stack, so it's unaffected by the public SSO button *and* the public login
    block. Local Jellyfin passwords are retained for it.
 6. **Household Jellyfin accounts keep a local password.** Needed by Seerr and by native apps on
    LAN/Tailscale. SSO provisions/links the account on first web login; set a strong local password
@@ -84,7 +75,7 @@ being private is what makes this clean instead of the cosmetic-only hack.
    plugin's `adminRoles` if you want SSO to grant Jellyfin admin, else promote the account once by
    hand.
 
-### Decisions added after the 2026-07-11 security review
+### Decisions added after a security review
 
 1. **Block *all* public password paths, not just `AuthenticateByName`.** Jellyfin has a second
    password endpoint, `POST /Users/{userId}/Authenticate` (by user-id, not name), which the original
@@ -96,23 +87,10 @@ being private is what makes this clean instead of the cosmetic-only hack.
    step 6). `/Users/Public` stays reachable on LAN/Tailscale, so the internal user-select splash is
    unaffected. **This is the fix that makes "public login removed" actually true** — without it,
    requirement 3 was silently bypassable.
-2. **Restore the real client IP via PROXY protocol (VPS stream → dedicated NPM listener).** Raw
-    stream forwarding masks the client IP — every public request reaches NPM (and therefore
-    Authentik) as the VPS tailnet IP `100.64.0.12` (see
-    [micro-vps-ingress.md](../../services/micro-vps-ingress.md) → Security). That makes Authentik's
-    per-IP brute-force / reputation policy **useless for the public path** (all attackers look like
-    one IP; banning it locks out you + gf). Fix: the VPS stream server sends PROXY protocol; NPM
-    reads it and sees the true client IP again — restoring Authentik IP policies, Jellyfin access
-    logs, and any future CrowdSec bans, for **all** public sites, not just Jellyfin.
-    - **Hard constraint — do NOT flip `proxy_protocol on` on NPM's main `:443`.** LAN/tailnet
-      clients connect to NPM `:443` **directly** (AdGuard rewrites the names to the NAS IP; they
-      never touch the VPS) and send **no** PROXY header. Turning PROXY protocol on the shared `:443`
-      listener breaks every direct LAN/tailnet connection. It must be a **separate, dedicated
-      proxy-protocol listener** (e.g. NPM `:8443`) that **only** the VPS forwards to; normal `:443`
-      stays plain for LAN. See step 0.
-    - **Scope note:** this is shared-ingress infra touching auth/files/immich/mealie too. Build and
-      verify it as its own step **before** the Jellyfin cutover — a PROXY-protocol misconfig takes
-      down *all* public sites, not just Jellyfin.
+2. **The real client IP must reach Authentik.** Without it every public login looks like the VPS
+    tailnet IP `100.64.0.12`, and Authentik's per-IP brute-force policy is useless. The VPS sends
+    PROXY protocol to Caddy's dedicated `:8443` listener only; plain `:443` stays PROXY-free for
+    LAN/tailnet clients ([caddy.md → The `:8443` PROXY-protocol listener](../../services/caddy.md#the-8443-proxy-protocol-listener)).
 3. **QuickConnect kept (reaffirms decision 7).** Off-LAN native-app login stays on QuickConnect,
     SSO-gated. Alternative (disable it, force apps through Tailscale) was reconsidered and rejected
     for a 2-person household. Accept the residual: `/QuickConnect/Initiate` is unauthenticated and
@@ -137,9 +115,7 @@ being private is what makes this clean instead of the cosmetic-only hack.
   keeping apps working (forward-auth would hide it but breaks apps — decision 2).
 - **Attack surface + availability both shift to Authentik** — harden `auth.example.com`
   (brute-force/reputation policy, **mandatory** MFA/TOTP), and accept it as the public-login SPOF
-  (review decision 4): Authentik down = no public Jellyfin login. Per-IP policies only work once the
-  PROXY-protocol change (review decision 2) restores the real client IP; until then every public
-  login looks like `100.64.0.12`.
+  (review decision 4): Authentik down = no public Jellyfin login.
 - **Existing Jellyfin tokens survive the edge block** — the 403 stops new public logins only; tokens
   minted on LAN keep working off-LAN (no default expiry). A hard cut-off = revoke sessions in the
   Jellyfin Dashboard (review decision 4).
@@ -152,67 +128,10 @@ being private is what makes this clean instead of the cosmetic-only hack.
   ensure the config volume is in backups and **not** committed to git; after a restore the secret
   must be re-entered via the plugin API (step 3).
 
-## Repo changes required (do in the repo, then push)
-
-Not committed yet — these are the edits this runbook makes:
-
-- `stacks/micro-vps-ingress/docker-compose.yml` — add `jellyfin.example.com` to the `:443` SNI
-  allowlist `map` (upstream `100.64.0.11:443`) **and bump the `config-rev` label** (e.g.
-  `2026-07-11-add-jellyfin`). Without the bump the VPS nginx silently keeps the old config — see
-  [micro-vps-ingress.md](../../services/micro-vps-ingress.md) Common failures.
-- `stacks/micro-vps-ingress/docker-compose.yml` (**review decision 2 — PROXY protocol, do as its own
-  step 0 first**) — the `:443` stream `server` gets `proxy_protocol on;` and its `map` upstreams
-  point at a **dedicated** NPM proxy-protocol port (e.g. `100.64.0.11:8443`), not the shared
-  `:443`. Bump `config-rev` again. This changes ingress for **all** public sites (auth/files/immich/
-  mealie), so verify them before touching Jellyfin. Update
-  [micro-vps-ingress.md](../../services/micro-vps-ingress.md) (the "future Caddy L7 … restore real
-  client IPs" note is now done via PROXY protocol) + `network.md`.
-- **NPMplus (manual, on the NAS)** — add a dedicated `listen 8443 ssl proxy_protocol;` server that
-  only the VPS reaches over Tailscale, keeping the existing `listen 443` (no `proxy_protocol`) intact
-  for direct LAN/tailnet clients. **Do not** add `proxy_protocol` to the main `:443` — it breaks
-  every direct LAN connection (review decision 2). NPM UI may not expose this; likely a custom
-  config snippet. Set `real_ip` from the PROXY header so logs/Access-Lists see the true client IP.
-- Docs in the **same** change (AGENTS.md: keep docs in sync): `mediaserver.md` (Jellyfin public,
-  SSO plugin + Seerr coupling + login-block), `network.md` (move `jellyfin` from LAN-only to
-  "Public, app's own auth"; note SSO plugin + edge login-block; Seerr stays LAN-only),
-  `authentik.md` (add Jellyfin OIDC to First-time UI setup), `micro-vps-ingress.md` (allowlist now
-  includes jellyfin).
-
-> Jellyfin's compose service needs **no change** — already on `proxy_mediaserver`, and NPM already
-> has a `jellyfin.example.com` proxy host. Only its NPM Access List flips + gets the login-block
-> `location` (manual steps).
-
 ## Step-by-step (do in this order)
 
-> **Order is a safety property**, same as the Mealie runbook: build + prove SSO on the LAN, add the
-> login block, and open the front door **last**. Never expose Jellyfin publicly before the block is
-> verified.
-
-### 0. Restore real client IP — PROXY protocol (review decision 2, shared ingress)
-
-> **Do this first and verify it independently.** It touches ingress for *all* public sites; a
-> misconfig takes them all down. Fully separate from the Jellyfin work — could even be a prior PR.
-
-1. **NPMplus (NAS):** add a dedicated proxy-protocol listener, e.g. `listen 8443 ssl proxy_protocol;`,
-   reachable only from the VPS over Tailscale. **Keep the existing `listen 443` without
-   `proxy_protocol`** — direct LAN/tailnet clients depend on it. Configure `set_real_ip_from` for the
-   VPS tailnet IP + `real_ip_header proxy_protocol` so NPM logs and Access Lists resolve the true
-   client IP. (NPM UI may not surface this — likely a custom snippet.)
-2. **VPS ingress** (`stacks/micro-vps-ingress/docker-compose.yml`): on the `:443` stream `server`,
-   add `proxy_protocol on;` and repoint the `map` upstreams to `100.64.0.11:8443`. Bump
-   `config-rev`, push, let Portainer redeploy.
-3. **Verify all existing public sites still load off-LAN** (auth/files/immich/mealie) **and** that
-   NPM now logs the real client IP, not `100.64.0.12`. If anything breaks, roll back before
-   proceeding — Jellyfin is not even in the path yet.
-
-> **[as-built] Two persistence gotchas that broke this mid-run:**
-> - **Tailscale ACL** — the admin-console policy restricts what `tag:vps-ingress` may reach on the NAS
->   *by port*. It listed `:443` only, so the moment the VPS repointed to NAS `:8443` **every public
->   site returned Cloudflare `000`/errors** until `:8443` was added to the ACL. Adding the compose
->   port publish is **not** enough — the tailnet ACL must allow `:8443` too.
-> - **Docker iptables** — the `8443` ACCEPT rule lives in the `DOCKER` filter chain (nft backend) and
->   is re-added by Docker on every `npm` stack redeploy **because the port is published** in
->   `stacks/npm/docker-compose.yml`. No manual firewall rule to maintain; just don't unpublish `8443`.
+> **Order is a safety property**: build + prove SSO on the LAN, add the login block, and open the
+> front door **last**. Never expose Jellyfin publicly before the block is verified.
 
 ### 1. Authentik — OIDC provider + application
 
@@ -232,20 +151,16 @@ UI: `https://auth.example.com`.
    `adminRoles` (step 3). Add the group to the provider's scope/claims if so.
 4. **(Hardening — required, not optional)** enforce a **mandatory** MFA/TOTP stage for this
    application + a brute-force/reputation policy on Authentik — it's the sole public login surface.
-   TOTP is the real public defense; the IP half of the reputation policy only works once step 0
-   (PROXY protocol) restores the real client IP, so enrol both you + gf in TOTP before exposing.
+   TOTP is the real public defense, so enrol both you + gf in TOTP before exposing.
 
 ### 2. Jellyfin — Known Proxies (do before installing the plugin)
 
 Jellyfin ≥ 10.10.7 only trusts forwarded headers from configured proxies; without this the SSO
 redirect URI comes out wrong.
 
-- Dashboard → Networking → **Known Proxies**: add the NPMplus/NAS proxy address that fronts
-  Jellyfin (the `proxy_mediaserver` upstream / NPM host IP).
+- Dashboard → Networking → **Known Proxies**: the subnet Caddy reaches Jellyfin from, `proxy_jellyfin`
+  (`docker network inspect proxy_jellyfin`, IPv4 and IPv6). Restart Jellyfin after changing it.
 - Set **Published Server URL** to `https://jellyfin.example.com`.
-- **Enable Websockets Support on the `jellyfin.example.com` NPM proxy host.** Jellyfin requires a
-  WSS upgrade — without it, off-LAN playback state / remote control / session sync break
-  intermittently (Jellyfin reverse-proxy docs). Confirm it's toggled on the NPM host (Details tab).
 
 ### 3. Jellyfin — install + configure the SSO plugin
 
@@ -301,66 +216,25 @@ redirect URI comes out wrong.
   **strong local password** (this is the credential Seerr + native apps use). Confirm it's admin
   (or mapped via group).
 
-### 6. Add the public login block at NPMplus (before exposing)
+### 6. Add the public login block (before exposing)
 
-On the `jellyfin.example.com` NPM proxy host → Advanced → custom Nginx config, return 403 for the
-login endpoints (case-insensitive; cover the Emby-compat alias; **do not** block `/sso/`):
+The `https://jellyfin.example.com:8443` site block in the Caddyfile answers `403` for, case-
+insensitively and including the `/emby/` alias:
 
-```nginx
-# Block public password login — Seerr (internal) and LAN/Tailscale apps are unaffected.
-location ~* ^/(emby/)?Users/AuthenticateByName$ { return 403; }  # login by username
-location ~* ^/(emby/)?Users/[^/]+/Authenticate$ { return 403; }  # login by user-id (review decision 1)
-location ~* ^/(emby/)?Users/Public$             { return 403; }  # hide account list + GUIDs (review decision 1)
-# /sso/* and /QuickConnect/* MUST stay open — the OIDC flow and the off-LAN app login path.
-```
+- `Users/AuthenticateByName` (login by username);
+- `Users/{id}/Authenticate` (login by user-id — review decision 1);
+- `Users/Public` (the account list and its GUIDs — review decision 1).
 
-> **[as-built]** NPMplus regenerates the per-host `proxy_host/8.conf` (marked *DO NOT EDIT*) and has
-> no writable per-host "Advanced" field on disk, so the block lives in the **file-based
-> `custom_nginx/` hooks** instead (same mechanism step 0 used for the `:8443` listener):
-> - `custom_nginx/http.conf` — a `map "$host:$server_port" $jf_public_edge { … }` marks requests that
->   arrive on the **public `:8443` edge** for `jellyfin.example.com` (`1`), everything else `0`.
->   LAN/tailnet clients hit `:443` directly, so they never match. This is what makes the block
->   **public-only** — the plain `location ~* …{return 403}` above would have hit LAN clients too.
-> - `custom_nginx/server_http.conf` (included in every vhost's `server` block) — combines
->   `$jf_public_edge` with a `set $jf_login_path` flag raised by three `if ($uri ~* …)` tests for the
->   same three endpoints, then `if ($jf_public_edge$jf_login_path = "11") { rewrite ^ /__jf_login_blocked last; }`.
-> - The jellyfin host's `8.conf` carries `error_page 401 403 = @deny_drop { return 444; }`, which would
->   turn a naive `return 403` into a `444` drop. To emit a **genuine 403** (the acceptance test wants
->   403, not 444), the target is an `internal` named location that **defines its own `error_page`** —
->   which suppresses inheritance of the server-level 401/403 handler — then `return 403`.
->
-> Verified on the NAS by replaying the `:8443` PROXY-protocol edge locally
-> (`curl --haproxy-protocol --resolve jellyfin.example.com:8443:127.0.0.1 https://…:8443/…`): all
-> three endpoints (+ `/emby/` alias, lowercase) → **403**; `/sso/OID/start/authentik` → 302,
-> `/QuickConnect/Initiate` → 400, `/System/Info/Public` → 200; the same paths on `:443` (LAN) are
-> unaffected. Reload after editing: `sudo docker exec npmplus nginx -t && … nginx -s reload`.
-
-> Bypass traps this covers: the `/emby/…` alias hits the same endpoint and Jellyfin routing is
-> case-insensitive (hence `~*`). **Both** password paths are blocked — `AuthenticateByName` *and*
-> the by-user-id `Users/{id}/Authenticate` (review decision 1); blocking only the first was
-> bypassable via a GUID pulled from the unauthenticated `/Users/Public`, which is now also 403 on the
-> public edge (still open on LAN/Tailscale, so the internal user-select splash works). Do **not**
-> block generic `/Users` — it breaks the API. QuickConnect is intentionally **left open** — SSO-gated
-> and the off-LAN app login path (decision 7 / review decision 3).
+`/sso/*` and `/QuickConnect/*` **must stay open** — the OIDC flow and the off-LAN app login path.
+Do **not** block generic `/Users`: it breaks the API. LAN/tailnet `:443` is a separate site block
+and is unaffected.
 
 ### 7. Open the front door (only after step 6)
 
-1. Push the repo changes (SNI allowlist + `config-rev` bump + docs). The `deploy-stacks` runner
-   redeploys `micro-vps-ingress`. Confirm the VPS picked it up:
-
-   ```sh
-   ssh ubuntu@198.51.100.10 -p 2222 -i ~/.ssh/ssh-key-vps.key
-   sudo docker exec micro-vps-ingress-nginx-1 grep jellyfin /etc/nginx/nginx.conf
-   ```
-
-2. **NPM** — flip `jellyfin.example.com` Access List from LAN-only to the public list
-   (`allow all;`), matching `immich`/`mealie`.
-3. *(Optional, orange-cloud only)* Cloudflare WAF custom rule as a second layer — Block when
-   `lower(http.request.uri.path)` matches `/users/authenticatebyname`,
-   `/emby/users/authenticatebyname`, `/users/public`, **or** the regex
-   `^/(emby/)?users/[^/]+/authenticate$` (the by-user-id path — review decision 1). **Do not** block
-   `/quickconnect` or `/sso` (off-LAN app path + OIDC flow). Skip the whole rule if Jellyfin is
-   gray-cloud/DNS-only — Cloudflare can't see paths then; the NPM block still holds.
+Add `jellyfin.example.com` to the VPS SNI allowlist `map` in
+`stacks/micro-vps-ingress/docker-compose.yml` (bump `config-rev`), give it a public `:8443` site
+block that does not import `lan_only`, and move it to `PUBLIC_HOSTS` in `edge-access-policy.yml` —
+see [network.md → Access control](../../network.md#access-control-who-can-reach-each-subdomain).
 
 ### 8. Verify (the acceptance tests)
 
@@ -373,9 +247,9 @@ location ~* ^/(emby/)?Users/Public$             { return 403; }  # hide account 
   - `.../Users/Public` (GET; account list hidden publicly — review decision 1)
   And `/sso/OID/start/authentik` + `/QuickConnect/Initiate` → **not** 403. Also confirm
   `/Users/Public` still returns the list from LAN/Tailscale (splash unaffected).
-- **Real client IP in logs** (review decision 2): trigger a login from off-LAN and confirm NPM /
-  Authentik logs show your actual public IP, not `100.64.0.12`. If it still shows the VPS IP, step
-  0 didn't take — the brute-force policy is blind.
+- **Real client IP in logs** (review decision 2): trigger a login from off-LAN and confirm
+  Authentik logs show your actual public IP, not `100.64.0.12`. If it still shows the VPS IP, the
+  brute-force policy is blind.
 - **Seerr still works** (LAN): sign out/in with **Sign in with Jellyfin** using the account's
   username + local password → authenticates (internal path, unaffected). Seerr itself stays
   LAN-only — this runbook does **not** expose `seerr.example.com`.
@@ -391,27 +265,21 @@ location ~* ^/(emby/)?Users/Public$             { return 403; }  # hide account 
   as Mealie's 401. Also confirm the Authentik user has an email set.
 - **Redirect URI mismatch** → set **Known Proxies** + **Published Server URL** (step 2) *before*
   testing; Jellyfin ≥10.10.7 rejects untrusted forwarded headers, breaking the redirect.
-  **This re-breaks on any proxy change.** `KnownProxies` is Jellyfin config state, not repo state,
-  so the Caddy migration silently invalidated it: the value still named the retired NPM subnet
-  `172.16.23.0/24` while Caddy fronted Jellyfin from `proxy_jellyfin`. Untrusted proxy means
-  `X-Forwarded-Proto` is dropped, `Request.Scheme` becomes `http`, and the plugin builds
-  `http://jellyfin.example.com/sso/OID/redirect/authentik`, which fails the provider's `strict`
-  match. Fixed 2026-09-08 to `172.16.33.0/24` + `fdd0:0:0:21::/64` (restart required). That subnet
-  is Docker-assigned — `proxy_jellyfin` has no explicit `subnet:` in the Caddy compose, so
-  recreating the network can move the CIDR and reproduce this.
+  **This re-breaks on any proxy change.** `KnownProxies` is Jellyfin config state, not repo state.
+  Untrusted proxy means `X-Forwarded-Proto` is dropped, `Request.Scheme` becomes `http`, and the
+  plugin builds `http://jellyfin.example.com/sso/OID/redirect/authentik`, which fails the
+  provider's `strict` match. Today it is `172.16.33.0/24` + `fdd0:0:0:21::/64`. That subnet is
+  Docker-assigned — `proxy_jellyfin` has no explicit `subnet:` in the Caddy compose, so recreating
+  the network can move the CIDR and reproduce this.
 - **Login block too broad** → don't block `/sso/`; don't block generic `/Users` (breaks the API).
   Match only the auth endpoints + `/Users/Public`, case-insensitively, incl. the `/emby/` alias.
 - **Login block too narrow** (the review's #1 finding) → blocking only `AuthenticateByName` leaves
   the by-user-id path `Users/{id}/Authenticate` open, and `/Users/Public` hands out the GUIDs to use
   it. Block all three (step 6) or "public login removed" is false.
-- **PROXY protocol on the wrong listener** → adding `proxy_protocol` to NPM's shared `:443` breaks
-  **every direct LAN/tailnet client** (they send no PROXY header). Use a dedicated proxy-protocol
-  port that only the VPS reaches (step 0); keep `:443` plain. Symptom of getting it wrong: LAN works
-  but public sends garbage, or LAN breaks the moment the listener flips.
 - **SNI `config-rev` not bumped** → VPS serves the old allowlist and public Jellyfin is dropped at
   the VPS. Always bump the label.
-- **Cloudflare orange-cloud + video** → ToS §2.8 / buffering; prefer gray-cloud for Jellyfin and
-  rely on the NPM block (decision 4).
+- **Cloudflare orange-cloud + video** → ToS §2.8 / buffering; keep Jellyfin gray-cloud and rely on
+  the Caddy block (decision 4).
 - **QuickConnect code-relay phishing** → an attacker can initiate QuickConnect and try to trick a
   logged-in user into approving *their* code (device-code phishing). Low risk for a 2-person
   household; rule: only approve a code you generated yourself. `/QuickConnect/Initiate` is
@@ -427,10 +295,6 @@ location ~* ^/(emby/)?Users/Public$             { return 403; }  # hide account 
 - **Plugin secret lost after a restore** → it lives in the config volume (API-only, no GUI). If the
   volume isn't backed up you must re-enter Client ID/Secret via the plugin API. Keep them in your
   password manager (step 3).
-
-## Last updated
-
-2026-07-11
 
 ## Sources (verified 2026-07-11)
 

@@ -1,6 +1,6 @@
 #!/bin/sh
 # pre_deploy guard for github-runner: wait until no job is running, so the recreate lands between jobs
-# (komodo-migration.md F27). Run from the Stack's run directory:
+# (docs/services/komodo.md → Rules). Run from the Stack's run directory:
 #   sh ../../scripts/komodo/runner-idle.sh <container> <max-seconds>
 set -eu
 [ $# -eq 2 ] || { echo "usage: runner-idle.sh <container> <max-seconds>" >&2; exit 2; }

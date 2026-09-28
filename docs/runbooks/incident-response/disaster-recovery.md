@@ -85,6 +85,8 @@ offsite copy.
    [backup.md](../backup-restore/backup.md) → Restore. This is the step the emailed config can't do alone.
    - `data` leaves: `immich`, `smb_share/*`, `paperless`.
    - `apps` leaves: every service config dir.
+   - **Mirror already damaged** (ransomware, a deletion synced overnight)? Pull from a Storage Box
+     snapshot instead, up to 10 days back: [backup.md → From a Storage Box snapshot](../backup-restore/backup.md#from-a-storage-box-snapshot).
    - **Not in backup:** `data/mediaserver` (bulk media) — re-acquire via the *arr stack
      once it's running.
 5. **Databases** (Postgres and MariaDB) → restore from logical dumps ([postgres-dump.md](../backup-restore/postgres-dump.md)).

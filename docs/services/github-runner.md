@@ -12,8 +12,8 @@ needs the LAN:
   [`deploy-state-probe`](../runbooks/setup-operations/deploy-state-probe.md).
 
 It runs in the [runner VM](../runbooks/setup-operations/runner-vm.md) on the NAS, on the LAN, so it can
-reach Komodo Core (a LAN-only vhost) **without exposing Komodo to the internet**. It moved there from
-a container on the NAS host on 2026-09-17 (SEC-1 step 4, SVC-2 Phase 3 PR 11).
+reach Komodo Core (a LAN-only vhost) **without exposing Komodo to the internet**, and so workflow code never runs on the NAS host
+itself.
 
 ## Stack
 
@@ -65,13 +65,14 @@ the end. Two pieces in [`komodo/resources.toml`](../../komodo/resources.toml):
 
 A merged change to `stacks/github-runner/` therefore lands within the hour, between jobs.
 `deploy-stacks` only logs a notice for it. A job can still start in the seconds between the idle
-check and the recreate; that job dies with exit 143. Accepted (komodo-migration.md decision 13).
+check and the recreate; that job dies with exit 143. Accepted
+([komodo.md → Rules](komodo.md#github-runner-deploys-between-jobs)).
 
 No health gate and no auto-rollback. The deploy-state probe sees the result.
 
 While `pre_deploy` waits, Komodo shows the Stack as `deploying`. The job it waits for may be the
 deploy-state probe or the health check, which both read that state, so both accept `deploying` for
-this one Stack. Before they did, the probe run a waiting deploy measured failed on it (2026-09-17).
+this one Stack.
 
 ## Notes
 
@@ -87,6 +88,10 @@ this one Stack. Before they did, the probe run a waiting deploy measured failed 
   with `no-new-privileges`. If the repo is ever made public or starts running
   `pull_request` workflows, this becomes RCE on the host — gate workflows first.
 
+**Container logs** are capped at 10 MB × 3 files per container (`x-logging` in the compose file):
+Docker's `json-file` default never rotates. Enforced by
+[`compose-policy.py`](../../.github/scripts/compose-policy.py).
+
 ## Operations
 
 > Restart/redeploy go through **Komodo** (Stack `github-runner`). Over SSH (`ssh -i secrets/ssh/runner-vm_ed25519 ubuntu@192.168.178.34`), `ubuntu` is not in the `docker` group but has passwordless sudo, so `sudo docker …` works for inspection.
@@ -101,9 +106,9 @@ this one Stack. Before they did, the probe run a waiting deploy measured failed 
 
 ### Upgrade
 
-- Pinned `myoung34/github-runner:<agent-version>-ubuntu-focal@sha256:…`. Renovate opens the PR, the review sweep merges it, and `deploy-runner` deploys it between jobs within the hour.
-- **Do not go back to `latest`.** It carries no version string, so [renovate-pr-review](../runbooks/setup-operations/renovate-pr-review.md) has no release notes to read and judges a digest change blind ([SEC-5](../architecture-review-2026-08-20.md#sec-5--latest-tags-defeat-the-pr-review-gate)). Note `latest` is also its own build stream here — no versioned tag shares its digest, so the two are not interchangeable.
-- **The base is Ubuntu 20.04 (focal), EOL since April 2025.** Moving to `-ubuntu-jammy` or `-ubuntu-noble` changes the toolchain every workflow runs against, so it is a deliberate separate change, not an image bump.
+- Pinned `myoung34/github-runner:<agent-version>-ubuntu-noble@sha256:…`. Renovate opens the PR, the review sweep merges it, and `deploy-runner` deploys it between jobs within the hour.
+- **Do not go back to `latest`.** It carries no version string, so [renovate-pr-review](../runbooks/setup-operations/renovate-pr-review.md) has no release notes to read and judges a digest change blind. Note `latest` is also its own build stream here — no versioned tag shares its digest, so the two are not interchangeable.
+- **The base is Ubuntu 24.04 (noble)** since 2026-09-23. It was focal (EOL April 2025), which carried 271 HIGH / 11 CRITICAL fixable CVEs in the image scan. Upstream installs the same packages on every variant, and the self-hosted jobs use only `jq`, `curl`, `git`, `ssh` (an ed25519 key, fine on OpenSSH 9.6) and coreutils. Changing the distro suffix is still a deliberate edit: Renovate keeps a pin on its suffix.
 - **If a bump goes wrong the runner does not come back on its own**, and no workflow can run to fix it. Check over SSH on the VM (`sudo docker ps -a --filter name=github-runner`), revert the pin, then **Deploy** the Stack from Komodo, which does not need the runner.
 
 ### Restore from backup
@@ -124,11 +129,3 @@ this one Stack. Before they did, the probe run a waiting deploy measured failed 
 - **A runner bump ships broken** → no later run starts at all, so CI cannot fix itself. Revert the
   `image:` pin with a merge by hand, then **Deploy** the Stack from Komodo, which does not need the
   runner.
-
-## Last updated
-
-2026-09-17 — moved into the runner VM (SEC-1 step 4): Stack on `runner-vm`, deployed between jobs by the `deploy-runner` Procedure; `DEFER_FIRE` and `fire-deferred.sh` deleted (SVC-2 Phase 3, PR 11).
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack on the deferred path (#386), env from Komodo Variables.
-
-2026-09-11

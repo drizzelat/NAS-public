@@ -103,9 +103,8 @@ and confirm a normal answer, while a LAN-only name on `:9443` aborts.
 ## Phase 2 — the `cloudflared` stack
 
 **Do not land this stack in the repo until the credentials exist and work.** A new
-`stacks/<name>/` directory pushed to `main` is not inert: `scripts/deploy/fire-webhooks.sh` creates
-and starts it in Portainer automatically (the "NEW stack on endpoint" path), a credential-less
-cloudflared would crashloop, `verify-healthy.sh` would fail, and the auto-revert would undo the
+`stacks/<name>/` directory pushed to `main` with an `owned-stacks` line is not inert: `deploy-stacks`
+creates and starts it in Komodo automatically, a credential-less cloudflared would crashloop, `verify-healthy.sh` would fail, and the auto-revert would undo the
 newest stack change — which may not be this one. Build it, test it by hand on the NAS, and commit
 it in the same change that has a working tunnel.
 

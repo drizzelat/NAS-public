@@ -8,7 +8,7 @@ Authentik is an identity provider (IdP) and SSO platform. It handles authenticat
 
 - **Stack folder:** `stacks/authentik/`
 - **Compose file:** `stacks/authentik/docker-compose.yml`
-- **Deploy:** Komodo Stack `authentik` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `authentik` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 
 ## Access
@@ -62,6 +62,15 @@ Kept in the vault (`scripts/secrets.sh edit authentik`); `scripts/secrets.sh pus
   it. The **worker's** `:9300` is *not* scraped: it only listens on `authentik_net`, which the
   metrics store deliberately does not join because Postgres is on it. See
   [observability.md](observability.md).
+- **Failed logins are watched by CrowdSec** since 2026-09-25. Authentik's own
+  `login_failed` / `invalid_identifier` events are the only place a wrong password is visible — the
+  flow executor answers `200` either way, so the edge access log cannot see it. CrowdSec reads this
+  container's stdout through a GET-only Docker socket proxy in the `caddy` stack, and the `auth`
+  vhost overrides `X-Forwarded-For` so the events name the visitor rather than a Cloudflare PoP:
+  [caddy.md → Authentik brute force](caddy.md#authentik-brute-force). Nothing in *this* stack
+  configures it, but two things here would break it: renaming the `server` container (the
+  acquisition names `authentik-server-1`) and setting `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS`,
+  which changes which `X-Forwarded-For` entry Authentik believes.
 - PostgreSQL is **Postgres 18** (`*-alpine`), pinned `tag@sha256:…` in the compose file so an unreviewed bump can't break the DB schema. Migrated 16→18 on 2026-07-02 (versioned datadir) — see [postgres-major-upgrade runbook](../runbooks/setup-operations/postgres-major-upgrade.md).
 - The worker runs **without** the Docker socket or root — only the embedded outpost is used (no
   Docker-type outpost needs host Docker access). If a Docker outpost is added later, harden via a
@@ -76,9 +85,7 @@ Kept in the vault (`scripts/secrets.sh edit authentik`); `scripts/secrets.sh pus
 Komodo's clone at `/mnt/apps/komodo/repos/nas`. A blueprint change is a change to this stack's folder,
 so `deploy-stacks` deploys `authentik`, which pulls the clone. The Stack's `post_deploy` then fails the
 deploy unless the worker sees exactly the clone's files, because a fresh clone would strand the mount
-(komodo-migration.md F28). Until 2026-09-17 the files came from the 15-minute pull of
-`/mnt/apps/scripts/nas` instead. Closes step 1 of
-[GAP-1](../architecture-review-2026-08-20.md#gap-1--npm-and-authentik-config-is-click-ops).
+([komodo.md → Rules](komodo.md#config-mounts-come-from-komodos-clone)).
 
 ### What is in git
 
@@ -90,6 +97,7 @@ deploy unless the worker sees exactly the clone's files, because a fresh clone w
 | `mealie.yaml` | OAuth2 provider `mealie`, application `mealie` |
 | `matrix.yaml` | OAuth2 provider `Matrix`, application `matrix` |
 | `access.yaml` | Group `nas-users` **and its membership**, plus the policy binding that gates each of the five applications — see [Application access](#application-access-the-login-allowlist) |
+| `mfa.yaml` | Two fields of the upstream stage `default-authentication-mfa-validation`: every login needs a second factor — see [MFA](#mfa-every-login-needs-a-second-factor) |
 
 ### What is still UI-only
 
@@ -105,7 +113,8 @@ Everything else, and some of it is load-bearing:
 - **Flows, stages, prompts, policies and property mappings.** All of them are still authentik's own
   defaults, applied by the 31 built-in blueprints shipped inside the image under `/blueprints/{default,system,migrations}`.
   Nothing here overrides them, and nothing should: duplicating an upstream blueprint into this repo
-  means owning a fork of it across every version bump.
+  means owning a fork of it across every version bump. The one exception is `mfa.yaml`, which names
+  two fields of one stage and nothing else, so every other field stays upstream's.
 - **Users, tokens and TOTP devices.** Identity data, not configuration. **Groups are the
   exception**: `access.yaml` owns `nas-users` *and* who is in it, because the bindings that gate
   every application are worth exactly as much as that list —
@@ -142,6 +151,38 @@ was supposed to enforce it was absent, and a sixth account would have inherited 
 - **This is not a network-layer wall.** It gates *login*; anonymous routes that need no login —
   immich `/share/`, Mealie's public recipes, `files` share and upload links — are untouched by it,
   by design.
+
+### MFA: every login needs a second factor
+
+All five applications use the brand's `default-authentication-flow`; no provider sets its own
+`authentication_flow`. After identification and password, its stage
+`default-authentication-mfa-validation` asks for a second factor. `mfa.yaml` sets what happens to an
+account that has none:
+
+| Field | Value | Effect |
+| --- | --- | --- |
+| `not_configured_action` | `configure` | No authenticator means enrol one now, before the flow issues a session. Upstream leaves this at the model default |
+| `configuration_stages` | `default-authenticator-webauthn-setup`, then `default-authenticator-totp-setup` | The account picks one: a passkey first, TOTP as the fallback |
+
+- **Existing accounts see no change.** An account with a TOTP or WebAuthn device is asked for it,
+  as before. The stock binding policy on this stage skips it only for a passwordless passkey login,
+  which already is two factors.
+- **The rule was UI state before `mfa.yaml`.** The live stage already had `configure` with TOTP
+  only, set by hand at some point and in no file. A rebuilt instance would have come up without it.
+- **Test on a throwaway account, never a household one:** create a user in `nas-users`, log in
+  through `https://auth.example.com/` with its password, and the flow must stop at *Select an
+  authenticator to set up* before any application opens. Delete the user after.
+
+**Recovery, if an admin loses their authenticator.** A recovery key is a one-time login link that
+skips the flow. Mint one over SSH on the NAS; it goes to stdout, never to the vault:
+
+```sh
+sudo docker exec authentik-worker-1 ak create_recovery_key 15 akadmin   # validity in minutes
+```
+
+Open the printed link at once, enrol a new authenticator, then delete the leftover token under
+**Directory → Tokens and App passwords**. `akadmin` has no authenticator yet, so its first normal
+login also enrols one.
 
 ### How it applies, and how it fails
 
@@ -240,7 +281,7 @@ is the part a blueprint cannot do.
 
 1. **Bootstrap admin** — browse to `https://auth.example.com/if/flow/initial-setup/` and set the `akadmin` password. (Only works once, before any admin exists.)
 2. **Log in** as `akadmin`, then **Admin interface** (top-right) → set the admin email and timezone.
-3. **Embedded outpost** — Applications → Outposts → confirm the built-in `authentik Embedded Outpost` is healthy. **Its provider list is empty since the filebrowser removal on 2026-09-09** — nothing uses forward-auth any more. Keep it healthy anyway: it is the only thing that would carry a future proxy provider, and no blueprint sets its list now.
+3. **Embedded outpost** — Applications → Outposts → confirm the built-in `authentik Embedded Outpost` is healthy. **Its provider list is empty** — nothing uses forward-auth. Keep it healthy anyway: it is the only thing that would carry a future proxy provider, and no blueprint sets its list now.
 4. **Create the household users first** — Directory → Users: `stefan` and `diana`. This step moved
    ahead of the blueprints on purpose: `access.yaml` resolves both usernames with `!Find`, and if
    either is missing the file rolls back and **no** application gets its binding.
@@ -258,21 +299,9 @@ is the part a blueprint cannot do.
    ([runbook](../runbooks/setup-operations/jellyfin-authentik-sso.md)), Matrix
    ([doc](a1-vps-matrix.md)). On a rebuilt instance the secrets are newly generated and **will not
    match** what those services already hold.
-7. **Hardening** — Flows & Stages: review the default password policy, and see the gap below.
-
-> **One thing this list still claims that is not true of the live instance** (the missing policy
-> bindings, found the same way on 2026-09-06, were closed on 2026-09-16 by
-> [`access.yaml`](#application-access-the-login-allowlist)):
->
-> - **Jellyfin MFA is conditional, not mandatory.** The Jellyfin provider has no
->   `authentication_flow` of its own, so it falls through to the brand's `default-authentication-flow`,
->   where the `default-authentication-mfa-validation` stage is gated by the stock
->   "user has a configured authenticator" policy. Every household account does have TOTP enrolled, so
->   MFA is prompted in practice; it is not *required*. This doc previously called it mandatory.
->
-> It is a deliberate non-change: a dedicated authentication flow tightens who can log in, which is
-> a decision, not a transcription. It is not blocked by the blueprints — it is a natural thing to
-> add to `jellyfin.yaml` when decided.
+7. **Hardening** — Flows & Stages: review the default password policy. MFA needs no step here:
+   `mfa.yaml` makes every account enrol a second factor on its first login
+   ([MFA](#mfa-every-login-needs-a-second-factor)).
 
 ## Operations
 
@@ -281,7 +310,7 @@ is the part a blueprint cannot do.
 ### Restart / redeploy
 
 - Komodo → Stacks → `authentik` → **Deploy** (or **Restart**).
-- Or push to `stacks/authentik/` → the runner deploys it through Komodo ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)).
+- Or push to `stacks/authentik/` → the runner deploys it through Komodo ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)).
 
 ### Upgrade
 
@@ -315,11 +344,3 @@ is the part a blueprint cannot do.
   (`curl -s https://auth.example.com/application/o/files/.well-known/openid-configuration`) — a
   discovery failure is **fatal at `files` startup**, so the container will be down, not just
   unauthenticated.
-
-## Last updated
-
-2026-09-16 — `access.yaml`: group `nas-users` and a policy binding on all five applications, closing the no-binding gap.
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables.
-
-2026-09-11

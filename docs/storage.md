@@ -20,6 +20,9 @@ Disks and ZFS pools. Host compute/chassis (CPU, board, RAM, controllers, cooling
 | apps      | nvme0            | single disk | /mnt/apps   | 250GB |
 | data      | data-disk1+disk2 | mirror      | /mnt/data   | ~3.5TB|
 
+> **Planned:** a second HDD pool `media` (4× 12–16 TB RAIDZ2) for `data/mediaserver` and `data/romm`, with `data`
+> kept for important data; `data` and `apps` are replicated locally onto it — [roadmap item 9](roadmap.md#9-hdd-expansion--a-media-pool).
+
 > **`apps` has no disk redundancy (single NVMe) — accepted risk.** Protection is layered
 > instead: local ZFS snapshots (fast restore) + nightly encrypted Hetzner push (offsite). On
 > NVMe failure, restore config from the latest Hetzner backup; worst-case data loss = changes
@@ -94,11 +97,12 @@ over time.
 | data/smb_share/shared               | /mnt/data/smb_share/shared               | 140K   |
 | data/smb_share/stefan               | /mnt/data/smb_share/stefan               | 5.22G  |
 
-> `apps/portainer` is **orphaned**: it backs no stack since Portainer's removal on 2026-09-17. Its data
-> and the snapshot `pre-removal-2026-09-17` are kept until a separate decision ([archive/portainer.md](archive/portainer.md)).
+> `apps/portainer` is **orphaned**: it backs no stack since Portainer's removal. Its data and the
+> snapshot `pre-removal-2026-09-17` are kept until a separate decision
+> ([roadmap](roadmap.md#already-in-the-docs-still-to-do)).
 
 > `apps/runner-vm` is a **zvol**, not a filesystem: the [runner VM](runbooks/setup-operations/runner-vm.md)'s
-> 20 GiB sparse disk, created 2026-09-17. It has no mountpoint and no stack mounts it. The cloud-sync
+> 20 GiB sparse disk. It has no mountpoint and no stack mounts it. The cloud-sync
 > chain takes filesystem datasets only, so it is **not backed up offsite**, on purpose: the guest is
 > rebuilt from `vm/runner-vm/`. The recursive `apps` snapshot task does include it.
 
@@ -107,8 +111,8 @@ over time.
 > `apps/romm/dumps` (RomM's nightly dump, written from the host; a dataset of its own because the
 > cloud sync skips `apps/romm`, which has children — [postgres-dump](runbooks/backup-restore/postgres-dump.md)), `apps/scripts`
 > (the on-NAS repo clone and the out-of-band host scripts), and `apps/filebrowser`, which is
-> **orphaned** — the archived filebrowser's state, left on disk deliberately at the 2026-09-09
-> cutover ([filebrowser-to-quantum](runbooks/setup-operations/filebrowser-to-quantum.md)).
+> **orphaned** — the retired filebrowser's state, left on disk deliberately
+> ([roadmap](roadmap.md#already-in-the-docs-still-to-do)).
 > `apps/npm` is not orphaned: the `caddy` stack's `crowdsec` mounts its `crowdsec/` subtree.
 >
 > `/mnt/apps/nas-health` is a plain directory in the `apps` root dataset, not a leaf dataset, so the
@@ -135,7 +139,7 @@ AI agents: when adding a new stack that uses a host volume, add a row here.
 | `/mnt/apps/caddy/logs`                    | caddy         | Access log, read by CrowdSec + Vector |
 | `/mnt/apps/komodo/repos/nas/stacks/caddy` | caddy         | Edge policy, read-only from Komodo's clone |
 | `/mnt/apps/conduit`                       | conduit       | Station key (broker reputation) + Psiphon tunnel-core state |
-| `/mnt/apps/komodo`                        | nas-periphery | Periphery root, identical inside and out (F4): repo clones, stack dirs, its key pair |
+| `/mnt/apps/komodo`                        | nas-periphery | Periphery root, identical inside and out: repo clones, stack dirs, its key pair |
 | `/mnt/apps/komodo/mongo/db`               | komodo        | Komodo Core's MongoDB data |
 | `/mnt/apps/komodo/mongo/configdb`         | komodo        | MongoDB config data |
 | `/mnt/apps/komodo/keys`                   | komodo        | Core's key pair, trusted by every periphery |
@@ -147,6 +151,7 @@ AI agents: when adding a new stack that uses a host volume, add a row here.
 | `/mnt/apps/observability/victoriametrics` | observability | Metrics store (1y)                               |
 | `/mnt/apps/komodo/repos/nas/stacks/observability/vector` | observability | Vector pipeline, read-only from Komodo's clone |
 | `/mnt/apps/komodo/repos/nas/stacks/observability/victoriametrics` | observability | Scrape config, read-only from Komodo's clone |
+| `/mnt/apps/komodo/repos/nas/stacks/observability/vmalert` | observability | Alerting rules, read-only from Komodo's clone |
 | `/mnt/apps/komodo/repos/nas/stacks/observability/grafana/provisioning` | observability | Grafana datasources + dashboard provider, read-only from Komodo's clone |
 | `/mnt/apps/komodo/repos/nas/stacks/observability/grafana/dashboards` | observability | Dashboard JSON, read-only from Komodo's clone |
 | `/mnt/apps/files`                         | files         | Quantum SQLite DB + preview cache |
@@ -174,7 +179,6 @@ AI agents: when adding a new stack that uses a host volume, add a row here.
 | `/mnt/data/mediaserver/data/media/books`  | books         | Book library                     |
 | `/mnt/data/mediaserver/data/media/games`  | games         | Game files                       |
 | `/mnt/data/romm/roms`                     | downloads     | qBittorrent `/roms` — ROM grabs  |
-| `/mnt/apps/npm/npm/data/nginx/logs`       | caddy         | NPMplus's static logs, mounted `ro` by `crowdsec` so an NPMplus rollback keeps its acquisition |
 | `/mnt/apps/npm/crowdsec/data`             | caddy         | CrowdSec database                |
 | `/mnt/apps/npm/crowdsec/config`           | caddy         | CrowdSec configuration           |
 | `/mnt/apps/mealie/data`                   | mealie        | Mealie app data (recipes, images)|
@@ -217,11 +221,16 @@ below.
 | Dataset          | Recursive | Frequency             | Retention |
 | ---------------- | --------- | --------------------- | --------- |
 | `apps`           | yes       | every 4h (00,04,…,20) | 3 days    |
+| `apps`           | yes       | daily · weekly · monthly | 14 days · 8 weeks · 6 months |
 | `data/smb_share` | yes       | daily 01:00           | 14 days   |
 | `data/immich`    | no        | daily 01:00           | 14 days   |
 | `data/paperless` | no        | daily 01:00           | 14 days   |
+| all three `data/*` above | as above | weekly · monthly | 8 weeks · 6 months |
 
-Naming schema `auto-%Y-%m-%d_%H-%M`. `data/mediaserver` (bulk media) and `data/romm` (bulk ROMs —
+Naming schema `auto-%Y-%m-%d_%H-%M` for the first tier, `daily-`, `weekly-` and `monthly-` with the
+same date pattern for the others. One schema per tier, because retention prunes by schema
+([scheduled-tasks.md](scheduled-tasks.md#periodic-zfs-snapshot-tasks)). Watch `usedbysnapshots` on
+`apps` after a change: the tiers hold changed blocks for up to six months. `data/mediaserver` (bulk media) and `data/romm` (bulk ROMs —
 replaceable, and quota-capped at 500 GB) are intentionally **not** snapshotted. RomM's precious
 state (saves/save-states in `apps/romm/assets`, plus its DB) lives on `apps`, which **is**
 snapshotted recursively. Restore: `zfs rollback` or browse `.zfs/snapshot/<name>/` and copy files
@@ -232,4 +241,5 @@ out.
 Important config and selected data are pushed nightly to a **Hetzner Storage Box** (SFTP) via
 TrueNAS **Cloud Sync** — one snapshot-based, encrypted template task re-pointed at each leaf
 dataset in turn. See [`docs/runbooks/backup-restore/backup.md`](runbooks/backup-restore/backup.md)
-for what is included/excluded, the schedule, and restore steps.
+for what is included/excluded, the schedule, and restore steps. The push is a mirror; the
+Storage Box's own daily snapshots (10 kept) are the offsite history.

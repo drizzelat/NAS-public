@@ -7,6 +7,7 @@ CLONE=/mnt/apps/scripts/nas
 DROPIN=/etc/systemd/system/docker.service.d/10-wait-for-data-root.conf
 CLOUDSYNC_LOG=/var/log/cloudsync-chain.log
 SMART_HELPER=/mnt/apps/scripts/nas-health-smart.sh
+HETZNER_HELPER=/mnt/apps/scripts/nas-hetzner-snapshots.sh
 SELF=/mnt/apps/scripts/nas-health-probe.sh
 # Installed outside the clone on purpose, so no pull updates them (komodo-migration.md F11).
 HOST_COPIES="git-pull-nas.sh"
@@ -17,7 +18,7 @@ ZPOOL=/usr/sbin/zpool
 
 # Keep in step with usage() and the case below; a verb missing here is refused.
 VERBS="help host alerts pools datasets snapshots smart disks cloudsync dumps
-       paths repo-head boot-guard yaml2json version host-copies"
+       paths repo-head boot-guard yaml2json version host-copies storagebox"
 
 usage() {
   cat <<'EOF'
@@ -27,17 +28,18 @@ nas-health-probe — allowed verbs:
   alerts        midclt alert.list
   pools         zpool status + zpool list -o name,capacity,health
   datasets      zfs list -o name,mountpoint
-  snapshots     zfs list -t snapshot -o name,creation (oldest first)
+  snapshots     zfs list -t snapshot -o name,creation (epoch, oldest first)
   smart         smartctl -H -A and -l selftest for every scanned device
   disks         midclt disk.query
   cloudsync     tail of the cloudsync-chain log + midclt cloudsync.query
-  dumps DIR...  ls -l DIR, gzip -t and completion marker of its newest *.sql.gz
+  dumps DIR...  ls -l DIR, then per database in it: newest dump, gzip -t, end marker
   paths PATH... whether each PATH exists
   repo-head     git rev-parse HEAD of the on-host repo clone
   boot-guard    the docker ordering drop-in, verbatim
   yaml2json     YAML on stdin -> JSON on stdout
   version       sha256 of this script and the SMART helper
   host-copies   sha256 of the scripts installed outside the clone
+  storagebox    Hetzner Storage Box snapshots, read-only API (token stays here)
 DIR/PATH must be absolute under /mnt, no '..', letters/digits/._-/ only.
 EOF
 }
@@ -113,7 +115,8 @@ case "$verb" in
     ;;
 
   snapshots)
-    exec "$ZFS" list -t snapshot -H -o name,creation -s creation
+    # -p: creation as epoch seconds, so a reader never parses a locale-formatted date.
+    exec "$ZFS" list -t snapshot -H -p -o name,creation -s creation
     ;;
 
   smart)
@@ -154,25 +157,46 @@ print(json.dumps([{
       echo "=== $d ==="
       [ -d "$d" ] || { echo "MISSING DIR"; continue; }
       ls -l -- "$d"
-      # Globbing is off for the argv split above; re-enable it just for this match.
+      # One directory can hold several databases (the A1's holds synapse AND
+      # mautrix_whatsapp), so report per DATABASE, not per directory: the newest file
+      # in the dir belongs to whichever DB dumped last and says nothing about the rest.
+      # Globbing is off for the argv split above; re-enable it just for these matches.
       set +f
-      newest="$(ls -1t -- "$d"/*.sql.gz 2>/dev/null | head -n 1)"
+      dbs="$(ls -1 -- "$d"/*.sql.gz 2>/dev/null \
+        | sed -e 's|.*/||' \
+        | sed -n 's/_[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}_[0-9]\{2\}-[0-9]\{2\}\.sql\.gz$//p' \
+        | sort -u)"
       set -f
-      [ -n "$newest" ] || { echo "no *.sql.gz in this directory"; continue; }
-      echo "newest: $newest"
-      if /usr/bin/gzip -t -- "$newest" 2>&1; then
-        echo "gzip -t: OK"
-      else
-        echo "gzip -t: FAILED"
-      fi
-      # gzip -t only proves the container is intact; a dump killed mid-stream still
-      # gzips cleanly. The dumper's end marker is what proves it ran to completion.
-      if /usr/bin/gzip -cd -- "$newest" 2>/dev/null | tail -c 200 \
-        | grep -qE '^-- (PostgreSQL database dump complete|Dump completed)'; then
-        echo "complete: OK"
-      else
-        echo "complete: MISSING"
-      fi
+      [ -n "$dbs" ] || { echo "no *.sql.gz in this directory"; continue; }
+      for db in $dbs; do
+        echo "--- db: $db ---"
+        # The [0-9] keeps a 'foo' glob off 'foo_bar's stamped files.
+        set +f
+        newest="$(ls -1t -- "$d/${db}_"[0-9]*.sql.gz 2>/dev/null | head -n 1)"
+        set -f
+        [ -n "$newest" ] || { echo "no *.sql.gz for this database"; continue; }
+        echo "newest: $newest"
+        echo "mtime: $(/usr/bin/stat -c %Y -- "$newest")"
+        echo "size: $(/usr/bin/stat -c %s -- "$newest")"
+        # This DB's retained sizes only, for the "is this one suspiciously small"
+        # comparison — a median mixing a 213 MB DB with a 6 MB one compares nothing.
+        set +f
+        echo "sizes: $(/usr/bin/stat -c %s -- "$d/${db}_"[0-9]*.sql.gz 2>/dev/null | tr '\n' ' ')"
+        set -f
+        if /usr/bin/gzip -t -- "$newest" 2>&1; then
+          echo "gzip -t: OK"
+        else
+          echo "gzip -t: FAILED"
+        fi
+        # gzip -t only proves the container is intact; a dump killed mid-stream still
+        # gzips cleanly. The dumper's end marker is what proves it ran to completion.
+        if /usr/bin/gzip -cd -- "$newest" 2>/dev/null | tail -c 200 \
+          | grep -qE '^-- (PostgreSQL database dump complete|Dump completed)'; then
+          echo "complete: OK"
+        else
+          echo "complete: MISSING"
+        fi
+      done
     done
     ;;
 
@@ -198,7 +222,11 @@ print(json.dumps([{
     ;;
 
   version)
-    exec /usr/bin/sha256sum "$SELF" "$SMART_HELPER"
+    exec /usr/bin/sha256sum "$SELF" "$SMART_HELPER" "$HETZNER_HELPER"
+    ;;
+
+  storagebox)
+    exec sudo -n "$HETZNER_HELPER"
     ;;
 
   host-copies)

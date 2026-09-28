@@ -4,7 +4,7 @@ Share every stack's `.env` across devices by committing an **encrypted** copy to
 repo. One passphrase unlocks everything. No cloud service, no third party.
 
 - **Tool:** [`scripts/secrets.sh`](../../../scripts/secrets.sh) (wraps [age](https://github.com/FiloSottile/age)).
-- **Plaintext** lives under gitignored `secrets/` — the per-stack env (`secrets/portainer-env/*.env`)
+- **Plaintext** lives under gitignored `secrets/` — the per-stack env (`secrets/stack-env/*.env`)
   **and** the SSH keys (`secrets/ssh/*`: the NAS and both VPS hosts, the CI forced-command keys,
   Synapse's signing key) — **never committed**.
 - **Ciphertext** lives in `secrets.enc/` — **committed**.
@@ -30,9 +30,8 @@ password-manager entry). Keep the repo private regardless (it already is).
 > **The key is not a GitHub secret, and must never become one.** It decrypts the *whole*
 > vault — every stack env **and** every host SSH key, including the other hosts. A GitHub
 > secret is readable by any job on the self-hosted runner, so anyone who can land a commit
-> on `main` would get the estate. `AGE_IDENTITY` was removed from the repo on 2026-08-22
-> — [SEC-1 step 2](../../architecture-review-2026-08-20.md#step-3--remove-age_identity-from-ci).
-> Everything that used to decrypt in CI now runs from here with `scripts/secrets.sh push`.
+> on `main` would get the estate. Everything that needs decrypting runs from a workstation with
+> `scripts/secrets.sh push`.
 
 ## Committed vs. never-committed
 
@@ -40,9 +39,9 @@ password-manager entry). Keep the repo private regardless (it already is).
 | --- | --- | --- |
 | `secrets.enc/age-recipient.txt` | ✅ | Public key (not secret) |
 | `secrets.enc/age-key.age` | ✅ | Private key, wrapped with your passphrase |
-| `secrets.enc/portainer-env/<stack>.env.age` | ✅ | Encrypted per-stack env |
+| `secrets.enc/stack-env/<stack>.env.age` | ✅ | Encrypted per-stack env |
 | `secrets.enc/ssh/<name>.age` | ✅ | Encrypted SSH keys (hosts, CI probe keys, Synapse signing key) |
-| `secrets/portainer-env/<stack>.env` | ❌ gitignored | Plaintext env (device-local) |
+| `secrets/stack-env/<stack>.env` | ❌ gitignored | Plaintext env (device-local) |
 | `secrets/ssh/<name>` | ❌ gitignored | Plaintext SSH keys (device-local) |
 | `secrets/age-key.txt` | ❌ gitignored | Unwrapped private key (device-local) |
 
@@ -53,7 +52,7 @@ scripts/secrets.sh init
 ```
 
 This generates the keypair, prompts for your passphrase (twice), encrypts the existing
-`secrets/portainer-env/*.env`, and writes `secrets.enc/`. Then commit the vault:
+`secrets/stack-env/*.env`, and writes `secrets.enc/`. Then commit the vault:
 
 ```bash
 git add secrets.enc .gitignore scripts/secrets.sh
@@ -73,7 +72,7 @@ scripts/secrets.sh unlock      # prompts for the passphrase, once per device
 ```
 
 `age` auto-bootstraps to `scripts/.bin/` if not installed. Plaintext lands in
-`secrets/portainer-env/`. The unwrapped key is cached in `secrets/age-key.txt` so later
+`secrets/stack-env/`. The unwrapped key is cached in `secrets/age-key.txt` so later
 `unlock`s on this device don't re-prompt.
 
 ## Daily use
@@ -113,11 +112,6 @@ scripts/secrets.sh push --all              # every owned stack in the vault
   PR; `deploy-stacks` creates it ([deploy-stacks.md](deploy-stacks.md#adding-a-stack)).
 - It needs no setup beyond `unlock`: the admin API key comes from `komodo.env` in the vault.
 
-> Until 2026-09-17 `push` also created and redeployed Portainer stacks through
-> `PUT /api/stacks/{id}/git/redeploy`, with its git-credential workarounds. That path went with SVC-2
-> Phase 3; the history is in git. Before that it was the `sync-secrets` workflow, deleted with
-> `AGE_IDENTITY`.
-
 ## Komodo Variables (`scripts/secrets.sh komodo-vars`)
 
 Komodo Stacks do not get an env array. Each entry in
@@ -136,11 +130,12 @@ scripts/secrets.sh komodo-vars a1-vps-matrix     # create or update one stack's 
   alone; delete it in the UI.
 - **Secret by default.** `KOMODO_NON_SECRET` in the script lists the identifiers that stay plain
   (the Authentik image, tag and ports). A secret Variable is masked everywhere in Komodo's deploy
-  logs, so a short common value garbles them (komodo-migration.md F18).
+  logs, so a short common value garbles them
+  ([komodo.md → Rules](../../services/komodo.md#secret-variables-masking-and-history)).
 - It reads the **ciphertext**, like `push`, and the admin API key from `komodo.env` in the vault.
   Values go into `jq` and `curl` on file descriptors, never argv or stdout.
 - **Komodo's update history keeps what you write.** `CreateVariable` logs the whole Variable and
-  `UpdateVariableValue` logs the new value, secret or not (F19). Only admins can read those
+  `UpdateVariableValue` logs the new value, secret or not. Only admins can read those
   records, and admins can read the Variables anyway, but a rotated secret stays in Core's database
   and its daily backup.
 
@@ -168,6 +163,5 @@ Komodo holds at that moment.
   `secrets.enc/`, `rm secrets/age-key.txt`, `scripts/secrets.sh init` again, rotate the
   actual secret **values** too (a leaked key means the old ciphertext is compromised),
   then `scripts/secrets.sh push --all` so Komodo gets the new values. There is no CI
-  copy of the key to update — that is the point of
-  [SEC-1 step 2](../../architecture-review-2026-08-20.md#step-3--remove-age_identity-from-ci).
+  copy of the key to update.
 ```

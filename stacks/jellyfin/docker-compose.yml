@@ -1,8 +1,14 @@
 # Media playback (public, Authentik SSO) and its request front-end (LAN-only).
 # Seerr reaches sonarr/radarr over media_net. Docs: docs/services/jellyfin.md
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   jellyfin:
-    image: lscr.io/linuxserver/jellyfin:10.11.11ubu2404-ls38@sha256:c9bb091532bec4fa12b3ce3c08d163cab2b369f5f30f1f30ca49a46d97f5eec8
+    image: ghcr.io/drizzelat/nas-jellyfin:10.11.11ubu2404-ls38@sha256:33d8e1ee4d1e2f7c337a2d8fbf917c07bb8aa6ff593adb1bddd74414a73cc5b9
     container_name: jellyfin
     security_opt:
       - no-new-privileges=true
@@ -25,6 +31,7 @@ services:
       - media_net
       - proxy_jellyfin
     restart: unless-stopped
+    logging: *default-logging
   seerr:
     image: ghcr.io/seerr-team/seerr:v3.4.1@sha256:f4768de5f616248d723e05891f3345a1402123775d03bf0890dbfedc0831bda1
     container_name: seerr
@@ -46,6 +53,7 @@ services:
       - media_net
       - proxy_jellyfin
     restart: unless-stopped
+    logging: *default-logging
   # Prometheus metrics for the Media stack dashboard, scraped as jellyfin-exporter:9594 over proxy_jellyfin.
   jellyfin-exporter:
     image: rebelcore/jellyfin-exporter:v1.5.2@sha256:8a1294b7fea80993e4ec18220e391578e0f9ca9e109294fd6a379d2cb5213c85
@@ -72,6 +80,7 @@ services:
       - default
       - proxy_jellyfin
     restart: unless-stopped
+    logging: *default-logging
 networks:
   proxy_jellyfin:
     external: true

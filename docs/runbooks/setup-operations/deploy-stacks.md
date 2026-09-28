@@ -5,11 +5,6 @@ on the self-hosted runner. It deploys each changed stack through Komodo, health-
 stack back when it comes up unhealthy. A new stack is created in Komodo first. A removed stack is
 **never** torn down by CI.
 
-Replaced the Portainer webhook path on 2026-09-17 (SVC-2 Phase 3). The old runbook,
-[portainer-webhook-deploy.md](portainer-webhook-deploy.md), is kept for its history, including why the
-convergence gate and the rollback limits exist. `DEFER_FIRE`, which it also explains, was deleted on
-2026-09-17, when the runner moved into its VM.
-
 ## What decides what gets deployed
 
 - **The changed folders:** `git diff --no-renames before..after -- stacks/**` on a push, or the
@@ -25,7 +20,7 @@ convergence gate and the rollback limits exist. `DEFER_FIRE`, which it also expl
 
 There is **no reconcile pass** in the workflow any more. The hourly Komodo Procedure `reconcile-owned`
 is the backstop for a run GitHub evicted, and for a `DeployStack` dropped because the stack was busy
-([komodo.md → Adopted stacks](../../services/komodo.md#adopted-stacks-phase-2)). Its deploys get no
+([komodo.md → A busy Stack drops a deploy](../../services/komodo.md#a-busy-stack-drops-a-deploy)). Its deploys get no
 health gate; the [deploy-state probe](deploy-state-probe.md) sees their result.
 
 ## The steps
@@ -41,20 +36,21 @@ The file name `fire-webhooks.sh` is historical. The scripts read only environmen
 
 ### Deploy
 
-`komodo_deploy` waits for the Stack to go idle, because a busy Stack drops a request (F16). It then
+`komodo_deploy` waits for the Stack to go idle, because a busy Stack drops a request
+([komodo.md → Rules](../../services/komodo.md#a-busy-stack-drops-a-deploy)). It then
 sends `DeployStack` and follows the update record until it completes. A failed stage fails the step,
 and the log shows the failed stages only; `Compose Config` is never printed whole, because it is the
 interpolated file.
 
 Then `komodo_check_commit` asserts that the commit Komodo deployed is the run's commit or a newer one.
 A Komodo pull can be up to five seconds old, and a re-cloned repo strands directory mounts
-(komodo-migration.md F28). A config-mount stack's own `post_deploy` guards the second case too.
+([komodo.md → Rules](../../services/komodo.md#config-mounts-come-from-komodos-clone)). A config-mount stack's own `post_deploy` guards the second case too.
 
 ### A new stack
 
 A folder whose name is in `komodo/owned-stacks` but has no Komodo Stack is created before it is
 deployed, from `komodo/resources.toml`, through two syncs filtered to one resource each
-(komodo-migration.md F29):
+([komodo.md → Rules](../../services/komodo.md#ci-creates-new-stacks-through-a-filtered-sync)):
 
 1. **Check the entry.** Its `[[stack]]` entry must exist.
 2. **Check the Variables.** Every Variable its `environment` names must already exist. CI holds no
@@ -65,10 +61,11 @@ deployed, from `komodo/resources.toml`, through two syncs filtered to one resour
 5. **Deploy it** as above, with the health gate.
 
 If that deploy fails, the Procedure already names the stack, so it tries again at `:23`, unwatched. A
-Stack that has never been deployed counts as changed (F21).
+Stack that has never been deployed counts as changed.
 
 Nothing else in the ResourceSync is applied by these runs. Any other pending change to
-`resources.toml` still waits for someone to read the sync's diff and execute it by hand.
+`resources.toml` still waits for someone to read the sync's diff and execute it by hand. The
+[deploy-state probe](deploy-state-probe.md) fails when that has waited more than 6 h.
 
 ### Health and rollback
 
@@ -78,6 +75,12 @@ Nothing else in the ResourceSync is applied by these runs. Any other pending cha
   pass on the previous deploy's containers.
 - **Then health:** no container that is neither running nor a clean `Exited (0)`, and none running
   `unhealthy`.
+- **Held for 60 s** (`STABLE_SECS`): one clean poll is not enough. Every poll also reads each
+  container's `RestartCount` through `read/InspectStackContainer`, and a count that rose restarts the
+  window. A crash loop that restarts between two 6-second polls reads `running` every time: the #547
+  `crowdsec` loop passed this way on 2026-09-25 and ran for ~7 h until the
+  [deploy-state probe](deploy-state-probe.md) caught it. A container that restarted and never held
+  60 s clean before the ~4-minute budget ran out is a failure, and a rollback candidate.
 - **A probe binary missing from the image** is not a failure. The last health log line comes from
   `read/InspectStackContainer`, piped straight into `jq`, because inspect output carries the
   container's environment.
@@ -107,10 +110,30 @@ hand sync are needed.
 
 Full checklist: [new-service.md](new-service.md).
 
+## `[skip ci]` does not stop a deploy
+
+**Komodo deploys the estate on its own schedule, whatever GitHub does.** The `reconcile-owned`
+Procedure in [`komodo/resources.toml`](../../../komodo/resources.toml) runs **hourly at :23 UTC** and
+runs `DeployStackIfChanged` over every name in [`komodo/owned-stacks`](../../../komodo/owned-stacks),
+and `deploy-runner` does the same for `github-runner` at :53. A merge whose commit message carries
+`[skip ci]` suppresses the `deploy-stacks` workflow and nothing else: the next `:23` deploys every
+stack whose compose changed, all at once.
+
+This bit on 2026-09-23. A change touching 25 stacks was merged at 15:19 with `[skip ci]`, intending a
+hand-paced batch deploy; `reconcile-owned` fired at 15:23 and recreated the whole estate. Nothing was
+lost — but `files` crash-looped for two minutes (`[FATAL] Error validating OIDC auth … 503 Service
+Unavailable: authentik starting`) because it validates OIDC at startup and Authentik was restarting
+in the same pass, and the deploy-state probe caught `romm` mid-healthcheck.
+
+**To actually pace a wide change**, disable the Procedure's schedule first
+(`schedule_enabled = false` in `resources.toml`, or the toggle in Komodo's UI), merge, deploy the
+batches by hand, then re-enable it. A merge inside the ~50 minutes before `:23` is not a plan.
+
 ## Removing a stack
 
 CI never removes anything. Komodo's `DestroyStack` is a `compose down`, and on `caddy` that would take
-networks other stacks depend on (komodo-migration.md §10). So:
+networks other stacks depend on
+([komodo.md → Rules](../../services/komodo.md#destroystack-is-compose-down)). So:
 
 1. **The PR:** delete the folder, its `[[stack]]` entry and its `owned-stacks` line, and remove it
    from the Procedure pattern.
@@ -146,14 +169,23 @@ networks other stacks depend on (komodo-migration.md §10). So:
 - **Renaming a stack is a removal plus an addition.** CI never tears the old one down, so the new
   one would collide with it on `container_name` or host ports. Merge the rename with `[skip ci]`,
   destroy and delete the old Stack by hand, then dispatch the new name. Rename its
-  `secrets.enc/portainer-env/<name>.env.age` and run `komodo-vars` for the new name first.
+  `secrets.enc/stack-env/<name>.env.age` and run `komodo-vars` for the new name first.
 - **Runner down means no deploy.** Press Deploy on the Stack in Komodo; that does not need the runner.
-- **A healthcheck that fails because its probe tool is not in the image.** See
-  [portainer-webhook-deploy.md → Gotcha](portainer-webhook-deploy.md#gotcha-healthcheck-fails-because-the-probe-tool-isnt-in-the-image);
-  the classification is unchanged.
+- **A healthcheck that fails because its probe tool is not in the image.** The container reads
+  `unhealthy` while the app works in a browser: an HTTP healthcheck needs `curl` or `wget` inside the
+  image, and a base-image bump can remove it. `compose-validate` cannot see this. Confirm with
+  `sudo -n docker inspect <name> | jq '.[0].State.Health.Log[-1].Output'`: `wget: not found` or
+  `curl: not found` is the tell. Fix by dropping the healthcheck or layering a static busybox in.
+  Audit these when their base image changes:
 
-## Last updated
+  | Stack | Probe needs |
+  | --- | --- |
+  | `paperless` (webserver) | curl |
+  | `files` | curl |
+  | `homarr` | wget |
+  | `romm` | wget (busybox) |
+  | `mealie` | python3 |
 
-2026-09-17 — `fire-deferred.sh` and `DEFER_FIRE` deleted; `github-runner` deploys through its own Procedure (PR 11).
+  `gluetun` unhealthy is **not** this class: its probe is bundled, so it is a real tunnel or DNS
+  failure ([downloads.md](../../services/downloads.md)).
 
-2026-09-17 — written for the Komodo-only deploy path (SVC-2 Phase 3, PR 6).

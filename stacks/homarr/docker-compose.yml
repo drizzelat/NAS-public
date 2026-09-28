@@ -1,9 +1,16 @@
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   homarr:
     container_name: homarr
     # Upstream image (homarr-labs); v1 is a rewrite with a single /appdata volume.
     image: ghcr.io/homarr-labs/homarr:v1.77.2@sha256:f0fb462299af9749a72f11040fd3f604d1c4976b3d9a137ae5021b7f44d980f5
     restart: unless-stopped
+    logging: *default-logging
     security_opt:
       - no-new-privileges=true
     deploy:

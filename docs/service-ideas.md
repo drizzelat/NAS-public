@@ -5,6 +5,11 @@ deployed** — this is a shortlist, not a plan. To build one, follow the
 [new-service runbook](runbooks/setup-operations/new-service.md) and check ports in
 [network.md](network.md) first.
 
+> **Decided items move to [roadmap.md](roadmap.md)**, which holds the open questions and the
+> constraints for each. Four rows below have gone that way — Vaultwarden, Syncthing, bookmarks
+> (Linkwarden or Karakeep) and a CalDAV calendar — and are marked **→ roadmap**. They stay listed
+> here for their sizing.
+
 Resource numbers are a snapshot taken 2026-09-15 and drift over time.
 
 ## What the hosts can take
@@ -13,7 +18,7 @@ Resource numbers are a snapshot taken 2026-09-15 and drift over time.
 | ---- | -------- | -------- | -------- |
 | **NAS** | Intel N100 4C/4T, 32 GB (maxed, one slot), QuickSync iGPU, 1 GbE. `apps` 250 GB NVMe (single disk), `data` 4 TB mirror | 55 containers ≈ 9 GB, ZFS ARC ≈ 12 GB, load avg ≈ 2.2 | 7.3 GB RAM available; `apps` 168 GB free; `data` 1.12 TB free (69 % full) |
 | **A1** (`a1-matrix`) | Ampere arm64, 2 OCPU / 12 GB, public IP, Caddy on `:443` | Synapse, Postgres, WhatsApp bridge, Tor bridges, NTP, Kuma, Komodo eval ≈ 2.4 GB | 9.2 GB RAM available; `/opt/matrix` 82 GB free, root 32 GB free |
-| **micro** (ingress) | AMD x86, 2 vCPU / 954 MiB, no swap | nginx stream + Komodo periphery (Portainer agent removed 2026-09-17) | ~430 MiB available — **full** |
+| **micro** (ingress) | AMD x86, 2 vCPU / 954 MiB, no swap | nginx stream + Komodo periphery | ~430 MiB available — **full** |
 
 What that means for placement:
 
@@ -39,9 +44,11 @@ the way `jellyfin` does, not the orange-cloud SNI path.
 
 ## Top picks
 
-### 1. Vaultwarden — NAS
+### 1. Vaultwarden — NAS **→ [roadmap](roadmap.md#2-vaultwarden--the-placement-is-the-decision)**
 
-Bitwarden-compatible password manager, and the biggest gap in the current stack.
+Bitwarden-compatible password manager, and the biggest gap in the current stack. The "NAS" in this
+heading is now an open question: if it holds the disaster-recovery secrets, the NAS is the one host
+it must not run on. See the roadmap.
 
 - **Fit:** ~50–100 MB RAM. Keep it LAN/tailnet-only: never on the public SNI allowlist. Clients
   cache the vault offline, so a NAS outage only blocks syncing and new entries.
@@ -51,6 +58,11 @@ Bitwarden-compatible password manager, and the biggest gap in the current stack.
   account.
 
 ### 2. Off-NAS alert channel — A1
+
+> **Covered for now by mail (2026-09-21):** the A1 Kuma gets an email channel next to Discord,
+> sent through an external provider that does not depend on the NAS
+> ([email-setup runbook](runbooks/setup-operations/email-setup.md), Q43). Phone push through
+> Matrix or ntfy stays an option.
 
 Today, alerts from inside the estate (NAS Kuma, Grafana) can't be delivered while the NAS itself is
 the problem. healthchecks.io covers "everything is dead", but not "Jellyfin is down, tell my phone".
@@ -90,24 +102,24 @@ each. The A1 has the room.
 | Service | What it gives you | Cost / note |
 | ------- | ----------------- | ----------- |
 | **Actual Budget** | Budgeting, syncs across devices | ~100 MB, SQLite files |
-| **Radicale** | CalDAV/CardDAV: calendar and contacts off Google/Microsoft | ~30 MB; cheaper alternative to Nextcloud |
+| **Radicale** **→ [roadmap](roadmap.md#4-calendar-and-contacts-caldav)** | CalDAV/CardDAV: calendar and contacts off Google/Microsoft | ~30 MB; cheaper alternative to Nextcloud. Baikal is the other candidate |
 | **Miniflux** | RSS reader | ~50 MB + Postgres (dump labels work) |
 | **Memos** | Quick notes / journal | ~50 MB |
-| **Syncthing** | Continuous phone/laptop folder sync into `data` | ~100 MB; count its growth against `data` |
+| **Syncthing** **→ [roadmap](roadmap.md#1-syncthing-instead-of-the-smb-shares)** | Continuous phone/laptop folder sync into `data` | ~100 MB; count its growth against `data`. Planned as the *replacement* for the SMB shares, not an addition |
 | **Jellystat** | Jellyfin watch history and stats | ~200 MB + Postgres |
 | **Pinchflat** | Archive YouTube channels into the Jellyfin library | ~150 MB; much lighter than TubeArchivist |
 | **Stirling-PDF** | Merge/split/OCR/sign PDFs locally, pairs with Paperless | JVM, ~1 GB, so the heaviest item on this list. Only if you'd really use it |
 | **Speedtest Tracker** | ISP speed history, evidence for complaints | ~150 MB; schedule a few runs a day, since each one saturates the uplink |
 | **Home Assistant** | Smart-home hub | Only if you own devices. ~500 MB, needs host networking for discovery |
 | **smartctl_exporter** | Disk SMART history in the existing Grafana | Tiny. Better fit than Scrutiny, which would be a second dashboard next to VictoriaMetrics |
-| **NUT exporter** | UPS battery/load in Grafana | Only after buying the UPS noted in [hardware.md](hardware.md); TrueNAS's own UPS service does the shutdown |
+| **NUT exporter** | UPS battery/load in Grafana | Only after buying the UPS ([roadmap](roadmap.md#6-ups)); TrueNAS's own UPS service does the shutdown |
 
 ### A1
 
 | Service | What it gives you | Why A1 |
 | ------- | ----------------- | ------ |
 | **changedetection.io** | Alerts on web page changes (prices, restocks, release notes) | Polling and the optional headless browser (~500 MB) stay off the N100 and the home line. Check that the browser image has an arm64 build |
-| **Karakeep** | Bookmarks/read-later with full-page archiving and tagging | Chrome + Meilisearch is ~1–1.5 GB, too heavy for the NAS budget and easy for the A1 |
+| **Karakeep** **→ [roadmap](roadmap.md#3-bookmarks--linkwarden-or-karakeep)** | Bookmarks/read-later with full-page archiving and tagging | Chrome + Meilisearch is ~1–1.5 GB, too heavy for the NAS budget and easy for the A1. Linkwarden is the alternative, same cost shape |
 | **Forgejo** (mirror) | Off-GitHub mirror of this repo and others | Survives both a GitHub outage and a NAS outage; the 82 GB volume has room |
 | **Minecraft / other game server** | Friends' server with a real public IP | Oracle Ampere is a well-known Minecraft host. Wants the 4 OCPU / 24 GB resize, plus a Security List port |
 

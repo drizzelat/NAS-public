@@ -6,9 +6,7 @@ Every alerting path in this estate runs *inside* the estate: Kuma watches servic
 check runs on the NAS runner, the backup crons e-mail through TrueNAS. All of it shares one
 premise — that something here is still alive to notice.
 
-Moving Kuma off the ingress VPS
-([STR-2](../../architecture-review-2026-08-20.md#str-2--the-external-watchdog-is-inside-what-it-watches))
-fixed the narrow case where the watchdog died with the thing it watched. It did not fix the
+Keeping Kuma off the ingress VPS fixes the narrow case where the watchdog died with the thing it watched. It did not fix the
 general one: **a watchdog you operate cannot report that everything you operate is down.** Both
 Oracle instances and the NAS are the same person, the same accounts, the same payment method.
 
@@ -27,6 +25,10 @@ a dead uplink — all become visible.
 Three checks rather than one, because the three hosts fail independently and a single combined
 heartbeat would go silent for any of them without saying which.
 
+A fourth check, `NAS vmalert watchdog`, is not a host heartbeat: the vmalert mail bridge pings it
+every 15 min while the `Watchdog` rule fires. Its setup is in
+[observability → Alerting](../../services/observability.md#alerting).
+
 ## What the ping means
 
 [`scripts/healthchecks-ping.sh`](../../../scripts/healthchecks-ping.sh) does more than prove the
@@ -44,17 +46,13 @@ event log says *why*, not just *when*.
 
 > **The guard name is host-side config and no deploy updates it.** When the container that
 > constitutes "this host is doing its job" is replaced, the guard has to be rewritten by hand or
-> the check goes red on the next cron tick — which is exactly what happened at the
-> [Caddy cutover](caddy-migration.md), where the `nas` guard still named `npmplus`. It is one
-> line, and it belongs in the same change as the swap:
+> the check goes red on the next cron tick — as it did when Caddy replaced NPMplus and the
+> `nas` guard still named `npmplus`. It is one line, and it belongs in the same change as the swap:
 >
 > ```sh
 > sudo sh -c 'echo caddy > /root/.config/healthchecks-guard.container'
 > sudo /usr/local/bin/healthchecks-ping.sh    # -> "ok — guard container 'caddy' running"
 > ```
->
-> The same applies in reverse: **rolling back to NPMplus means flipping the guard back**, or the
-> `nas` check pages you through a deliberate rollback.
 
 ## Host-side config (never in git)
 
@@ -141,7 +139,3 @@ once to confirm. Nothing in git changes.
   VPS hosts; `midclt call cronjob.query` on the NAS.
 - **Check green while the service is broken** — the guard container is running but unhealthy. The
   guard is a liveness signal, not a health gate; Kuma and the nightly health check cover depth.
-
-## Last updated
-
-2026-08-21

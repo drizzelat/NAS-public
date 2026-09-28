@@ -2,9 +2,8 @@
 
 ## Overview
 
-Web UI for browsing, uploading, downloading and sharing the SMB share. Replaces
-[File Browser](../archive/filebrowser.md), whose upstream repo was archived on 2026-09-01 (no further
-releases, bug fixes or security fixes). This is **FileBrowser Quantum**
+Web UI for browsing, uploading, downloading and sharing the SMB share. It replaced File Browser,
+whose upstream repo was archived on 2026-09-01. This is **FileBrowser Quantum**
 ([gtsteffaniak/filebrowser](https://github.com/gtsteffaniak/filebrowser)), the maintained fork.
 
 Three things drove the choice: native OIDC (so Authentik is the login, not a proxy header),
@@ -16,7 +15,7 @@ is used as-is; nothing is imported into an app-owned store and SMB keeps working
 
 - **Stack folder:** `stacks/files/`
 - **Compose file:** `stacks/files/docker-compose.yml`
-- **Deploy:** Komodo Stack `files` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `files` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 - **App config:** `stacks/files/config.yaml` — read by the container from Komodo's clone on the NAS
 
@@ -30,13 +29,13 @@ is used as-is; nothing is imported into an app-owned store and SMB keeps working
 
 Caddy proxies **straight to the container**, not through the Authentik outpost. Quantum runs the
 OIDC dance itself, so public share and upload links resolve without punching `skip_path_regex`
-holes in a proxy provider — which is exactly what the old filebrowser setup had to do.
+holes in a proxy provider.
 
 ## Volumes / data
 
 | Container path | Host path | Purpose |
 | -------------- | --------- | ------- |
-| `/config` (ro) | `/mnt/apps/komodo/repos/nas/stacks/files` | `config.yaml`, read-only from Komodo's clone. `post_deploy` checks the mount matches the clone (komodo-migration.md F28) |
+| `/config` (ro) | `/mnt/apps/komodo/repos/nas/stacks/files` | `config.yaml`, read-only from Komodo's clone. `post_deploy` checks the mount matches the clone ([komodo.md → Rules](komodo.md#config-mounts-come-from-komodos-clone)) |
 | `/state` | `/mnt/apps/files` | SQLite DB (users, shares, index) + preview cache |
 | `/srv/smb_share` | `/mnt/data/smb_share` | The files themselves |
 
@@ -55,7 +54,7 @@ single-file bind mount would pin the old one forever (same reason as [caddy](cad
 
 Both are read by the app as `FILEBROWSER_OIDC_CLIENT_ID` / `FILEBROWSER_OIDC_CLIENT_SECRET`, which
 is how the secret stays out of the committed `config.yaml`. Managed with
-[`scripts/secrets.sh`](../../scripts/secrets.sh) → `secrets/portainer-env/files.env`; `push files` writes the Komodo Variables and deploys.
+[`scripts/secrets.sh`](../../scripts/secrets.sh) → `secrets/stack-env/files.env`; `push files` writes the Komodo Variables and deploys.
 
 ## Dependencies
 
@@ -84,10 +83,14 @@ is how the secret stays out of the committed `config.yaml`. Managed with
 - Every user who gets in has `modify`/`create`/`delete`/`share` on the whole share by default
   (`userDefaults.account.permissions`). Narrow a specific user in Settings → Users after their
   first login; the defaults only apply at creation.
-- `server.externalUrl` is what share links are built from. It has to be the public hostname, and
-  it is the one line that changes at the cutover.
-- **No local login at all.** Break-glass (Authentik down and you need in) is in the
-  [migration runbook](../runbooks/setup-operations/filebrowser-to-quantum.md) → Rollback.
+- `server.externalUrl` is what share links are built from. It has to be the public hostname.
+- **No local login at all.** Break-glass (Authentik down and you need in), in two steps because the
+  DB already has OIDC users and so no admin is auto-created:
+  1. Set `auth.methods.password.enabled: true` in `stacks/files/config.yaml` and merge;
+     `deploy-stacks` deploys it.
+  2. Mint a local admin: `sudo -n docker exec -it files filebrowser set -u breakglass,<password> -a -c /config/config.yaml`.
+
+  Turn password auth back off once Authentik is fixed, and delete that user.
 - Tag line is `<x.y.z>-stable`. `beta` is the 2.x rewrite — `renovate.json` constrains this image
   to `/-stable$/` so a beta is never offered as a major.
 
@@ -110,7 +113,7 @@ is how the secret stays out of the committed `config.yaml`. Managed with
 ### Restart / redeploy
 
 - Komodo → Stacks → `files` → **Deploy** (or **Restart**).
-- Or push to `stacks/files/` → the runner deploys it through Komodo ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)).
+- Or push to `stacks/files/` → the runner deploys it through Komodo ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)).
 - A change to **`config.yaml` alone** arrives with the deploy its push triggers, but still needs a
   container restart: the config is read at startup, and the deploy leaves an unchanged container
   running. Komodo → Stacks → `files` → **Restart**.
@@ -148,9 +151,3 @@ is how the secret stays out of the committed `config.yaml`. Managed with
 - **Permission denied browsing files** → container must run as UID/GID 568 to match
   `/mnt/data/smb_share` ownership.
 - **`cacheDir failed to …` at startup** → `/mnt/apps/files` is not writable by 568.
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables.
-
-2026-09-09

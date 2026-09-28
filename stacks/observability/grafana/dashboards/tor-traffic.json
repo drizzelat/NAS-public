@@ -150,6 +150,7 @@
     },
     {
       "id": 7,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Bridge throughput",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
@@ -235,6 +236,7 @@
     },
     {
       "id": 11,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Bridge connections",
       "description": "to relays = open connections the bridge dialed to Tor relays. new user connections / h = connections handed over by the transport, per rolling hour. Tor's open-connection counts for connections coming in are wrong (users only ever go up, incoming OR stays 0), so they are not shown.",
@@ -245,7 +247,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "expr": "sum by (job) (tor_relay_connections{type=\"OR\",direction=\"initiated\",state=\"opened\"})",
+          "expr": "avg_over_time((sum by (job) (tor_relay_connections{type=\"OR\",direction=\"initiated\",state=\"opened\"}))[$__interval:30s])",
           "legendFormat": "{{job}} to relays"
         },
         {

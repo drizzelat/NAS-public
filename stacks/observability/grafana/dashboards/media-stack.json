@@ -1092,6 +1092,7 @@
     },
     {
       "id": 15,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Jellyfin egress",
       "gridPos": {
@@ -2482,6 +2483,7 @@
     },
     {
       "id": 33,
+      "interval": "5m",
       "type": "timeseries",
       "title": "Throughput",
       "gridPos": {
@@ -2501,7 +2503,7 @@
             "type": "prometheus",
             "uid": "victoriametrics"
           },
-          "expr": "sum(qbittorrent_global_download_speed_bytes)",
+          "expr": "avg_over_time((sum(qbittorrent_global_download_speed_bytes))[$__interval:30s])",
           "legendFormat": "qBittorrent down"
         },
         {
@@ -2510,7 +2512,7 @@
             "type": "prometheus",
             "uid": "victoriametrics"
           },
-          "expr": "sum(qbittorrent_global_upload_speed_bytes)",
+          "expr": "avg_over_time((sum(qbittorrent_global_upload_speed_bytes))[$__interval:30s])",
           "legendFormat": "qBittorrent up"
         },
         {
@@ -2519,7 +2521,7 @@
             "type": "prometheus",
             "uid": "victoriametrics"
           },
-          "expr": "sum(sabnzbd_speed_bps)",
+          "expr": "avg_over_time((sum(sabnzbd_speed_bps))[$__interval:30s])",
           "legendFormat": "SABnzbd down"
         }
       ],

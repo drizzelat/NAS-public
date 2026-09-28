@@ -1,8 +1,15 @@
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   github-runner:
-    image: myoung34/github-runner:2.337.0-ubuntu-focal@sha256:5b46d560e77f6149cefc159a11570970f18946ff55035e01fad0f32caf554f72
+    image: myoung34/github-runner:2.337.0-ubuntu-noble@sha256:1b947d2475cc6f4c3edf0e91dd879b091857e41a311be917016243479bb34101
     container_name: github-runner
     restart: unless-stopped
+    logging: *default-logging
     # This container EXECUTES workflow code, on the runner VM (Komodo Server runner-vm). Safe only while
     # the repo is private, no docker.sock is mounted, and no pull_request workflows run here.
     # Deployed by Komodo's deploy-runner Procedure between jobs, never by CI. Docs: docs/services/github-runner.md

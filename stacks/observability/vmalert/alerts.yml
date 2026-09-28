@@ -1,0 +1,78 @@
+# Alerting rules for vmalert. Every rule carries a runbook link in its annotations —
+# a rule nobody can act on becomes noise. Docs: docs/services/observability.md
+groups:
+  - name: meta
+    interval: 1m
+    rules:
+      # Always firing. scripts/vmalert-mail.sh pings healthchecks.io on it and never mails it.
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: "Always firing: proves vmalert evaluates rules and the mail bridge runs"
+          description: "If healthchecks.io reports this check late, vmalert, the bridge or its cron job stopped."
+          runbook: "docs/services/observability.md#alerting"
+
+  - name: storage
+    interval: 1m
+    rules:
+      - alert: MetricsStoreDiskLow
+        expr: vm_free_disk_space_bytes / vm_total_disk_space_bytes < 0.10
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "VictoriaMetrics has under 10% free on the apps pool"
+          description: "{{ $value | humanizePercentage }} free. The apps pool is a single NVMe with no redundancy, and VictoriaMetrics goes read-only when it runs out."
+          runbook: "docs/services/observability.md#alerting"
+
+      - alert: LogStoreDiskLow
+        expr: vl_free_disk_space_bytes / vl_total_disk_space_bytes < 0.10
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "VictoriaLogs has under 10% free on the apps pool"
+          description: "{{ $value | humanizePercentage }} free. Retention is 90 d; drop it or grow the dataset."
+          runbook: "docs/services/observability.md#alerting"
+
+      - alert: DownloadsDiskLow
+        expr: qbittorrent_global_free_space_on_disk_bytes < 100 * 1024 * 1024 * 1024
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Under 100 GB free where qBittorrent writes"
+          description: "The data pool is filling. Kiwix seeding holds a 300 GB budget of its own."
+          runbook: "docs/runbooks/setup-operations/kiwix-seeding.md"
+
+  - name: targets
+    interval: 1m
+    rules:
+      # The closest signal to "a container is restart-looping" that the scraped
+      # metrics carry: its exporter stops answering.
+      - alert: ScrapeTargetDown
+        expr: up == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scrape target {{ $labels.job }} ({{ $labels.instance }}) has been down 10 min"
+          description: "Either the service is down or its exporter is. A container that is up whenever a probe looks but restarting in between shows here first."
+          runbook: "docs/services/observability.md#alerting"
+
+  - name: edge
+    interval: 1m
+    rules:
+      - alert: CrowdSecDecisionSpike
+        # Subquery, not sum(avg_over_time(...)): the series set changes as bans come and
+        # go, so the average has to be taken of the total, not per series.
+        expr: sum(cs_active_decisions{origin!="CAPI"}) - avg_over_time(sum(cs_active_decisions{origin!="CAPI"})[1h:1m]) > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CrowdSec is banning far more than usual"
+          description: "Local decisions jumped more than 20 above the last hour's average. Either a real campaign, or a scenario matching legitimate traffic."
+          runbook: "docs/runbooks/setup-operations/crowdsec-bouncer.md"

@@ -1,10 +1,17 @@
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   caddy:
     # Custom xcaddy build (Cloudflare DNS + CrowdSec bouncer), built by
     # .github/workflows/build-caddy-image.yml. Digest pin is applied by hand.
-    image: ghcr.io/drizzelat/nas-caddy:2.11.4@sha256:2fbf7a38353cea01c030d2b0bf2feb4a288664a6b4ad930d8ff22c261ab0f50f
+    image: ghcr.io/drizzelat/nas-caddy:2.11.4@sha256:d9234e0479cb895423e72358f8203744e1e726084631a0817ea19211a7662a66
     container_name: caddy
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"
@@ -30,6 +37,10 @@ services:
         limits:
           cpus: "2"
           memory: 1G
+    # No search domain. The host's `search nas.example.com` plus a wildcard record on it
+    # sends a short name Docker DNS lacks (crowdsec, while it is down) to Cloudflare, and
+    # the bouncer kept that keep-alive connection after crowdsec came back (2026-09-25).
+    dns_search: .
     # This stack DEFINES all 19 proxy_* networks; every other stack consumes them as
     # external. Adding one is docs/network.md -> Adding a New Stack.
     networks:
@@ -52,16 +63,20 @@ services:
       - proxy_paperless
       - proxy_romm
 
-  # Moved from stacks/npm at the cutover — stopping that stack stops it, and the
-  # bouncer it serves now lives in Caddy. See docs/services/caddy.md.
+  # Lives in this stack because the bouncer it serves is compiled into Caddy. See docs/services/caddy.md.
   crowdsec:
     image: crowdsecurity/crowdsec:v1.8.1@sha256:0f2523fa61ef507f15d953045cface490cc880670c62f2755ced17524107f71a
     container_name: crowdsec
     restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges=true
     environment:
       # caddy ships the parser for Caddy's JSON access log. The two appsec ones were
       # dependencies of ZoeyVid/npmplus; local-nas.yaml needs them, so name them here.
-      - COLLECTIONS=crowdsecurity/caddy crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules
+      # firix/authentik parses Authentik's own failed-login events, which the access log
+      # cannot see: the flow executor answers 200 whether the password was right or not.
+      - COLLECTIONS=crowdsecurity/caddy crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules firix/authentik
     deploy:
       resources:
         limits:
@@ -71,15 +86,60 @@ services:
       - /mnt/apps/npm/crowdsec/data:/var/lib/crowdsec/data
       - /mnt/apps/npm/crowdsec/config:/etc/crowdsec
       - /mnt/apps/caddy/logs:/var/log/caddy:ro
-      # NPMplus's logs, static since the cutover. Kept mounted so a rollback still
-      # has its acquisition — see docs/services/caddy.md.
-      - /mnt/apps/npm/npm/data/nginx/logs:/var/log/npm:ro
+      # Acquisition is git-managed and SHADOWS the host copies underneath. The DIRECTORY,
+      # for the same inode reason as Caddy's config above. See crowdsec/acquis.d/README.md.
+      - /mnt/apps/komodo/repos/nas/stacks/caddy/crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro
+    # Same as caddy: crowdsec-socket-proxy must never resolve through the search domain.
+    dns_search: .
     networks:
       - proxy_network
+      - crowdsec_socket
+    depends_on:
+      - crowdsec-socket-proxy
+
+  # Authentik logs its failed logins to stdout only, so CrowdSec needs the Docker API to
+  # read them. It gets a GET-only view of it instead of the socket — same pattern as the
+  # beszel agent. CONTAINERS covers list/inspect/logs, EVENTS is how the datasource
+  # notices the container being replaced by a deploy. INFO is required too: the docker
+  # datasource calls GET /info at init, and a 403 there is fatal — crowdsec crash-loops.
+  crowdsec-socket-proxy:
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    container_name: crowdsec-socket-proxy
+    restart: unless-stopped
+    logging: *default-logging
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      INFO: 1
+      PING: 1
+      VERSION: 1
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    tmpfs:
+      # Entrypoint writes /tmp/haproxy.cfg; read-only rootfs needs writable /tmp + /run.
+      - /run
+      - /tmp
+    # No published port: only crowdsec talks to it, over the internal network below.
+    networks:
+      - crowdsec_socket
 
 networks:
   proxy_network:
     name: proxy_network
+  # Not a proxy_* network and deliberately internal: it carries the Docker API, so it
+  # must not be reachable from anything but crowdsec, and needs no egress.
+  crowdsec_socket:
+    name: crowdsec_socket
+    internal: true
   # The only proxy_* network with a pinned subnet, because AdGuard is static at
   # 172.16.25.3; ip_range confines dynamic allocation to the top half.
   proxy_adguard:

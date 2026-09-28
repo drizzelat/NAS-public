@@ -4,12 +4,9 @@ A deterministic, read-only assertion that **the running estate matches this repo
 deployed, on the host deploys route it to, on the digests the repo pins, healthy. It exits 0 or 1,
 with no model in the loop.
 
-It is the acceptance test
-[komodo-migration.md §1](komodo-migration.md#1-the-acceptance-test-does-not-exist-and-that-is-the-first-work-item)
-asked for: green against Portainer first, green for a week **before Komodo exists**, then the gate
-after every single adoption in §9. The nightly [health check](nas-health-check.md) covers much of
-the same ground but cannot be that gate: it runs once a day, costs tokens, and its verdict is a
-model's judgment rather than an exit code.
+The nightly [health check](nas-health-check.md) covers much of the same ground but cannot be this
+gate: it runs once a day, costs tokens, and its verdict is a model's judgment rather than an exit
+code.
 
 - Workflow: [`.github/workflows/deploy-state-probe.yml`](../../../.github/workflows/deploy-state-probe.yml)
 - Script: [`.github/scripts/deploy-state-probe.sh`](../../../.github/scripts/deploy-state-probe.sh)
@@ -19,22 +16,43 @@ model's judgment rather than an exit code.
 
 | # | Check | FAIL when | Why it is here |
 | --- | --- | --- | --- |
-| 1 | Placement | a Komodo Server is missing or not `Ok`; a `stacks/` folder has no Komodo Stack, or a hand-applied one (the peripheries) has one; a Stack has no folder; a Stack is not `running` (`github-runner` may be `deploying`: its `pre_deploy` waits for the probe's own job to end, and the probe prints a `NOTE`); a Stack is on a different Server than its `[[stack]]` entry in [`komodo/resources.toml`](../../../komodo/resources.toml) declares (`komodo` itself: `nas`) | A stack that silently stopped being deployed is the failure GAP-1 described, and a migration moves every stack |
-| 2 | Digests | any `DRIFT`, `NO SERVICE`, `NO REPO COMPOSE` or `ERROR` line from [`nas-health-image-drift.sh`](../../../.github/scripts/nas-health-image-drift.sh) | A running digest that is not the pin; a service removed from compose but still running (Komodo never passes `--remove-orphans`, F15); a compose project no folder explains, which is what an adoption under the wrong project name looks like (F13) |
+| 1 | Placement | a Komodo Server is missing or not `Ok`; a `stacks/` folder has no Komodo Stack, or a hand-applied one (the peripheries) has one; a Stack has no folder; a Stack is not `running` (`github-runner` may be `deploying`: its `pre_deploy` waits for the probe's own job to end, and the probe prints a `NOTE`); a Stack is on a different Server than its `[[stack]]` entry in [`komodo/resources.toml`](../../../komodo/resources.toml) declares (`komodo` itself: `nas`) | A stack that silently stopped being deployed looks fine from every other angle |
+| 2 | Digests | any `DRIFT`, `NO SERVICE`, `NO REPO COMPOSE` or `ERROR` line from [`nas-health-image-drift.sh`](../../../.github/scripts/nas-health-image-drift.sh) | A running digest that is not the pin; a service removed from compose but still running (Komodo never passes `--remove-orphans`); a compose project no folder explains, which is what a deploy under the wrong project name looks like ([komodo.md → Rules](../../services/komodo.md#the-project-name-is-load-bearing)) |
 | 3 | Health | any container, on any Komodo Server, that is neither running nor a clean `Exited (0)`, or is running `unhealthy` | The rule [`verify-healthy.sh`](../../../scripts/deploy/verify-healthy.sh) deploys by, applied to the whole estate instead of the stack just deployed |
-| 4 | Networks | caddy is not attached to every `proxy_*` network `stacks/caddy/docker-compose.yml` defines | A `down` that removes one is unrecoverable without a from-scratch bring-up (SVC-1 F2). The list is read from the compose file, never hard-coded |
-| 5 | Host copies | a script installed outside the clone differs from the repo | `git-pull-nas.sh` delivers every Caddyfile change, and nothing deploys it (F11) |
+| 4 | Networks | caddy is not attached to every `proxy_*` network `stacks/caddy/docker-compose.yml` defines | A `down` that removes one is unrecoverable without a from-scratch bring-up. The list is read from the compose file, never hard-coded |
+| 5 | Host copies | a script installed outside the clone differs from the repo | `git-pull-nas.sh` keeps every host script current, and nothing deploys it ([nas-repo-autopull](nas-repo-autopull.md)) |
+| 6 | Sync | the ResourceSync `komodo-resources` has pending changes more than 6 h after the last commit to [`komodo/resources.toml`](../../../komodo/resources.toml) (a `NOTE` before that), its pending view is still older than that commit 2 h after it, or it reports an error | `deploy-stacks` applies only a **new** `[[stack]]`; every other change waits for someone to read the diff and run the sync ([deploy-stacks](deploy-stacks.md)). Komodo refreshes the pending view itself (hourly, `KOMODO_RESOURCE_POLL_INTERVAL`), so the probe only reads. A change made in the UI shows as pending at once and fails the next run |
+| 7 | Deterministic health checks | any FAIL from [`nas-deterministic-checks.sh`](../../../.github/scripts/nas-deterministic-checks.sh): snapshot recency or retention, scrub age, dump freshness/integrity **per labelled database** (not per dump directory — see below), cert expiry, the on-host clone, the boot-guard drop-in, Storage Box snapshots | Seven yes/no checks the nightly model run used to do. Here they cost nothing and run 4× a day instead of once |
 
 Check 2 calls the nightly health check's own script unchanged and only turns its findings into an
 exit code, so a fix to digest matching lands in both at once.
 
+### Check 7: the thresholds, and where they come from
+
+The script holds the cadences as constants at the top, each one the value documented in
+[scheduled-tasks.md](../../scheduled-tasks.md) — snapshot cadence and retention per dataset and tier, the
+35-day scrub threshold, the daily dump, plus the checklist's slack rule (cadence + 2 h, scrubs
++ 5 days). **Changing a schedule on the NAS means changing both**, the doc and the constant.
+Cert expiry is judged against each certificate's own lifetime, not a fixed day count, because
+short-lived certs would otherwise fail every night.
+
+The Storage Box check needs a read-only Hetzner API token on the NAS
+([backup.md → Watching the snapshots](../backup-restore/backup.md#watching-the-snapshots)). Without
+it the check prints `SKIP`, so the probe stays green until the token exists.
+
+The dump half expects one block **per database**, and builds the expected set by pairing each
+`nas.backup.db` entry with its `nas.backup.dir` in `stacks/*/docker-compose.yml` — the same labels
+`pg-dump-backup.sh` discovers. A labelled database that reports no `mtime` is a FAIL, which is
+also what an out-of-date [`scripts/nas-health-probe.sh`](../../../scripts/nas-health-probe.sh) on
+the NAS looks like: the probe emits the per-database blocks, so **a change to it has to be
+installed on the host** ([nas-health-check → One-time setup](nas-health-check.md#one-time-setup)),
+not just merged. Per database, not per directory: two databases can dump into one directory, and a
+failed one hides behind a fresh sibling.
+
 ### No exceptions
 
-Until 2026-09-15 the Komodo Phase 0 evaluation's two A1 projects, `komodo-core-eval` and
-`komodo-periphery-eval`, were a `NOTE` while [komodo-migration.md](komodo-migration.md) still listed
-items to measure. The eval was torn down when that line merged (#353), and the exception went with
-it: every untracked compose project is a `FAIL`. A future scratch evaluation needs its own exception,
-here and in check 14 of [`.github/nas-health-check.md`](../../../.github/nas-health-check.md).
+Every untracked compose project is a `FAIL`. A scratch evaluation on an estate host needs its own
+exception, here and in check 14 of [`.github/nas-health-check.md`](../../../.github/nas-health-check.md).
 
 ## Reading a run
 
@@ -46,27 +64,18 @@ PASS  digests: 3 servers, 77 digest-pinned running containers: 0 drift, 0 no ser
 PASS  health: every container on 3 servers is running or cleanly Exited (0), none unhealthy
 PASS  networks: caddy is attached to all 18 proxy_* networks its compose defines
 PASS  host copies: 1 installed script(s) match the repo
+PASS  sync: komodo-resources has no pending changes at 3959d67
 RESULT  0 failure(s)
 ```
 
 A `FAIL` names what to look at. A section whose API call failed reports that as its own `FAIL`
 rather than passing unchecked.
 
-**Proved able to fail, not only to pass.** On 2026-09-11, against the live estate with breakages
-made in a scratch checkout only, each of these produced its `FAIL` and a non-zero exit: an extra
-`stacks/` folder, a zeroed digest pin, the eval marker removed, an extra `proxy_*` network in
-caddy's compose, and the not-yet-installed `host-copies` verb.
-
-**Moved from Portainer to Komodo on 2026-09-17** (komodo-migration.md §8 Phase 3, PR 4), and proved
-the same way:
-
-- **Side by side:** both backends ran from the workstation against the live estate. Both found 77
-  digest-pinned containers on 3 hosts, and every check was a PASS. The only difference: placement
-  counts 30 Stacks, not 29, because `komodo` itself is a Komodo Stack.
-- **An orphan:** a scratch container labelled as an extra `homarr` service made both backends print
-  the same `NO SERVICE` FAIL.
-- **Placement, in a scratch copy of the tree:** an extra `stacks/` folder, and `homarr` declared on
-  the wrong Server, each produced its FAIL.
+**Proving a change to it can fail:** run it by hand ([below](#running-it-by-hand)) against the live
+estate from a scratch checkout with one breakage each: an extra `stacks/` folder, a zeroed digest
+pin, an extra `proxy_*` network in caddy's compose, a stack declared on the wrong Server, an edit to a
+Procedure in the Komodo UI (check 6 goes red on the next run; undo it after). Each must
+print its `FAIL` and exit non-zero.
 
 ## Where it runs, and why
 
@@ -77,10 +86,10 @@ converging, and a deploy cannot start while a probe is reading.
 Credentials:
 
 - **`secrets.KOMODO_READ_API_KEY` / `KOMODO_READ_API_SECRET`:** the Komodo service user `probe-read`
-  ([komodo.md](../../services/komodo.md)). It has Read on Servers and Stacks, plus Inspect on Servers,
+  ([komodo.md](../../services/komodo.md)). It has Read on Servers, Stacks and the ResourceSync `komodo-resources`, plus Inspect on Servers,
   because Komodo's container list carries no labels. Inspect also shows every container's
   environment, so treat the key as a secret reader, not a harmless one. Every Komodo list call passes
-  `"limit":0`: Komodo otherwise returns a page of 50 without saying so (komodo-migration.md F32).
+  `"limit":0`: Komodo otherwise returns a page of 50 without saying so.
 - **`secrets.NAS_HEALTH_SSH_KEY`:** the `nashealth` forced-command key, for the `yaml2json` and
   `host-copies` verbs.
 
@@ -108,12 +117,10 @@ UTC day, and otherwise runs it with a `::warning::` naming the broken cron — t
 verbatim. Unlike the edge probe's, this fallback cannot help during a NAS outage, because the job
 runs on the NAS runner.
 
-> **The guard was its own `ubuntu-latest` job until 2026-09-18**, which `probe` depended on. That
-> billed a GitHub-hosted minute per run (~6 a day) for a two-second API call, and worse, it meant an
-> exhausted Actions quota would starve a probe that otherwise costs nothing — the hosted gate could
-> not start, so the free self-hosted job never ran. It is a step in `probe` now: free, and
-> unstarvable. The whole workflow is self-hosted. `10:47` UTC is at least two hours clear of every
-host slot in both DST offsets (01:47/07:47/13:47/19:47 UTC in summer, an hour later in winter).
+The guard is a step, not its own `ubuntu-latest` job: a hosted job would bill a minute per run and
+could be starved by an exhausted Actions quota. The whole workflow is self-hosted. `10:47` UTC is at
+least two hours clear of every host slot in both DST offsets (01:47/07:47/13:47/19:47 UTC in summer,
+an hour later in winter).
 
 ### Cron job (TrueNAS → System → Advanced → Cron Jobs, run as root)
 
@@ -132,13 +139,15 @@ Prove the cron path, not only the script: `sudo midclt call -j cronjob.run <id>`
 `tail -2 /var/log/deploy-state-trigger.log`. TrueNAS 25.04 writes nothing to `/etc/cron.d`, so
 grepping for the entry proves nothing.
 
-## Installing the `host-copies` verb
+## Installing the probe verbs
 
-Check 6 needs a verb in [`scripts/nas-health-probe.sh`](../../../scripts/nas-health-probe.sh), which
-is installed **outside** the clone. Until it is re-installed, every run fails check 5 with
-`refused (unknown verb: host-copies)`, and the nightly health check flags the probe's own `version`
-drift. Re-install it right after merging, with step 1 of the install block in
-[nas-health-check.md](nas-health-check.md).
+Checks 5 and 7 need verbs in [`scripts/nas-health-probe.sh`](../../../scripts/nas-health-probe.sh),
+which is installed **outside** the clone, so no pull updates it. Until it is re-installed, check 5
+fails with `refused (unknown verb: host-copies)` and check 7 fails with the `storagebox` verb
+missing, epoch-less snapshot times and dump directories reporting no `mtime` — each names the
+re-install in its message. Re-install right after merging, with step 1 of the install block in
+[nas-health-check.md](nas-health-check.md), which also installs
+`scripts/nas-hetzner-snapshots.sh`.
 
 ## Running it by hand
 
@@ -150,17 +159,10 @@ everything `probe-read` can:
 set -a
 KOMODO_URL=https://komodo.example.com
 KOMODO_RESOLVE=komodo.example.com:443:192.168.178.111
-KOMODO_API_KEY=$(sed -n 's/^KOMODO_API_KEY=//p' secrets/portainer-env/komodo.env)
-KOMODO_API_SECRET=$(sed -n 's/^KOMODO_API_SECRET=//p' secrets/portainer-env/komodo.env)
+KOMODO_API_KEY=$(sed -n 's/^KOMODO_API_KEY=//p' secrets/stack-env/komodo.env)
+KOMODO_API_SECRET=$(sed -n 's/^KOMODO_API_SECRET=//p' secrets/stack-env/komodo.env)
 set +a
 NAS_SSH_KEY_FILE=secrets/ssh/nas-health_ed25519 .github/scripts/deploy-state-probe.sh 192.168.178.111
 ```
 
-Or dispatch it with `gh workflow run deploy-state-probe.yml`, which is what §9 of the Komodo plan
-does after every adoption.
-
-## The soak
-
-Komodo is not installed on the estate until this workflow has been **green for 7 days**, counted
-from its first green dispatched run on `main`. That is gate 6 in
-[komodo-migration.md §0](komodo-migration.md#start-gate).
+Or dispatch it with `gh workflow run deploy-state-probe.yml`.

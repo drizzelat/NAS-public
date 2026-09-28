@@ -38,12 +38,19 @@ Push monitors that the NAS jobs ping on success, so a job that silently stops ru
 
 | Monitor Name | Pinged by | Host file with the push URL |
 |---|---|---|
-| **pg-dump** | [`pg-dump-backup.sh`](../../../scripts/pg-dump-backup.sh), daily 02:30 | `/root/.config/pg-dump-kuma-push.url` |
-| **config-email** | [`truenas-config-email.sh`](../../../scripts/truenas-config-email.sh), daily 02:15 | `/root/.config/config-email-kuma-push.url` |
-| **a1-file-backup** | [`a1-file-backup.sh`](../../../scripts/a1-file-backup.sh), daily 02:00 | `/root/.config/a1-file-backup-kuma-push.url` |
+| **pg-dump** | [`pg-dump-backup.sh`](../../../scripts/pg-dump-backup.sh), daily 02:30 | `/root/.config/pg-dump-kuma-push.url` (live 2026-09-23) |
+| **config-email** | [`truenas-config-email.sh`](../../../scripts/truenas-config-email.sh), daily 02:15 | `/root/.config/config-email-kuma-push.url` (live 2026-09-23) |
+| **a1-file-backup** | [`a1-file-backup.sh`](../../../scripts/a1-file-backup.sh), daily 02:00 | `/root/.config/a1-file-backup-kuma-push.url` (live 2026-09-23) |
+| **renovate-trigger** | [`renovate-trigger.sh`](../../../scripts/renovate-trigger.sh), daily 04:15 + 05:15 — Renovate's only trigger | `/root/.config/renovate-trigger-kuma-push.url` (live 2026-09-23, on the NAS Kuma; needed the `kuma.example.com` host entry — [why](renovate-trigger.md#alerting-dead-mans-switch)) |
 | **docker-image-prune** *(optional)* | [`docker-image-prune.sh`](../../../scripts/docker-image-prune.sh), weekly | `/root/.config/docker-image-prune-kuma-push.url` |
 
 Setup: [restore-drill → Silent-failure heartbeats](../backup-restore/restore-drill.md#silent-failure-heartbeats).
+
+All four live monitors are on the **NAS** Kuma, not the A1 one the runbook below assumes. That is a
+deliberate trade: one place to look, at the cost of the case where the NAS itself is down — which
+[healthchecks.io](external-heartbeat.md) covers per host instead. It is also why the
+`kuma.example.com` host entry is needed ([why](renovate-trigger.md#alerting-dead-mans-switch));
+a monitor on the A1 (`http://100.64.0.13:3001`) would need neither.
 
 > **Notification Setup**: In A1 Kuma, set up push notifications (e.g. to a mobile app, Discord, or Telegram) so you receive an alert on your phone immediately if the house loses power.
 
@@ -63,8 +70,6 @@ Check the core components that other services depend on.
 | **Caddy (HTTP)** | TCP Port | `192.168.178.111 : 80` | Up | HTTP→HTTPS redirects. |
 | **AdGuard DNS** | DNS | `adguard : 53` | Returns an IP | Test resolving a domain (e.g., `google.com`). Kuma connects to AdGuard directly via the `proxy_adguard` network to bypass Docker UDP Hairpin NAT. |
 
-> Before the 2026-09-07 Caddy cutover this section monitored NPMplus on `:80` and its admin UI on
-> `:81`. Nothing listens on `:81` any more — delete that monitor if it still exists.
 
 ### B. Web Interfaces (LAN-Only Apps)
 Kuma on the NAS uses AdGuard's DNS to resolve `*.example.com` to the local LAN IP (`192.168.178.111`), so these validate that Caddy routes the local names — and, because Kuma's requests hairpin in as `172.16.25.1`, that Caddy's `@lan` matcher still admits that address.
@@ -118,6 +123,6 @@ Expect `["*.example.com"]` and a day count. An empty `monitor_tls_info` row mean
 running but Kuma never saw a certificate — check the URL is `https://`.
 
 ### E. Torrent VPN Health
-Kuma is on neither `media_net` nor `proxy_downloads`, so it cannot reach `gluetun` by name. The qBittorrent and SABnzbd HTTP monitors above catch a `downloads` stack that is down; a VPN tunnel that dropped while the containers keep running shows up in gluetun's own healthcheck (`unhealthy`), which the [deploy gate](portainer-webhook-deploy.md) and the nightly health check read.
+Kuma is on neither `media_net` nor `proxy_downloads`, so it cannot reach `gluetun` by name. The qBittorrent and SABnzbd HTTP monitors above catch a `downloads` stack that is down; a VPN tunnel that dropped while the containers keep running shows up in gluetun's own healthcheck (`unhealthy`), which the [deploy gate](deploy-stacks.md#health-and-rollback) and the nightly health check read.
 
 > **Notification Setup**: For NAS Kuma, you might prefer a lower-urgency notification channel (like e-mail) so you aren't woken up if a *arr container temporarily restarts.

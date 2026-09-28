@@ -8,7 +8,7 @@ Immich is a self-hosted photo and video backup and gallery solution. It includes
 
 - **Stack folder:** `stacks/immich/`
 - **Compose file:** `stacks/immich/docker-compose.yml`
-- **Deploy:** Komodo Stack `immich` on Server `nas`, adopted 2026-09-15 ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its
+- **Deploy:** Komodo Stack `immich` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 
 ## Access
@@ -112,7 +112,7 @@ in **both German and English**, so it uses a language-flexible model.
 ### Restart / redeploy
 
 - Komodo → Stacks → `immich` → **Deploy** (or **Restart**).
-- Or push to `stacks/immich/` → the runner deploys it through Komodo ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)).
+- Or push to `stacks/immich/` → the runner deploys it through Komodo ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)).
 
 ### Upgrade
 
@@ -124,7 +124,7 @@ in **both German and English**, so it uses a language-flexible model.
 ### Restore from backup
 
 1. Stop the `immich` stack in Komodo (**Stop**; never **Destroy**, which is a compose down).
-2. Restore `apps/immich` (Postgres + pgvecto DB) and `data/immich` (photo/video library, ~137G — has its own daily snapshot, 14-day retention) from a ZFS snapshot or from Hetzner.
+2. Restore `apps/immich` (Postgres + pgvecto DB) and `data/immich` (photo/video library, ~137G — has its own daily, weekly and monthly snapshots) from a ZFS snapshot or from Hetzner.
 3. **If the named volumes were recreated**, restore their ownership before starting the stack — nothing does this automatically any more:
 
    ```sh
@@ -142,9 +142,3 @@ in **both German and English**, so it uses a language-flexible model.
 - **No hardware transcode or ML acceleration** → `/dev/dri` passthrough + group IDs 44 (video) / 107 (render).
 - **ML errors but no obvious endpoint** → machine-learning has no exposed port; reachable only internally at `http://machine-learning:32002`.
 - **Public login fails** → Immich is public via its native Authentik OAuth/OIDC connector; if Authentik is down, OIDC login fails (local accounts are the fallback).
-
-## Last updated
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables.
-
-2026-09-11

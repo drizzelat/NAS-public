@@ -27,8 +27,8 @@ A [WebTunnel bridge](a1-vps-webtunnel.md) runs next to it on the same host, and 
   (see [Image and security updates](#image-and-security-updates)); until 2026-09-16 it was Tor's
   `thetorproject/obfs4-bridge`. Tor's own `start-tor.sh` renders `torrc` from env; every
   `OBFS4V_<Option>=<value>` becomes a `<Option> <value>` line.
-- **Deploy:** Komodo Stack `a1-vps-tor-bridge` on Server `a1-vps`, adopted 2026-09-15
-  ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its folder deploys it
+- **Deploy:** Komodo Stack `a1-vps-tor-bridge` on Server `a1-vps`
+  ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its folder deploys it
   through Komodo.
 - **Runs on:** the Ampere A1 ([host + SSH details](a1-vps-matrix.md)), next to Matrix and the
   [Kuma watchdog](a1-vps-kuma.md).
@@ -67,7 +67,7 @@ Operations), about three hours after first start.
 
 ## Environment variables
 
-From the vault (`secrets.enc/portainer-env/a1-vps-tor-bridge.env.age`), written into Komodo Variables
+From the vault (`secrets.enc/stack-env/a1-vps-tor-bridge.env.age`), written into Komodo Variables
 and deployed with `scripts/secrets.sh push a1-vps-tor-bridge`. The stack deploys fine without any.
 
 | Variable | Description |
@@ -126,6 +126,10 @@ All torrc settings live in the compose `environment:` block.
 - **Oracle AUP.** Not confirmed either way for bridges. Tor operators report middle relays on
   Oracle's free tier without action. The worst case is losing the tenancy, which also holds the
   ingress and Matrix; see [a1-matrix-backup](../runbooks/backup-restore/a1-matrix-backup.md).
+
+**Container logs** are capped at 10 MB × 3 files per container (`x-logging` in the compose file):
+Docker's `json-file` default never rotates. Enforced by
+[`compose-policy.py`](../../.github/scripts/compose-policy.py).
 
 ## Operations
 
@@ -224,14 +228,3 @@ Nothing to restore. A rebuilt bridge with an empty data dir comes up as a new br
   comes first.
 - **Throughput goes flat mid-month and the log mentions hibernation** → the 1 TiB cap was reached.
   Expected; it wakes up next month.
-
-## Last updated
-
-2026-09-16 — runs the self-built `ghcr.io/drizzelat/obfs4-bridge` (Tor 0.4.9.12, lyrebird 0.8.1) instead of
-`thetorproject/obfs4-bridge:v0.25` (Tor 0.4.9.9, obsolete); `cap_add: NET_BIND_SERVICE` dropped.
-
-2026-09-16 — `MetricsPortPolicy` also accepts the NAS tailnet IP: after a reboot Tor saw the NAS IP instead of the Docker gateway, and both Tor scrape targets went down.
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack, env from Komodo Variables.
-
-2026-09-11

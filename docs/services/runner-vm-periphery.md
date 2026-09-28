@@ -4,11 +4,8 @@
 
 Komodo Periphery on the [runner VM](../runbooks/setup-operations/runner-vm.md) (**x86_64**). It is the agent Komodo Core runs
 `docker compose` through for every stack on this host: the
-[GitHub runner](github-runner.md), since 2026-09-17. If it is down, Komodo can neither deploy nor inspect anything here. Containers keep running
+[GitHub runner](github-runner.md). If it is down, Komodo can neither deploy nor inspect anything here. Containers keep running
 either way.
-
-Added 2026-09-17 in Phase 3 of the [Komodo migration](../runbooks/setup-operations/komodo-migration.md),
-Server state `Ok` since.
 
 ## Stack
 
@@ -22,8 +19,8 @@ Server state `Ok` since.
 
 ## Why not Komodo
 
-The periphery is the transport its own server deploys through (plan F12): recreating it from Komodo
-drops the connection mid-command. Enforced by its absence from `komodo/owned-stacks`, so a push that
+The periphery is the transport its own server deploys through ([komodo.md → Rules](komodo.md#peripheries-are-hand-applied)): recreating it from
+Komodo drops the connection mid-command. Enforced by its absence from `komodo/owned-stacks`, so a push that
 changes this file deploys nothing, and by `HAND_APPLIED` in the deploy-state probe.
 
 ## Access
@@ -35,11 +32,11 @@ changes this file deploys nothing, and by `HAND_APPLIED` in the deploy-state pro
 | UI | None. Managed from Komodo Core |
 
 **`PERIPHERY_ALLOWED_IPS` is `192.168.178.111`, the NAS.** Core runs in a container on the NAS, and its
-traffic to the VM leaves the NAS masqueraded as the NAS's LAN address. Measured 2026-09-17, both ways:
+traffic to the VM leaves the NAS masqueraded as the NAS's LAN address. Tested both ways:
 - **The real allowlist:** the Server went `Ok`.
 - **A wrong one, `192.168.178.1`:** the Server went `NotOk`.
 
-**Never start it without `PERIPHERY_CORE_PUBLIC_KEYS`** (F15). Core's `core.pub` is written by the VM's
+**Never start it without `PERIPHERY_CORE_PUBLIC_KEYS`**. Core's `core.pub` is written by the VM's
 cloud-init before the first start. Terminals are disabled.
 
 ## Volumes / data
@@ -66,14 +63,11 @@ The directory name makes the compose project `periphery`, which the deploy-state
 
 ## Version pinning
 
-The same `2.3.3@sha256:…` as every periphery. Core and all four peripheries move together (F2).
+The same pin as every periphery. Core and all four peripheries move together
+([komodo.md → Upgrade](komodo.md#upgrade)).
 
 ## Related
 
 - [runner-vm](../runbooks/setup-operations/runner-vm.md) — the VM it runs in
 - [komodo](komodo.md) — Core, the server this agent answers to
 - [nas-periphery](nas-periphery.md), [a1-vps-periphery](a1-vps-periphery.md), [micro-vps-periphery](micro-vps-periphery.md)
-
-## Last updated
-
-2026-09-17

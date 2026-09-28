@@ -12,8 +12,8 @@ Full build: [matrix-deploy runbook](../runbooks/setup-operations/matrix-deploy.m
 
 - **Stack folder:** `stacks/a1-vps-matrix/`
 - **Compose file:** `stacks/a1-vps-matrix/docker-compose.yml`
-- **Deploy:** Komodo Stack `a1-vps-matrix` on Server `a1-vps`, adopted 2026-09-15
-  ([komodo.md → Adopted stacks](komodo.md#adopted-stacks-phase-2)). A push to its folder deploys it
+- **Deploy:** Komodo Stack `a1-vps-matrix` on Server `a1-vps`
+  ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its folder deploys it
   through Komodo.
 
 ## Access
@@ -28,8 +28,8 @@ Full build: [matrix-deploy runbook](../runbooks/setup-operations/matrix-deploy.m
 
 All **state** lives on the A1's 100 GB block volume at `/opt/matrix`. **Config is in git** as
 inline compose `configs:` blocks with secrets interpolated from the stack env — the same pattern
-`micro-vps-ingress` uses, and for the same reason: the Portainer Agent ships only compose content,
-never sibling files ([GAP-2](../architecture-review-2026-08-20.md#gap-2--a1-matrix-host-has-no-backup)).
+`micro-vps-ingress` uses. (It dates from Portainer, which shipped only compose content; Komodo
+clones the whole repo, so sibling files would now work too.)
 
 > ### A config target must never land inside a bind mount
 >
@@ -60,7 +60,7 @@ never sibling files ([GAP-2](../architecture-review-2026-08-20.md#gap-2--a1-matr
 
 ## Environment variables
 
-Komodo Variables `A1_VPS_MATRIX__*`, written from the vault (`secrets.enc/portainer-env/a1-vps-matrix.env.age`)
+Komodo Variables `A1_VPS_MATRIX__*`, written from the vault (`secrets.enc/stack-env/a1-vps-matrix.env.age`)
 by `scripts/secrets.sh push a1-vps-matrix`, which then deploys through Komodo. Never commit secret values in the clear. Compose
 interpolates every one of them into an inline `configs:` block at deploy time — Synapse itself
 expands nothing — so a value missing from the Variables renders as an empty string (see Operations).
@@ -115,6 +115,16 @@ Still **host-side only** (not in git, not in Komodo): the signing key and the br
   redirect like everyone else (verified 2026-09-11 from a LAN client: `301` to
   `matrix.example.com`). See the runbook Phase 2 §4.
 
+**Container logs** are capped at 10 MB × 3 files per container (`x-logging` in the compose file):
+Docker's `json-file` default never rotates. Enforced by
+[`compose-policy.py`](../../.github/scripts/compose-policy.py).
+
+**Memory limits and `no-new-privileges`** are set on all five services. The limits are sized from a
+month of Beszel history (peak RSS: Synapse 279 MB, Postgres 259 MB, the bridge 58 MB, Caddy 55 MB,
+Element 6 MB) with room to grow: Synapse and Postgres 1 GB, the bridge 512 MB, Caddy 256 MB, Element
+128 MB. The images drop root through `su-exec`/`gosu`, which `no-new-privileges` permits — it
+blocks only *gaining* a privilege by exec.
+
 ## Operations
 
 > **Config changes are a git push now.** `homeserver.yaml`, the Synapse log config, both
@@ -131,7 +141,7 @@ Still **host-side only** (not in git, not in Komodo): the signing key and the br
 > through Komodo`, then land the compose.
 >
 > **Secrets are `${VAR}`**, interpolated from the Komodo Variables at deploy time and held in
-> the vault (`secrets/portainer-env/a1-vps-matrix.env`). Never paste a literal secret into the
+> the vault (`secrets/stack-env/a1-vps-matrix.env`). Never paste a literal secret into the
 > compose file.
 >
 > **Still host-side, deliberately:** the **signing key**, the media store, Caddy's cert/state
@@ -191,31 +201,3 @@ The signing key must be restored from the vault or the federation identity is lo
   `/opt/matrix/bridges/whatsapp`) didn't exist before the stack deployed; create host directories
   **before** the stack folder lands on `main`. Configs are inline `configs:` now, so this only
   applies to state paths.
-
-## Last updated
-
-2026-09-17 — Caddy redirects the NTP Pool's names on port 80 to `https://www.ntppool.org/`
-([a1-vps-ntp](a1-vps-ntp.md#web-redirect)); `config-rev` bumped.
-
-2026-09-15 — adopted by Komodo (Phase 2): deploys through the Komodo Stack; env goes into Komodo Variables before the compose lands.
-
-2026-09-11 — Caddy also fronts the [WebTunnel bridge](a1-vps-webtunnel.md): a site block for
-`WEBTUNNEL_DOMAIN`, and the `proxy_a1-vps-webtunnel` network, defined in this stack.
-
-2026-09-11 — environment table completed (all nine variables the inline configs interpolate);
-Element config, the LAN apex `.well-known` path and the backup script and key references brought
-in line with the stack.
-
-2026-08-21 — Phase 6 (WhatsApp bridge) live: `matrix-mautrix-whatsapp` (bridgev2 `v0.2606.0`) +
-shared `doublepuppet` appservice; `mautrix_whatsapp` DB; E2EE over appservice (MSC3202,
-`experimental_features` added to `homeserver.yaml`). WhatsApp QR link is the user step. History
-import required **`backfill.enabled: true`** in the bridge config (ships `false` — the reason old
-chats stayed empty; app-state/contacts sync regardless, which masked it) + a fresh device pair;
-double puppeting confirmed (backfilled own messages attributed to `@stefan`). See runbook Phase 6.2
-gotcha 6.
-2026-07-09 — Phase 5 (Element Web) live: `matrix-element` container serving `element.example.com`
-(grey-cloud, Caddy `reverse_proxy element:80`, LE cert issued), config host-side at
-`/opt/matrix/element/config.json`.
-2026-07-09 — Phase 4 (Authentik SSO / OIDC) live: `oidc_providers` inlined in host
-`homeserver.yaml`, login via Authentik verified, `@stefan:example.com` promoted to Synapse admin.
-2026-07-08 — Phase 3 (Postgres + Synapse base) deploy.

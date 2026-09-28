@@ -1,8 +1,7 @@
 # The whole edge policy. Ports 80/443 are LAN/tailnet; :8443 is the VPS ingress
-# listener. Migration + rationale: docs/services/caddy.md, and the plan in
-# docs/runbooks/setup-operations/caddy-migration.md.
+# listener. Rationale: docs/services/caddy.md.
 {
-	# No ACME contact address, matching NPMplus: certificate expiry is watched by Kuma,
+	# No ACME contact address: certificate expiry is watched by Kuma,
 	# not by a Let's Encrypt e-mail. See docs/services/caddy.md.
 
 	# Both are plugin directives, so Caddy has no built-in place for them in the
@@ -62,6 +61,49 @@
 	log {
 		output file /var/log/caddy/access.log
 	}
+}
+
+# Jellyfin's HLS playlists: about 1.4 MB each as sent, 11 KB gzipped. Nothing else is
+# compressed. See docs/services/jellyfin.md → Transcoding and bitrate.
+(hls_playlists) {
+	encode {
+		gzip
+		match {
+			header Content-Type application/vnd.apple.mpegurl*
+			header Content-Type application/x-mpegURL*
+		}
+	}
+}
+
+# Secret-harvest wordlists, refused at the edge instead of by the app behind it.
+#
+# The three standing bans in docs/runbooks/setup-operations/crowdsec-bouncer.md all
+# exist because of the same shape: an IP nobody has seen before fires a few hundred
+# requests at .env/config paths and is gone inside 20 seconds. No ban duration acts
+# that fast, and Immich answers every unknown path with its 10699-byte SPA catch-all,
+# so the scanner collects a wall of `200`s. AppSec's vpatch rules cover many of these
+# paths but not the long tail (`.env.bak`, `.env~`, `.env1`, `phpinfo.php`).
+#
+# The pattern is a SUPERSET of the regex check 10 of .github/nas-health-check.md greps
+# the access log for. Keep it one: everything that check can FAIL on then leaves here as
+# a 403, and by its own rule an all-403 probe is a `warn`, with no manual ban afterwards.
+#
+# `\.php` is the part check 10 does not look for. No vhost importing this snippet is a
+# PHP app, and the scanners ask constantly: 91 `.php` requests in 2026-09-08..25, every
+# one on immich, 86 of them answered `200` by the SPA catch-all before this. They never
+# tripped check 10 — they were just free reconnaissance.
+#
+# CrowdSec still sees every one of these: `crowdsec`/`appsec` are ordered first in the
+# global block, so they run before `respond` short-circuits the request, and
+# http-sensitive-files still fires and still bans for its 4 h.
+#
+# Validated against 2026-09-08..25 of access.log: 803631 requests, 474 matches for the
+# pattern as it stands, all 474 on immich.example.com and every one a scanner. Re-run
+# that before widening it — this is a blanket deny, and a false positive is a broken
+# page. A PHP app behind any of these names would need its own exception first.
+(scanner_deny) {
+	@scanner path_regexp (?i)(\.env|\.php|wp-|phpmyadmin|\.git/|xmlrpc|/passwd|\.aws|actuator|struts)
+	respond @scanner 403
 }
 
 # LAN/tailnet, minus the ingress VPS. Order-independent by construction: the IP lists
@@ -230,9 +272,17 @@ sonarr.example.com, https://sonarr.example.com:8443 {
 
 auth.example.com, https://auth.example.com:8443 {
 	import edge_log
+	import scanner_deny
 	crowdsec
 	appsec
 	reverse_proxy https://authentik-server-1:9443 {
+		# Authentik reads the RIGHTMOST X-Forwarded-For entry outside its own trusted
+		# CIDRs, which on the Cloudflare path is the edge server, not the visitor. Its
+		# failed-login events then name a Cloudflare PoP, and a CrowdSec ban lands on that
+		# PoP — every visitor behind it. Handing it the address Caddy already recovered
+		# from CF-Connecting-IP is what makes firix/authentik-bf usable at all.
+		# On :443 nothing is a trusted proxy, so {client_ip} is simply the peer.
+		header_up X-Forwarded-For {client_ip}
 		transport http {
 			tls_insecure_skip_verify
 		}
@@ -241,6 +291,11 @@ auth.example.com, https://auth.example.com:8443 {
 
 # Straight to the app, not through the Authentik outpost: Quantum runs the OIDC flow
 # itself, so share and upload links resolve without skip_path_regex holes.
+#
+# The ONLY public vhost without `import scanner_deny`: Quantum serves user-controlled
+# paths, so a file someone uploads or shares could legitimately be named `.env.bak` or
+# sit under a `.git/` directory, and the blanket deny would 403 their own file. No
+# match has ever been logged on this host, scanner or otherwise — revisit if one is.
 files.example.com, https://files.example.com:8443 {
 	import edge_log
 	crowdsec
@@ -252,6 +307,7 @@ files.example.com, https://files.example.com:8443 {
 # native password login, the public :8443 twin does not.
 immich.example.com {
 	import edge_log
+	import scanner_deny
 	crowdsec
 	appsec
 	reverse_proxy http://immich-server-1:30041
@@ -261,6 +317,7 @@ immich.example.com {
 # (web and the mobile app) and anonymous /share/ links are not matched, so they stay open.
 https://immich.example.com:8443 {
 	import edge_log
+	import scanner_deny
 	crowdsec
 	appsec
 	@pw_login path_regexp (?i)^/api/auth/(login|admin-sign-up)$
@@ -270,6 +327,7 @@ https://immich.example.com:8443 {
 
 mealie.example.com, https://mealie.example.com:8443 {
 	import edge_log
+	import scanner_deny
 	crowdsec
 	appsec
 	reverse_proxy http://mealie:9000
@@ -279,6 +337,8 @@ mealie.example.com, https://mealie.example.com:8443 {
 # "am I on the public edge?" never has to be asked. LAN keeps native password login.
 jellyfin.example.com {
 	import edge_log
+	import hls_playlists
+	import scanner_deny
 	crowdsec
 	appsec
 	reverse_proxy http://jellyfin:8096
@@ -288,6 +348,8 @@ jellyfin.example.com {
 # stay open by not being matched. See docs/runbooks/setup-operations/jellyfin-authentik-sso.md.
 https://jellyfin.example.com:8443 {
 	import edge_log
+	import hls_playlists
+	import scanner_deny
 	crowdsec
 	appsec
 	@pw_login path_regexp (?i)^/(emby/)?users/(authenticatebyname|public)$
