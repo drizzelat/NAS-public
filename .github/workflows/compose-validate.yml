@@ -1,0 +1,139 @@
+name: compose-validate
+
+# Pre-merge gate: schema-validate every changed compose file. GitHub-hosted runner
+# ONLY. No `paths:` filter — a path-filtered required check deadlocks unrelated PRs.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  packages: read   # the Caddyfile step pulls the custom edge image from ghcr.
+  statuses: write  # the passthrough `renovate-review` status on non-Renovate PRs.
+
+# GitHub bills a full minute per job, so a Renovate force-push that leaves the previous
+# run to finish costs as much as the run that replaces it. Newest push wins.
+concurrency:
+  group: compose-validate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # Every PR check in ONE job: each of these finishes in seconds, and GitHub rounds
+  # each *job* up to a billed minute, so separate jobs cost a minute apiece for ~30 s of
+  # work. Docs drift and gitleaks run even when an earlier step failed (`!cancelled()`),
+  # so each gap still reads as its own red step.
+  validate:
+    runs-on: ubuntu-latest   # GitHub-hosted ONLY — do not change to self-hosted.
+    steps:
+      # `renovate-review` is a required status context, and a context has no "skipped"
+      # state, so a non-Renovate PR would wait on it forever. renovate-pr-review.yml
+      # reviews renovate/* branches; every other PR gets its green status here. Lives in
+      # this job, not its own, because GitHub bills each job a full minute.
+      - name: Post a passing renovate-review status (non-Renovate PR)
+        if: ${{ !startsWith(github.event.pull_request.head.ref, 'renovate/') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh api -X POST "repos/$REPO/statuses/$HEAD" \
+            -f state=success \
+            -f context="renovate-review" \
+            -f target_url="$RUN_URL" \
+            -f description="not a Renovate PR — nothing to review" >/dev/null
+          echo "renovate-review=success on $HEAD (passthrough)"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0   # need base..head history to diff the PR range.
+
+      # Ownership lives in two places that must agree. docs/services/komodo.md
+      - name: Komodo owned-stacks matches the reconcile-owned Procedure
+        run: scripts/komodo/check-owned.sh
+
+      - name: Validate changed stack compose files
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          changed=$(git diff --name-only "$BASE" "$HEAD" -- 'stacks/**/docker-compose.yml' | sort -u)
+          if [ -z "$changed" ]; then
+            echo "No compose files changed."; exit 0
+          fi
+          echo "Changed compose files:"; echo "$changed"
+          fail=0
+          for f in $changed; do
+            # File may have been deleted in the PR — skip those.
+            [ -f "$f" ] || { echo "skip (deleted): $f"; continue; }
+            echo "::group::validate $f"
+            # `config -q` checks structure only. Unset ${VARS} interpolate to empty with a
+            # warning, and external networks are not verified (that needs the host).
+            if docker compose -f "$f" config -q; then
+              echo "ok: $f"
+            else
+              echo "::error file=$f::docker compose config failed"
+              fail=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $fail
+
+      # Every stack, not just the changed ones: pins, privilege, socket, limits, log caps.
+      - name: Compose policy
+        run: python3 .github/scripts/compose-policy.py
+
+      # The edge policy is one file, so this is what git alone does not give you: proof the
+      # running binary can parse it. docs/services/caddy.md
+      - name: Validate the Caddyfile against the pinned image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          img=$(sed -n 's/^ *image: \(ghcr\.io\/[^ ]*nas-caddy[^ ]*\)$/\1/p' stacks/caddy/docker-compose.yml)
+          [ -n "$img" ] || { echo "::error::no nas-caddy image pin in stacks/caddy/docker-compose.yml"; exit 1; }
+          echo "$GH_TOKEN" | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+          # Both must be set and the token must LOOK like one (40 chars of [A-Za-z0-9_-]):
+          # the Cloudflare provider rejects an obvious placeholder before validating anything.
+          docker run --rm \
+            -e CLOUDFLARE_API_TOKEN=0123456789abcdefghijklmnopqrstuvwxyzABCD \
+            -e CROWDSEC_API_KEY=ci-placeholder \
+            -v "$PWD/stacks/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            "$img" caddy validate --config /etc/caddy/Caddyfile
+
+      # -S warning, not the default: the deploy scripts deliberately word-split some
+      # list variables, which is style-level noise, not a defect.
+      - name: Lint every shell script
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git ls-files '*.sh')
+          printf 'linting %d script(s)\n' "${#files[@]}"
+          shellcheck -S warning "${files[@]}"
+          # scripts/deploy/* and scripts/review/* are invoked directly as `run: <path>`, so
+          # a missing exec bit only shows up as Permission denied in production. (The cron
+          # scripts are called as `/bin/sh <path>` and do not need one.)
+          bad=0
+          while IFS= read -r f; do
+            case "$(git ls-files -s "$f" | cut -d' ' -f1)" in
+              100755) ;;
+              *) echo "::error file=$f::not executable in git — chmod +x and re-commit"; bad=1 ;;
+            esac
+          done < <(git ls-files 'scripts/deploy/*.sh' 'scripts/review/*.sh')
+          exit $bad
+
+      # Docs drift: the promises AGENTS.md makes.
+      - name: Check docs against stacks
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/docs-drift.py
+
+      # PR half of secret-scan.yml (which now runs on pushes to main only). Full history,
+      # from the fetch-depth: 0 checkout above.
+      - name: gitleaks
+        if: ${{ !cancelled() }}
+        # gitleaks CLI, not gitleaks-action@v2: the action's PR path needs
+        # pull-requests:write and an org license gate, which broke every pull_request run.
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --redact -v --exit-code 1 .

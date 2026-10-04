@@ -1,0 +1,88 @@
+# Media playback (public, Authentik SSO) and its request front-end (LAN-only).
+# Seerr reaches sonarr/radarr over media_net. Docs: docs/services/jellyfin.md
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  jellyfin:
+    image: ghcr.io/drizzelat/nas-jellyfin:10.11.11ubu2404-ls38@sha256:33d8e1ee4d1e2f7c337a2d8fbf917c07bb8aa6ff593adb1bddd74414a73cc5b9
+    container_name: jellyfin
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
+    environment:
+      - PUID=950
+      - PGID=950
+      - TZ=Europe/Berlin
+    devices:
+      - /dev/dri:/dev/dri
+    volumes:
+      - /mnt/apps/mediaserver/config/jellyfin:/config
+      - /mnt/data/mediaserver/data/media:/data/media
+    networks:
+      - default
+      - media_net
+      - proxy_jellyfin
+    restart: unless-stopped
+    logging: *default-logging
+  seerr:
+    image: ghcr.io/seerr-team/seerr:v3.5.0@sha256:27602401178d54f1964442287b9f23f67a3fa2252645ee8065839ea1c3f69e45
+    container_name: seerr
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+    init: true
+    user: 950:950
+    environment:
+      - TZ=Europe/Berlin
+    volumes:
+      - /mnt/apps/mediaserver/config/seerr:/app/config
+    networks:
+      - default
+      - media_net
+      - proxy_jellyfin
+    restart: unless-stopped
+    logging: *default-logging
+  # Prometheus metrics for the Media stack dashboard, scraped as jellyfin-exporter:9594 over proxy_jellyfin.
+  jellyfin-exporter:
+    image: rebelcore/jellyfin-exporter:v1.5.2@sha256:8a1294b7fea80993e4ec18220e391578e0f9ca9e109294fd6a379d2cb5213c85
+    container_name: jellyfin-exporter
+    command:
+      - --collector.transcoding
+      - --collector.tasks
+      - --collector.storage
+    user: "65534:65534"
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+    environment:
+      - JELLYFIN_ADDRESS=http://jellyfin:8096
+      - JELLYFIN_TOKEN=${JELLYFIN_EXPORTER_TOKEN}   # dedicated API key "jellyfin-exporter" (Dashboard -> API Keys)
+    networks:
+      - default
+      - proxy_jellyfin
+    restart: unless-stopped
+    logging: *default-logging
+networks:
+  proxy_jellyfin:
+    external: true
+  media_net:
+    external: true

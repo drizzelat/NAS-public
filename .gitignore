@@ -1,0 +1,45 @@
+# Secrets — plaintext NEVER committed
+.env
+*.env
+*.env.*
+!*.env.example
+secrets/
+**/secrets/
+# A worktree may symlink the unlocked secrets/ in from the main checkout; the two
+# patterns above match directories only, so name the bare path as well.
+/secrets
+
+# Encrypted secret vault — SAFE to commit (see docs/runbooks/secret-sync.md).
+# secrets.enc/ holds age ciphertext + the public key + the passphrase-wrapped
+# private key. The *.env.* rule above would otherwise swallow *.env.age, so the
+# encrypted env files are re-included explicitly.
+!*.env.age
+# Vault fingerprints (DRF-2, secret-sync.md): digests, not secrets; only inside the vault.
+!/secrets.enc/stack-env/*.env.sha256
+# age binaries auto-bootstrapped by scripts/secrets.sh — device-local, don't commit.
+scripts/.bin/
+
+# Certificates & keys
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
+
+# Local tooling (age binaries fetched by scripts/secrets.sh)
+scripts/.bin/
+.agents/
+agent/
+skills-lock.json
+
+# Python bytecode
+__pycache__/

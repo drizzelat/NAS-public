@@ -1,0 +1,71 @@
+# GameVault and its own Postgres; the DB carries the nas.backup.* dump labels.
+# Docs: docs/services/games.md
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  gamevault-backend:
+    image: phalcode/gamevault-backend:17.0.1@sha256:f3c599d4fc7498eb2028cfd611dc27b3f707c83a7ce9a86ec3ec8256a42409ba
+    container_name: gamevault-backend
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+    environment:
+      - PUID=950
+      - PGID=950
+      - TZ=Europe/Berlin
+      - DB_HOST=gamevault-db
+      - DB_USERNAME=gamevault
+      - DB_PASSWORD=${GAMEVAULT_DB_PW}
+    volumes:
+      - /mnt/data/mediaserver/data/media/games:/files
+      - /mnt/apps/mediaserver/config/gamevault/images:/media
+    networks:
+      - default
+      - media_net
+      - proxy_games
+    depends_on:
+      - gamevault-db
+    restart: unless-stopped
+    logging: *default-logging
+
+  gamevault-db:
+    labels:
+      nas.backup.dump: "true"
+      nas.backup.user: gamevault
+      nas.backup.db: gamevault
+      nas.backup.dir: /mnt/apps/mediaserver/config/gamevault/dumps
+    image: postgres:18.6@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
+    container_name: gamevault-db
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    environment:
+      - TZ=Europe/Berlin
+      - POSTGRES_USER=gamevault
+      - POSTGRES_PASSWORD=${GAMEVAULT_DB_PW}
+      - POSTGRES_DB=gamevault
+      # postgres:18+ stores data in a version-specific subdir; mount the parent
+      # (/var/lib/postgresql) not .../data. Data lands in db/18/docker on the host.
+      - PGDATA=/var/lib/postgresql/18/docker
+    volumes:
+      - /mnt/apps/mediaserver/config/gamevault/db:/var/lib/postgresql
+    restart: unless-stopped
+    logging: *default-logging
+
+networks:
+  proxy_games:
+    external: true
+  media_net:
+    external: true

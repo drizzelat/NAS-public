@@ -1,0 +1,249 @@
+# The *arr automation suite. Reaches the download clients as `gluetun` over
+# media_net — that hostname lives in each app's own config DB. Docs: docs/services/arr.md
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:2.6.5.5623-ls162@sha256:f2b26429893d4c4cb71941b7ee50b1bdecd9d5f9f9e02d5410615e9f4f7c8d95
+    container_name: prowlarr
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+    environment:
+      - PUID=950
+      - PGID=950
+      - TZ=Europe/Berlin
+    volumes:
+      - /mnt/apps/mediaserver/config/prowlarr:/config
+    networks:
+      - default
+      - media_net
+      - proxy_arr
+    restart: unless-stopped
+    logging: *default-logging
+  radarr:
+    image: lscr.io/linuxserver/radarr:6.4.4.10685-ls318@sha256:adb6c09d6b729ea5e642c99cea35af72702ef476bf4763f153299ac5db9f0b4f
+    container_name: radarr
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    environment:
+      - PUID=950
+      - PGID=950
+      - TZ=Europe/Berlin
+    volumes:
+      - /mnt/apps/mediaserver/config/radarr:/config
+      - /mnt/data/mediaserver/data:/data
+    networks:
+      - default
+      - media_net
+      - proxy_arr
+    restart: unless-stopped
+    logging: *default-logging
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:4.0.20.3014-ls326@sha256:f247545d23ba8b233d6604575347e48a623fe6ad75dda02348bf81917f3b5c06
+    container_name: sonarr
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    environment:
+      - PUID=950
+      - PGID=950
+      - TZ=Europe/Berlin
+    volumes:
+      - /mnt/apps/mediaserver/config/sonarr:/config
+      - /mnt/data/mediaserver/data:/data
+    networks:
+      - default
+      - media_net
+      - proxy_arr
+    restart: unless-stopped
+    logging: *default-logging
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:v1.6.2-ls366@sha256:8b30e81c4aec2991f469e78fae8afaa89ecc9b21a80e3897f50427216b55470c
+    container_name: bazarr
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    environment:
+      - PUID=950
+      - PGID=950
+      - TZ=Europe/Berlin
+    volumes:
+      - /mnt/apps/mediaserver/config/bazarr:/config
+      - /mnt/data/mediaserver/data/media:/data/media
+    networks:
+      - default
+      - media_net
+      - proxy_arr
+    restart: unless-stopped
+    logging: *default-logging
+  unpackerr:
+    image: ghcr.io/unpackerr/unpackerr:v0.16.1@sha256:406586865431b40b29353d899fb75a788f5384743f7f381444db5fe55d206914
+    container_name: unpackerr
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+    user: 950:950
+    environment:
+      - TZ=Europe/Berlin
+      - UN_SONARR_0_URL=http://sonarr:8989
+      - UN_SONARR_0_API_KEY=${SONARR_KEY}
+      - UN_RADARR_0_URL=http://radarr:7878
+      - UN_RADARR_0_API_KEY=${RADARR_KEY}
+    volumes:
+      - /mnt/apps/mediaserver/config/unpackerr:/config
+      - /mnt/data/mediaserver/data:/data
+    restart: unless-stopped
+    logging: *default-logging
+
+  questarr:
+    image: ghcr.io/doezer/questarr:v1.4.2@sha256:6faaf75f484a20805309315dd9eb9f1550b039a668efb89c13fc028c72b45485
+    container_name: questarr
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+    environment:
+      - PUID=950
+      - PGID=950
+      - TZ=Europe/Berlin
+      - SQLITE_DB_PATH=/app/data/sqlite.db
+    volumes:
+      - /mnt/apps/mediaserver/config/questarr:/app/data
+      - /mnt/data/mediaserver/data:/data
+    networks:
+      - default
+      - media_net
+      - proxy_arr
+    restart: unless-stopped
+    logging: *default-logging
+  # Prometheus exporters for the Media stack dashboard, scraped as exportarr-<app>:9707 over proxy_arr.
+  exportarr-sonarr:
+    image: ghcr.io/onedr0p/exportarr:v2.3.0@sha256:af535d94061cf97a52e1661945ffba78c03f9443eae7c0da1a80a5a4be56b520
+    container_name: exportarr-sonarr
+    command: ["sonarr"]
+    user: "65534:65534"
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    environment:
+      - PORT=9707
+      - URL=http://sonarr:8989
+      - API_KEY=${SONARR_KEY}
+    networks:
+      - default
+      - proxy_arr
+    restart: unless-stopped
+    logging: *default-logging
+  exportarr-radarr:
+    image: ghcr.io/onedr0p/exportarr:v2.3.0@sha256:af535d94061cf97a52e1661945ffba78c03f9443eae7c0da1a80a5a4be56b520
+    container_name: exportarr-radarr
+    command: ["radarr"]
+    user: "65534:65534"
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    environment:
+      - PORT=9707
+      - URL=http://radarr:7878
+      - API_KEY=${RADARR_KEY}
+    networks:
+      - default
+      - proxy_arr
+    restart: unless-stopped
+    logging: *default-logging
+  exportarr-prowlarr:
+    image: ghcr.io/onedr0p/exportarr:v2.3.0@sha256:af535d94061cf97a52e1661945ffba78c03f9443eae7c0da1a80a5a4be56b520
+    container_name: exportarr-prowlarr
+    command: ["prowlarr"]
+    user: "65534:65534"
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    environment:
+      - PORT=9707
+      - URL=http://prowlarr:9696
+      - API_KEY=${PROWLARR_KEY}
+    networks:
+      - default
+      - proxy_arr
+    restart: unless-stopped
+    logging: *default-logging
+  exportarr-bazarr:
+    image: ghcr.io/onedr0p/exportarr:v2.3.0@sha256:af535d94061cf97a52e1661945ffba78c03f9443eae7c0da1a80a5a4be56b520
+    container_name: exportarr-bazarr
+    command: ["bazarr"]
+    user: "65534:65534"
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    environment:
+      - PORT=9707
+      - URL=http://bazarr:6767
+      - API_KEY=${BAZARR_KEY}
+    networks:
+      - default
+      - proxy_arr
+    restart: unless-stopped
+    logging: *default-logging
+networks:
+  proxy_arr:
+    external: true
+  media_net:
+    external: true

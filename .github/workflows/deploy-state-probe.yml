@@ -1,0 +1,50 @@
+name: deploy-state-probe
+
+# Deterministic gate: every stack deployed, on its routed host, on the pinned digests, healthy.
+# What it asserts and why: docs/runbooks/setup-operations/deploy-state-probe.md
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-state-probe
+  cancel-in-progress: false
+
+env:
+  NAS_LAN_IP: 192.168.1.111
+  # Komodo Core is a LAN-only vhost and public DNS points the name at Cloudflare, so pin it to Caddy.
+  KOMODO_URL: https://komodo.example.com
+  KOMODO_RESOLVE: komodo.example.com:443:192.168.1.111
+
+jobs:
+  # ONE job, self-hosted: free, and a blocked Actions quota cannot starve it.
+  probe:
+    # Komodo is LAN-only. Sharing the one runner with deploy-stacks also means a probe never
+    # reads a deploy halfway through.
+    runs-on: [self-hosted, nas]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0  # the drift script dates each drift with git log -S
+
+      - name: Write NAS SSH key
+        env:
+          # nashealth's forced-command key, shared with nas-health-check.
+          NAS_HEALTH_SSH_KEY: ${{ secrets.NAS_HEALTH_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$NAS_HEALTH_SSH_KEY" ] || { echo "::error::NAS_HEALTH_SSH_KEY secret not set — see the nas-health-check runbook"; exit 1; }
+          printf '%s\n' "$NAS_HEALTH_SSH_KEY" > "$RUNNER_TEMP/nas_health_ssh_key"
+          chmod 600 "$RUNNER_TEMP/nas_health_ssh_key"
+
+      - name: Assert deployed state
+        env:
+          # Komodo service user probe-read: Read on Servers (+Inspect), Stacks and the sync. docs/services/komodo.md
+          KOMODO_API_KEY: ${{ secrets.KOMODO_READ_API_KEY }}
+          KOMODO_API_SECRET: ${{ secrets.KOMODO_READ_API_SECRET }}
+          NAS_SSH_KEY_FILE: ${{ runner.temp }}/nas_health_ssh_key
+        run: .github/scripts/deploy-state-probe.sh "$NAS_LAN_IP"

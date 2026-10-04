@@ -1,0 +1,198 @@
+# Alerting rules for vmalert. Every rule carries a runbook link in its annotations —
+# a rule nobody can act on becomes noise. Docs: docs/services/observability.md
+groups:
+  - name: meta
+    interval: 1m
+    rules:
+      # Always firing. scripts/vmalert-mail.sh pings healthchecks.io on it and never mails it.
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: "Always firing: proves vmalert evaluates rules and the mail bridge runs"
+          description: "If healthchecks.io reports this check late, vmalert, the bridge or its cron job stopped."
+          runbook: "docs/services/observability.md#alerting"
+
+  - name: storage
+    interval: 1m
+    rules:
+      - alert: MetricsStoreDiskLow
+        expr: vm_free_disk_space_bytes / vm_total_disk_space_bytes < 0.10
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "VictoriaMetrics has under 10% free on the apps pool"
+          description: "{{ $value | humanizePercentage }} free. The apps pool is a single NVMe with no redundancy, and VictoriaMetrics goes read-only when it runs out."
+          runbook: "docs/services/observability.md#alerting"
+
+      - alert: LogStoreDiskLow
+        expr: vl_free_disk_space_bytes / vl_total_disk_space_bytes < 0.10
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "VictoriaLogs has under 10% free on the apps pool"
+          description: "{{ $value | humanizePercentage }} free. Retention is 90 d; drop it or grow the dataset."
+          runbook: "docs/services/observability.md#alerting"
+
+      - alert: DownloadsDiskLow
+        expr: qbittorrent_global_free_space_on_disk_bytes < 100 * 1024 * 1024 * 1024
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Under 100 GB free where qBittorrent writes"
+          description: "The data pool is filling. Kiwix seeding holds a 300 GB budget of its own."
+          runbook: "docs/runbooks/setup-operations/kiwix-seeding.md"
+
+  - name: targets
+    interval: 1m
+    rules:
+      # The closest signal to "a container is restart-looping" that the scraped
+      # metrics carry: its exporter stops answering.
+      - alert: ScrapeTargetDown
+        expr: up == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scrape target {{ $labels.job }} ({{ $labels.instance }}) has been down 10 min"
+          description: "Either the service is down or its exporter is. A container that is up whenever a probe looks but restarting in between shows here first."
+          runbook: "docs/services/observability.md#alerting"
+
+  # Series from node-exporter and the textfile scripts/host-metrics.sh writes (cron, every 5 min).
+  # A window shorter than the mail bridge's 15 min poll could fire and clear unseen.
+  - name: host
+    interval: 1m
+    rules:
+      - alert: DatasetFilling
+        expr: zfs_dataset_used_bytes / (zfs_dataset_used_bytes + zfs_dataset_avail_bytes) > 0.80
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "ZFS {{ $labels.dataset }} is {{ $value | humanizePercentage }} full"
+          description: "ZFS slows down past 80%. Only pool roots and quota'd datasets are measured; a quota'd dataset is full against its quota, not the pool."
+          runbook: "docs/services/observability.md#host-metrics"
+
+      - alert: ContainerRestartLoop
+        expr: increase(docker_container_restarts_total[30m]) >= 3
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} on {{ $labels.host }} restarted {{ $value | printf \"%.0f\" }} times in 30 min"
+          description: "Docker's restart policy keeps bringing it back, so it is running whenever a probe looks. `sudo docker logs --tail 50 {{ $labels.name }}`."
+          runbook: "docs/services/observability.md#host-metrics"
+
+      - alert: OomKill
+        expr: increase(node_vmstat_oom_kill[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "The kernel OOM-killed a process in the last 15 min"
+          description: "Usually a container over its memory limit. `sudo journalctl -k --since -30min | grep -i 'killed process'` names the cgroup, whose id is the container's."
+          runbook: "docs/services/observability.md#host-metrics"
+
+      - alert: MemoryPressure
+        expr: rate(node_pressure_memory_stalled_seconds_total[5m]) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Every runnable task spent {{ $value | humanizePercentage }} of the last 5 min stalled on memory"
+          description: "Kernel PSI, not MemAvailable: the ZFS ARC fills the free RAM by design, so a low MemAvailable is normal here."
+          runbook: "docs/services/observability.md#host-metrics"
+
+      - alert: NvmeWearHigh
+        expr: nvme_percentage_used >= 80
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "NVMe {{ $labels.device }} has used {{ $value }}% of its rated endurance"
+          description: "The apps pool is this one disk, with no redundancy. Plan the replacement and the restore from the nightly offsite sync."
+          runbook: "docs/services/observability.md#host-metrics"
+
+      - alert: NvmeCriticalWarning
+        expr: nvme_critical_warning > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "NVMe {{ $labels.device }} raised a critical warning (flags {{ $value }})"
+          description: "The drive's own flags: spare capacity low, temperature, reliability degraded, read-only or volatile backup failed. `sudo smartctl -a /dev/{{ $labels.device }}`."
+          runbook: "docs/services/observability.md#host-metrics"
+
+      - alert: NvmeTemperatureHigh
+        expr: nvme_temperature_celsius >= 70
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "NVMe {{ $labels.device }} is at {{ $value }} °C"
+          description: "70 °C is the top of the drive's operating range. Check the case airflow."
+          runbook: "docs/services/observability.md#host-metrics"
+
+      # A fresh host is silent for the mail bridge; here the missing file is the signal, because
+      # the cron job is a manual step and a dead one would otherwise look like a quiet estate.
+      - alert: HostMetricsStale
+        expr: (time() - node_textfile_mtime_seconds{file="/textfile/host.prom"} > 900) or absent(node_textfile_mtime_seconds{file="/textfile/host.prom",host="nas"})
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "host.prom on {{ $labels.host }} is missing or older than 15 min"
+          description: "The host-metrics cron job on that host stopped or was never created. If ScrapeTargetDown also fires, node-exporter is the cause."
+          runbook: "docs/services/observability.md#host-metrics"
+
+      - alert: HostMetricsSectionFailing
+        expr: host_metrics_section_ok == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "host-metrics.sh could not collect {{ $labels.section }}"
+          description: "The other sections still update. Run `sudo sh /mnt/apps/scripts/nas/scripts/host-metrics.sh` by hand: it prints the reason."
+          runbook: "docs/services/observability.md#host-metrics"
+
+  # scripts/qbit-port-sync.sh (host cron, every 2 min) repairs a stale listen port itself, so
+  # either rule firing means the repair cannot work. 10 min outlasts a few failed runs.
+  - name: downloads
+    interval: 1m
+    rules:
+      - alert: QbittorrentPortMismatch
+        expr: qbittorrent_listen_port_synced == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "qBittorrent is not listening on the port ProtonVPN forwards"
+          description: "Forwarded {{ with query \"qbittorrent_forwarded_port\" }}{{ . | first | value }}{{ end }}, listening {{ with query \"qbittorrent_listen_port\" }}{{ . | first | value }}{{ end }} (0 = unknown). No peer can connect in, so Kiwix upload falls to a trickle. Forwarded 0 means ProtonVPN gave gluetun no port; listening 0 means qBittorrent's Web API is down."
+          runbook: "docs/services/downloads.md#port-forwarding-sync"
+
+      - alert: QbittorrentPortSyncStale
+        expr: (time() - max(node_textfile_mtime_seconds{file="/textfile/qbit-port.prom"}) > 600) or absent(node_textfile_mtime_seconds{file="/textfile/qbit-port.prom"})
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "qbit-port.prom is missing or older than 10 min"
+          description: "The qbit-port-sync cron job stopped or was never created, so a stale listen port would go unseen and unrepaired. If ScrapeTargetDown also fires, node-exporter is the cause."
+          runbook: "docs/services/downloads.md#port-forwarding-sync"
+
+  - name: edge
+    interval: 1m
+    rules:
+      - alert: CrowdSecDecisionSpike
+        # Subquery, not sum(avg_over_time(...)): the series set changes as bans come and
+        # go, so the average has to be taken of the total, not per series.
+        expr: sum(cs_active_decisions{origin!="CAPI"}) - avg_over_time(sum(cs_active_decisions{origin!="CAPI"})[1h:1m]) > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CrowdSec is banning far more than usual"
+          description: "Local decisions jumped more than 20 above the last hour's average. Either a real campaign, or a scenario matching legitimate traffic."
+          runbook: "docs/runbooks/setup-operations/crowdsec-bouncer.md"

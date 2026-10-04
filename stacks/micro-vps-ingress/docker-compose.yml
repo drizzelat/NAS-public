@@ -1,0 +1,38 @@
+# Public front door: nginx stream proxy. Its config is nginx/nginx.conf, mounted from
+# Komodo's clone. Docs: docs/services/micro-vps-ingress.md
+
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  nginx:
+    image: nginx:alpine@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2
+    restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges=true
+    # 954 MiB host with no swap: the cap is what protects sshd and the periphery.
+    # Peak RSS in a month of Beszel history is 7.7 MB.
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 128M
+    network_mode: host
+    # The image's SIGQUIT is a graceful stop: listeners close at once, then nginx waits on
+    # open streams until Docker kills it after the grace period, so every public site was
+    # down ~11 s per recreate. SIGTERM drops the streams and exits; clients reconnect.
+    stop_signal: SIGTERM
+    stop_grace_period: 5s
+    # Bump `config-rev` whenever nginx/nginx.conf changes. The file is read at start only,
+    # and a content change does not alter the compose hash, so nothing else recreates it.
+    labels:
+      - "config-rev=2026-09-30-conf-file"
+    # A directory, not the file: a git pull replaces the file with a new inode, and a
+    # single-file bind keeps showing the old one.
+    command: ["nginx", "-c", "/etc/nginx/ingress/nginx.conf", "-g", "daemon off;"]
+    volumes:
+      - /etc/komodo/repos/nas/stacks/micro-vps-ingress/nginx:/etc/nginx/ingress:ro

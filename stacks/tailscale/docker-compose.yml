@@ -1,0 +1,48 @@
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  tailscale:
+    # Subnet router: advertises 192.168.1.0/24 into the tailnet. Docs:
+    # docs/services/tailscale.md
+    image: tailscale/tailscale:v1.102.5@sha256:c507f3a2a6ab1cabd8d809b98edeb41edbd5c3fb6ad9632ffd098b4c7d0b4065
+    container_name: tailscale
+    hostname: nas
+    restart: unless-stopped
+    logging: *default-logging
+    # Host networking is REQUIRED: on a bridge, a tailnet client's DNS query to
+    # 192.168.1.111:53 hits Docker's UDP hairpin-NAT bug and is dropped.
+    network_mode: host
+    # No `no-new-privileges`: tailscaled rewrites iptables/routing for subnet routing.
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      # One-off auth key from the Tailscale admin console. A Komodo Variable.
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      # Advertise the home LAN. Approve this route in the admin console once.
+      - TS_ROUTES=192.168.1.0/24
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_HOSTNAME=nas
+      # Kernel networking (needs /dev/net/tun + NET_ADMIN). Faster than userspace.
+      - TS_USERSPACE=false
+      # Force nftables: tailscaled otherwise picks iptables-legacy here, and the split
+      # backend (no MSS clamp) corrupts HTTP/2 over the 1280-MTU tunnel.
+      - TS_DEBUG_FIREWALL_MODE=nftables
+      # --accept-dns=false keeps AdGuard authoritative; --snat-subnet-routes=false
+      # presents real tailnet IPs to LAN services. See docs/services/tailscale.md.
+      - TS_EXTRA_ARGS=--accept-dns=false --snat-subnet-routes=false
+    volumes:
+      - /mnt/apps/tailscale:/var/lib/tailscale
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          # 128M OOM-killed tailscaled mid-transfer on 2026-09-25 (idle RSS was already
+          # 124M): every byte the nightly A1 dump pulls over the tailnet passes through
+          # this process. See docs/services/tailscale.md -> Common failures.
+          memory: 512M

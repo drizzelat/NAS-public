@@ -1,0 +1,9 @@
+listen_addr: 0.0.0.0:7422
+# Was: appsec_config: crowdsecurity/appsec-default
+# appsec_config_path takes a filesystem path, which is the only way to load a
+# LOCAL appsec-config - see the header of appsec-configs/local-nas.yaml.
+appsec_config_path: /etc/crowdsec/appsec-configs/local-nas.yaml
+name: appsec
+source: appsec
+labels:
+  type: appsec

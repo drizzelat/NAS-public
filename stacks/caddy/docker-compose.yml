@@ -1,0 +1,177 @@
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  caddy:
+    # Custom xcaddy build (Cloudflare DNS + CrowdSec bouncer), built by
+    # .github/workflows/build-caddy-image.yml. Digest pin is applied by hand.
+    image: ghcr.io/drizzelat/nas-caddy:2.11.4@sha256:45500381f1a512e7686f2246d37a10fa08b5402895e9c43d2451129111449e92
+    container_name: caddy
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "80:80"
+      - "443:443"
+      # PROXY-protocol listener the VPS ingress forwards to, so Caddy sees the real
+      # client IP. Only :8443 takes it — see docs/services/caddy.md.
+      - "8443:8443"
+    environment:
+      TZ: Europe/Berlin
+      # Both are runtime secrets from Komodo Variables, never committed.
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
+      CROWDSEC_API_KEY: ${CROWDSEC_API_KEY}
+    volumes:
+      # The DIRECTORY, not the Caddyfile: git replaces the file's inode on pull, and a
+      # single-file mount pins the old one forever. See docs/services/caddy.md.
+      - /mnt/apps/komodo/repos/nas/stacks/caddy:/etc/caddy:ro
+      - /mnt/apps/caddy/data:/data
+      - /mnt/apps/caddy/config:/config
+      - /mnt/apps/caddy/logs:/var/log/caddy
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+    # No search domain. The host's `search nas.example.com` plus a wildcard record on it
+    # sends a short name Docker DNS lacks (crowdsec, while it is down) to Cloudflare, and
+    # the bouncer kept that keep-alive connection after crowdsec came back (2026-09-25).
+    dns_search: .
+    # This stack DEFINES all 18 proxy_* networks; every other stack consumes them as
+    # external. Adding one is docs/network.md -> Adding a New Stack.
+    networks:
+      - proxy_network
+      - proxy_adguard
+      - proxy_authentik
+      - proxy_files
+      - proxy_immich
+      - proxy_komodo
+      - proxy_kuma
+      - proxy_mealie
+      - proxy_observability
+      - proxy_arr
+      - proxy_books
+      - proxy_downloads
+      - proxy_games
+      - proxy_jellyfin
+      - proxy_romm
+
+  # Lives in this stack because the bouncer it serves is compiled into Caddy. See docs/services/caddy.md.
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.8.1@sha256:0f2523fa61ef507f15d953045cface490cc880670c62f2755ced17524107f71a
+    container_name: crowdsec
+    restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges=true
+    environment:
+      # caddy ships the parser for Caddy's JSON access log. The two appsec ones were
+      # dependencies of ZoeyVid/npmplus; local-nas.yaml needs them, so name them here.
+      # firix/authentik parses Authentik's own failed-login events, which the access log
+      # cannot see: the flow executor answers 200 whether the password was right or not.
+      - COLLECTIONS=crowdsecurity/caddy crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules firix/authentik
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+    volumes:
+      - /mnt/apps/crowdsec/data:/var/lib/crowdsec/data
+      - /mnt/apps/crowdsec/config:/etc/crowdsec
+      - /mnt/apps/caddy/logs:/var/log/caddy:ro
+      # Acquisition is git-managed and SHADOWS the host copies underneath. The DIRECTORY,
+      # for the same inode reason as Caddy's config above. See crowdsec/acquis.d/README.md.
+      - /mnt/apps/komodo/repos/nas/stacks/caddy/crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro
+    # Same as caddy: crowdsec-socket-proxy must never resolve through the search domain.
+    dns_search: .
+    networks:
+      - proxy_network
+      - crowdsec_socket
+    depends_on:
+      - crowdsec-socket-proxy
+
+  # Authentik logs its failed logins to stdout only, so CrowdSec needs the Docker API to
+  # read them. It gets a GET-only view of it instead of the socket. CONTAINERS covers list/inspect/logs, EVENTS is how the datasource
+  # notices the container being replaced by a deploy. INFO is required too: the docker
+  # datasource calls GET /info at init, and a 403 there is fatal — crowdsec crash-loops.
+  crowdsec-socket-proxy:
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    container_name: crowdsec-socket-proxy
+    restart: unless-stopped
+    logging: *default-logging
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      INFO: 1
+      PING: 1
+      VERSION: 1
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    tmpfs:
+      # Entrypoint writes /tmp/haproxy.cfg; read-only rootfs needs writable /tmp + /run.
+      - /run
+      - /tmp
+    # No published port: only crowdsec talks to it, over the internal network below.
+    networks:
+      - crowdsec_socket
+
+networks:
+  proxy_network:
+    name: proxy_network
+  # Not a proxy_* network and deliberately internal: it carries the Docker API, so it
+  # must not be reachable from anything but crowdsec, and needs no egress.
+  crowdsec_socket:
+    name: crowdsec_socket
+    internal: true
+  # The only proxy_* network with a pinned subnet, because AdGuard is static at
+  # 172.16.25.3; ip_range confines dynamic allocation to the top half.
+  proxy_adguard:
+    name: proxy_adguard
+    enable_ipv6: true
+    ipam:
+      config:
+        # gateway must be pinned, or Docker takes it from ip_range and hairpin traffic is
+        # SNAT'd to an address Caddy's @lan matcher does not allow.
+        - subnet: 172.16.25.0/24
+          ip_range: 172.16.25.128/25
+          gateway: 172.16.25.1
+        - subnet: fdd0:0:0:19::/64
+  proxy_authentik:
+    name: proxy_authentik
+  proxy_files:
+    name: proxy_files
+  proxy_immich:
+    name: proxy_immich
+  proxy_komodo:
+    name: proxy_komodo
+  proxy_kuma:
+    name: proxy_kuma
+  proxy_mealie:
+    name: proxy_mealie
+  proxy_observability:
+    name: proxy_observability
+  proxy_arr:
+    name: proxy_arr
+  proxy_books:
+    name: proxy_books
+  proxy_downloads:
+    name: proxy_downloads
+  proxy_games:
+    name: proxy_games
+  proxy_jellyfin:
+    name: proxy_jellyfin
+  proxy_romm:
+    name: proxy_romm

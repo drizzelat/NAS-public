@@ -1,0 +1,30 @@
+# A1 Kuma (http://100.64.0.13:3001), read from its nightly mirror on the NAS. Defaults as in nas.toml.
+# max_age_hours: a mirror older than that is itself a FAIL.
+instance = "a1"
+default_notifications = ["Discord"]
+max_age_hours = 36
+
+[[monitor]]
+name = "Authentik (SSO)"
+type = "http"
+url = "https://auth.example.com/"
+
+[[monitor]]
+name = "Files"
+type = "http"
+url = "https://files.example.com"
+
+[[monitor]]
+name = "Immich API"
+type = "http"
+url = "https://immich.example.com/"
+
+[[monitor]]
+name = "Mealie"
+type = "http"
+url = "https://mealie.example.com/"
+
+[[monitor]]
+name = "Jellyfin"
+type = "http"
+url = "https://jellyfin.example.com/health"

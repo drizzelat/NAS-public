@@ -1,0 +1,45 @@
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  github-runner:
+    image: myoung34/github-runner:2.337.0-ubuntu-noble@sha256:1b947d2475cc6f4c3edf0e91dd879b091857e41a311be917016243479bb34101
+    container_name: github-runner
+    restart: unless-stopped
+    logging: *default-logging
+    # This container EXECUTES workflow code, on the runner VM (Komodo Server runner-vm). Safe only while
+    # the repo is private, no docker.sock is mounted, and no pull_request workflows run here.
+    # Deployed by Komodo's deploy-runner Procedure between jobs, never by CI. Docs: docs/services/github-runner.md
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    environment:
+      - REPO_URL=https://github.com/drizzelat/NAS
+      - RUNNER_SCOPE=repo
+      - RUNNER_NAME=runner-vm
+      # Every self-hosted workflow's runs-on names this label; renaming it strands them all.
+      - LABELS=nas
+      - EPHEMERAL=true
+      # SEC-1: keep the registration credential out of reach of job code. It is in the container's
+      # env, so the entrypoint processes hold it; with the default RUN_AS_ROOT=true
+      # every job could read them. RUN_AS_ROOT=false runs the Listener (and so every job) as `runner`
+      # through gosu, which cannot read those root-owned environ files; UNSET_CONFIG_VARS drops the
+      # token from the entrypoint before the Listener starts. no-new-privileges above keeps the image's passwordless
+      # sudo from undoing that. No self-hosted job needs root (docs/services/github-runner.md).
+      - UNSET_CONFIG_VARS=true
+      - RUN_AS_ROOT=false
+      # Registration through the GitHub App drizzelat-nas-runner (SEC-1 step 1): installed on this repo
+      # only, Administration write + metadata read, so it mints registration tokens but holds no
+      # contents access. The key is one line with literal \n, which the entrypoint turns back into
+      # newlines; APP_LOGIN defaults to the REPO_URL owner. From the Komodo Variables
+      # GITHUB_RUNNER__APP_ID / __APP_PRIVATE_KEY (scripts/secrets.sh komodo-vars github-runner).
+      # Never set ACCESS_TOKEN alongside: the entrypoint refuses both at once.
+      - APP_ID=${APP_ID}
+      - APP_PRIVATE_KEY=${APP_PRIVATE_KEY}

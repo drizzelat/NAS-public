@@ -1,0 +1,49 @@
+# node-exporter for the Ampere A1, scraped by the NAS victoriametrics over the tailnet.
+# Docs: docs/services/a1-vps-node-exporter.md
+
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  node-exporter:
+    image: prom/node-exporter:v1.12.1-distroless@sha256:8c9bac11973b94b59be88d6e11fee4429aa743c8846cdc75d65b18db33f6a106
+    container_name: node-exporter
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: host   # the host's real NICs; /proc/net is per network namespace
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    command:
+      - "--web.listen-address=100.64.0.13:9100"   # tailnet only, never the public IP
+      - "--web.disable-exporter-metrics"
+      - "--collector.disable-defaults"
+      - "--collector.cpu"
+      - "--collector.meminfo"
+      - "--collector.loadavg"
+      - "--collector.netdev"
+      - "--collector.netdev.device-include=^(en.*|tailscale0)$$"   # $$: compose interpolation escape
+      - "--collector.diskstats"
+      - "--collector.diskstats.device-include=^(sd[a-z]+|vd[a-z]+|nvme[0-9]+n[0-9]+)$$"
+      - "--collector.filesystem"
+      - "--collector.filesystem.mount-points-include=^/probe/"
+      - "--collector.textfile"
+      - "--collector.textfile.directory=/textfile"
+    volumes:
+      # Root-disk usage: statfs of any path on a filesystem returns the whole filesystem's usage,
+      # so an EMPTY probe dir stands in for host `/`, which would expose every secret.
+      - /var/lib/node-exporter-probe:/probe/root:ro
+      # host.prom, written by the host cron job scripts/host-metrics.sh. docs/services/observability.md#host-metrics
+      - /var/lib/node-exporter-textfile:/textfile:ro
+      # The 100 GB block volume mounted at /opt/matrix is its own filesystem; same empty-probe trick.
+      - /opt/matrix/node-exporter-probe:/probe/matrix:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M

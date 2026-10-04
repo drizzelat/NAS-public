@@ -1,0 +1,151 @@
+# NAS Kuma (https://kuma.example.com). Deploy-state probe check 9 diffs this file against the live DB.
+# Only non-default fields are written (interval 60, GET, 200-299, active); see kuma-monitors.md.
+instance = "nas"
+default_notifications = ["Discord"]
+
+[[monitor]]
+name = "External DNS"
+type = "dns"
+parent = "Infra"
+hostname = "immich.example.com"
+dns_resolve_server = "1.1.1.1"
+
+[[monitor]]
+name = "AdGuard DNS"
+type = "dns"
+parent = "Infra"
+hostname = "immich.example.com"
+dns_resolve_server = "adguard"
+
+# Stale name: Caddy replaced Nginx Proxy Manager. Rename it in the UI, then here.
+[[monitor]]
+name = "Nginx Proxy Manager"
+type = "port"
+parent = "Infra"
+hostname = "192.168.1.111"
+port = 80
+
+[[monitor]]
+name = "AdGuard Web UI"
+type = "http"
+parent = "Infra"
+url = "https://adguard.example.com"
+
+[[monitor]]
+name = "Jellyfin"
+type = "http"
+parent = "MediaStack"
+url = "https://jellyfin.example.com/health"
+
+[[monitor]]
+name = "Seerr"
+type = "http"
+parent = "MediaStack"
+url = "https://seerr.example.com"
+
+[[monitor]]
+name = "Sonarr"
+type = "http"
+parent = "MediaStack"
+url = "https://sonarr.example.com/ping"
+
+[[monitor]]
+name = "Radarr"
+type = "http"
+parent = "MediaStack"
+url = "https://radarr.example.com/ping"
+
+[[monitor]]
+name = "Prowlarr"
+type = "http"
+parent = "MediaStack"
+url = "https://prowlarr.example.com/ping"
+
+[[monitor]]
+name = "qBittorrent"
+type = "http"
+parent = "MediaStack"
+url = "https://qbittorrent.example.com"
+
+[[monitor]]
+name = "Sabnzbd"
+type = "http"
+parent = "MediaStack"
+url = "https://sabnzbd.example.com"
+
+[[monitor]]
+name = "MediaStack"
+type = "group"
+
+[[monitor]]
+name = "Infra"
+type = "group"
+
+[[monitor]]
+name = "Services"
+type = "group"
+
+[[monitor]]
+name = "Authentik (SSO)"
+type = "http"
+parent = "Services"
+url = "https://auth.example.com/"
+retry_interval = 40
+maxretries = 2
+
+[[monitor]]
+name = "Mealie"
+type = "http"
+parent = "Services"
+url = "https://mealie.example.com/"
+
+[[monitor]]
+name = "Files"
+type = "http"
+parent = "Services"
+url = "https://files.example.com"
+
+[[monitor]]
+name = "Caddy wildcard cert (*.example.com)"
+type = "http"
+parent = "Infra"
+url = "https://auth.example.com/"
+accepted_statuscodes = ["200-299", "302"]
+expiry_notification = true
+interval = 3600
+retry_interval = 600
+maxretries = 2
+
+[[monitor]]
+name = "renovate-trigger"
+type = "push"
+parent = "Infra"
+interval = 100000
+
+[[monitor]]
+name = "Schedules"
+type = "group"
+
+[[monitor]]
+name = "pg-dump"
+type = "push"
+parent = "Schedules"
+interval = 93600
+
+[[monitor]]
+name = "config-email"
+type = "push"
+parent = "Schedules"
+interval = 93600
+
+[[monitor]]
+name = "a1-file-backup"
+type = "push"
+parent = "Schedules"
+interval = 93600
+
+[[monitor]]
+name = "restore-drill"
+type = "push"
+parent = "Schedules"
+interval = 3456000

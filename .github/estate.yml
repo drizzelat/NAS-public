@@ -1,0 +1,54 @@
+# The estate's hand-kept lists, once. `docs-drift.py` (the docs-drift step of compose-validate)
+# asserts on every pull request that each consumer named below matches this file, so a list edited
+# in one place and forgotten in another fails before merge, not six hours later in a live probe.
+# A host is the label before the domain. Nothing is generated: edit the consumer and this file together.
+
+hosts:
+  # Forwarded from the internet by the micro-vps SNI allowlist. Consumers:
+  #   stacks/micro-vps-ingress/nginx/nginx.conf   the `map` ("1:" = every public host, "0:" = direct)
+  #   stacks/caddy/Caddyfile                      a site block that does not import lan_only
+  #   edge-access-policy.yml env                  PUBLIC_HOSTS, CF_ONLY_HOSTS, DIRECT_PUBLIC_HOSTS, GREY_CLOUD_HOSTS
+  #   cloudflare/dns-records.json                 direct = an explicit DNS-only record; the rest ride the proxied wildcard
+  #   docs/network.md                             the Access control section names every host
+  public:
+    # Orange cloud: the VPS forwards these only when the peer is a Cloudflare edge address.
+    cloudflare: [auth, files, immich, mealie]
+    # Gray cloud.
+    direct: [jellyfin]
+  # Every other NAS vhost: LAN and tailnet only. Consumers: the Caddyfile (a block that imports
+  # lan_only), edge-access-policy.yml env LAN_ONLY_HOSTS, docs/network.md.
+  lan_only:
+    - adguard
+    - bazarr
+    - games
+    - grafana
+    - komodo
+    - kuma
+    - nas
+    - prowlarr
+    - qbittorrent
+    - questarr
+    - radarr
+    - romm
+    - sabnzbd
+    - seerr
+    - shelfmark
+    - sonarr
+
+# Images the review sweep never merges: a bad bump loses data or locks everything out, so they wait
+# for a human (docs/runbooks/setup-operations/renovate-pr-review.md). Consumers:
+#   MERGE_SKIP_IMAGES in .github/workflows/renovate-pr-review.yml, both copies (sweep, stale alarm)
+#   renovate.json packageRules that set automerge false + needs-manual-review with no
+#   matchUpdateTypes (docker.io/ and docker.io/library/ prefixes ignored)
+held_images:
+  - postgres
+  - valkey/valkey
+  - redis
+  - mariadb
+  - ghcr.io/goauthentik/server
+  - ghcr.io/immich-app/postgres
+  - ghcr.io/drizzelat/nas-caddy
+  - ghcr.io/drizzelat/nas-jellyfin
+  - mongo
+  - ghcr.io/moghtech/komodo-core
+  - ghcr.io/moghtech/komodo-periphery

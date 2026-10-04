@@ -1,0 +1,114 @@
+# postgres migrated 15/16→18 (versioned datadir) on 2026-07-02
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgresql:
+    labels:
+      nas.backup.dump: "true"
+      nas.backup.user: authentik
+      nas.backup.db: authentik
+      nas.backup.dir: /mnt/apps/authentik/dumps
+    image: docker.io/library/postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 5s
+    volumes:
+      # postgres:18+ stores data in a version-specific subdir; mount the parent
+      # (/var/lib/postgresql) not .../data. Data lands in db/18/docker on the host.
+      - /mnt/apps/authentik/db:/var/lib/postgresql
+    environment:
+      POSTGRES_PASSWORD: ${PG_PASS}
+      POSTGRES_USER: ${POSTGRES_USER:-authentik}
+      POSTGRES_DB: ${POSTGRES_DB:-authentik}
+      PGDATA: /var/lib/postgresql/18/docker
+    networks:
+      - authentik_net
+
+  server:
+    image: ghcr.io/goauthentik/server:2026.8.3@sha256:ab9b4e8cc4ab3f8d1198d2db6aeea66bafea1963b3f2843589e0d163f97d9849
+    restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+    command: server
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_POSTGRESQL__HOST: postgresql
+      AUTHENTIK_POSTGRESQL__USER: ${POSTGRES_USER:-authentik}
+      AUTHENTIK_POSTGRESQL__NAME: ${POSTGRES_DB:-authentik}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "true"
+    volumes:
+      - /mnt/apps/authentik/media:/media
+      - /mnt/apps/authentik/custom-templates:/templates
+      - /mnt/apps/authentik/certs:/certs
+
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    networks:
+      - authentik_net
+      - proxy_authentik
+
+  worker:
+    image: ghcr.io/goauthentik/server:2026.8.3@sha256:ab9b4e8cc4ab3f8d1198d2db6aeea66bafea1963b3f2843589e0d163f97d9849
+    restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+    command: worker
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_POSTGRESQL__HOST: postgresql
+      AUTHENTIK_POSTGRESQL__USER: ${POSTGRES_USER:-authentik}
+      AUTHENTIK_POSTGRESQL__NAME: ${POSTGRES_DB:-authentik}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "true"
+    # No docker.sock / root: only the embedded outpost is used. See
+    # docs/runbooks/setup-operations/authentik-socket-hardening.md.
+    volumes:
+      - /mnt/apps/authentik/media:/media
+      - /mnt/apps/authentik/certs:/certs
+      - /mnt/apps/authentik/custom-templates:/templates
+      # Worker-only: only it runs blueprint discovery/apply. Mounted as a SUBDIR —
+      # /blueprints itself would shadow authentik's own built-ins. See the service doc.
+      - /mnt/apps/komodo/repos/nas/stacks/authentik/blueprints:/blueprints/nas:ro
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    networks:
+      - authentik_net
+
+networks:
+  authentik_net:
+    name: authentik_net
+  proxy_authentik:
+    external: true

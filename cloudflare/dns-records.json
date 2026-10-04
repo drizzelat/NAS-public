@@ -1,0 +1,75 @@
+[
+ {
+  "comment": null,
+  "content": "\"v=DKIM1; p=\"",
+  "name": "*._domainkey.example.com",
+  "proxied": false,
+  "settings": {},
+  "ttl": 1,
+  "type": "TXT"
+ },
+ {
+  "comment": null,
+  "content": "198.51.100.10",
+  "name": "*.example.com",
+  "proxied": true,
+  "settings": {},
+  "ttl": 1,
+  "type": "A"
+ },
+ {
+  "comment": null,
+  "content": "\"v=DMARC1; p=reject; sp=reject; adkim=s; aspf=s\"",
+  "name": "_dmarc.example.com",
+  "proxied": false,
+  "settings": {},
+  "ttl": 1,
+  "type": "TXT"
+ },
+ {
+  "comment": null,
+  "content": "198.51.100.10",
+  "name": "jellyfin.example.com",
+  "proxied": false,
+  "settings": {},
+  "ttl": 1,
+  "type": "A"
+ },
+ {
+  "comment": null,
+  "content": "198.51.100.10",
+  "name": "example.com",
+  "proxied": true,
+  "settings": {},
+  "ttl": 1,
+  "type": "A"
+ },
+ {
+  "comment": null,
+  "content": ".",
+  "name": "example.com",
+  "priority": 0,
+  "proxied": false,
+  "settings": {},
+  "ttl": 1,
+  "type": "MX"
+ },
+ {
+  "comment": null,
+  "content": "\"v=spf1 -all\"",
+  "name": "example.com",
+  "proxied": false,
+  "settings": {},
+  "ttl": 1,
+  "type": "TXT"
+ },
+ {
+  "comment": null,
+  "content": "198.51.100.10",
+  "name": "www.example.com",
+  "proxied": true,
+  "settings": {},
+  "ttl": 1,
+  "type": "A"
+ }
+]

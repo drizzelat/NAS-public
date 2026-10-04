@@ -1,0 +1,42 @@
+# Shared pipeline ends. Per-service files add sources/transforms; the sinks below
+# pick them up by name glob, so adding a service edits no file but its own.
+data_dir: /var/lib/vector
+
+# Vector exits at startup if these files are absent. geoipupdate writes them on its
+# first run, and `restart: unless-stopped` covers the gap on a cold bring-up.
+enrichment_tables:
+  geoip_city:
+    type: geoip
+    path: /geoip/GeoLite2-City.mmdb
+    locale: en
+  geoip_asn:
+    type: geoip
+    path: /geoip/GeoLite2-ASN.mmdb
+
+sources:
+  metrics_vector_internal:
+    type: internal_metrics
+
+sinks:
+  # CONVENTION: every log-producing transform is named out_<service>.
+  victorialogs:
+    type: elasticsearch
+    inputs: ["out_*"]
+    endpoints: ["http://victorialogs:9428/insert/elasticsearch/"]
+    api_version: v8
+    compression: gzip
+    healthcheck:
+      enabled: false
+    query:
+      _msg_field: message
+      _time_field: timestamp
+      # Stream fields must stay LOW cardinality — never client_ip or uri.
+      _stream_fields: service,host
+
+  # CONVENTION: every metric-producing component is named metrics_<service>.
+  victoriametrics:
+    type: prometheus_remote_write
+    inputs: ["metrics_*"]
+    endpoint: http://victoriametrics:8428/api/v1/write
+    healthcheck:
+      enabled: false

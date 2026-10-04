@@ -1,0 +1,522 @@
+Adaptive bitrate for Jellyfin: real per-variant transcodes, a resolution-stepped ladder reaching above and below
+the requested bitrate, the lowest rung as its own transcode, rungs aligned to the segment grid for gapless switches, and init segment requests that survive a job restart. git diff v10.11.11 of drizzelat/jellyfin abr-prototype.
+
+diff --git a/Jellyfin.Api/Controllers/DynamicHlsController.cs b/Jellyfin.Api/Controllers/DynamicHlsController.cs
+index c69040d4e..8003e05f1 100644
+--- a/Jellyfin.Api/Controllers/DynamicHlsController.cs
++++ b/Jellyfin.Api/Controllers/DynamicHlsController.cs
+@@ -1405,6 +1405,33 @@ public class DynamicHlsController : BaseJellyfinApiController
+             .ConfigureAwait(false);
+     }
+ 
++    private static int GetSegmentLengthMs(StreamState state)
++    {
++        double fps = state.TargetFramerate ?? 0.0f;
++        int segmentLength = state.SegmentLength * 1000;
++
++        // If video is transcoded and framerate is fractional (i.e. 23.976), we need to slightly adjust segment length
++        if (!EncodingHelper.IsCopyCodec(state.OutputVideoCodec) && Math.Abs(fps - Math.Floor(fps + 0.001f)) > 0.001)
++        {
++            double nearestIntFramerate = Math.Ceiling(fps);
++            segmentLength = (int)Math.Ceiling(segmentLength * (nearestIntFramerate / fps));
++        }
++
++        return segmentLength;
++    }
++
++    /// <summary>
++    /// Whether a transcode for an adaptive bitrate rung starts one segment early and exactly on the segment grid.
++    /// Every transcode of every rung then places its keyframes and audio frames at the same instants, so a rung
++    /// switch joins two of them without a gap, and the AAC encoder delay falls into the extra segment.
++    /// </summary>
++    private bool IsAlignedAdaptiveBitrateStart(StreamState state, int segmentId)
++        => segmentId > 0
++           && state.IsOutputVideo
++           && !EncodingHelper.IsCopyCodec(state.OutputVideoCodec)
++           && string.Equals(state.Request.SegmentContainer, "mp4", StringComparison.OrdinalIgnoreCase)
++           && string.Equals(Request.Query["EnableAdaptiveBitrateStreaming"], "true", StringComparison.OrdinalIgnoreCase);
++
+     private async Task<ActionResult> GetVariantPlaylistInternal(StreamingRequestDto streamingRequest, CancellationTokenSource cancellationTokenSource)
+     {
+         using var state = await StreamingHelpers.GetStreamingState(
+@@ -1421,15 +1448,7 @@ public class DynamicHlsController : BaseJellyfinApiController
+                 cancellationTokenSource.Token)
+             .ConfigureAwait(false);
+         var mediaSourceId = state.BaseRequest.MediaSourceId;
+-        double fps = state.TargetFramerate ?? 0.0f;
+-        int segmentLength = state.SegmentLength * 1000;
+-
+-        // If video is transcoded and framerate is fractional (i.e. 23.976), we need to slightly adjust segment length
+-        if (!EncodingHelper.IsCopyCodec(state.OutputVideoCodec) && Math.Abs(fps - Math.Floor(fps + 0.001f)) > 0.001)
+-        {
+-            double nearestIntFramerate = Math.Ceiling(fps);
+-            segmentLength = (int)Math.Ceiling(segmentLength * (nearestIntFramerate / fps));
+-        }
++        var segmentLength = GetSegmentLengthMs(state);
+ 
+         var request = new CreateMainPlaylistRequest(
+             mediaSourceId is null ? null : Guid.Parse(mediaSourceId),
+@@ -1476,6 +1495,8 @@ public class DynamicHlsController : BaseJellyfinApiController
+ 
+         var segmentExtension = EncodingHelper.GetSegmentFileExtension(state.Request.SegmentContainer);
+ 
++        var isInitSegment = segmentId == -1;
++
+         TranscodingJob? job;
+ 
+         if (System.IO.File.Exists(segmentPath))
+@@ -1500,8 +1521,14 @@ public class DynamicHlsController : BaseJellyfinApiController
+ 
+             if (segmentId == -1)
+             {
+-                _logger.LogDebug("Starting transcoding because fmp4 init file is being requested");
+-                startTranscoding = true;
++                // A job already running for this playlist writes the init segment too, whatever position it started at.
++                var runningJob = _transcodeManager.GetTranscodingJob(playlistPath, TranscodingJobType);
++                startTranscoding = runningJob is null || runningJob.HasExited;
++                if (startTranscoding)
++                {
++                    _logger.LogDebug("Starting transcoding because fmp4 init file is being requested");
++                }
++
+                 segmentId = 0;
+             }
+             else if (currentTranscodingIndex is null)
+@@ -1525,6 +1552,10 @@ public class DynamicHlsController : BaseJellyfinApiController
+                 // If the playlist doesn't already exist, startup ffmpeg
+                 try
+                 {
++                    // An adaptive bitrate switch stops the job of the variant the client left.
++                    var otherVariantJob = streamingRequest.PlaySessionId is null ? null : _transcodeManager.GetTranscodingJob(streamingRequest.PlaySessionId);
++                    var otherVariantWasRunning = otherVariantJob is not null && otherVariantJob.Type == TranscodingJobType && !otherVariantJob.HasExited;
++
+                     await _transcodeManager.KillTranscodingJobs(streamingRequest.DeviceId, streamingRequest.PlaySessionId, p => false)
+                         .ConfigureAwait(false);
+ 
+@@ -1533,13 +1564,24 @@ public class DynamicHlsController : BaseJellyfinApiController
+                         await DeleteLastFile(playlistPath, segmentExtension, 0).ConfigureAwait(false);
+                     }
+ 
+-                    streamingRequest.StartTimeTicks = streamingRequest.CurrentRuntimeTicks;
++                    // Its last segment was cut short when it stopped, so a switch back must encode it again.
++                    if (otherVariantWasRunning
++                        && otherVariantJob!.Path is not null
++                        && !string.Equals(otherVariantJob.Path, playlistPath, StringComparison.OrdinalIgnoreCase))
++                    {
++                        await DeleteLastFile(otherVariantJob.Path, segmentExtension, 0).ConfigureAwait(false);
++                    }
++
++                    var alignedStart = IsAlignedAdaptiveBitrateStart(state, segmentId);
++                    streamingRequest.StartTimeTicks = alignedStart
++                        ? streamingRequest.CurrentRuntimeTicks - (GetSegmentLengthMs(state) * TimeSpan.TicksPerMillisecond)
++                        : streamingRequest.CurrentRuntimeTicks;
+ 
+                     state.WaitForPath = segmentPath;
+                     job = await _transcodeManager.StartFfMpeg(
+                         state,
+                         playlistPath,
+-                        GetCommandLineArguments(playlistPath, state, false, segmentId),
++                        GetCommandLineArguments(playlistPath, state, false, alignedStart ? segmentId - 1 : segmentId, alignedStart),
+                         Request.HttpContext.User.GetUserId(),
+                         TranscodingJobType,
+                         cancellationTokenSource).ConfigureAwait(false);
+@@ -1564,9 +1606,44 @@ public class DynamicHlsController : BaseJellyfinApiController
+ 
+         _logger.LogDebug("returning {0} [general case]", segmentPath);
+         job ??= _transcodeManager.OnTranscodeBeginRequest(playlistPath, TranscodingJobType);
++        if (isInitSegment)
++        {
++            return await GetInitSegmentResult(state, playlistPath, segmentPath, segmentExtension, job).ConfigureAwait(false);
++        }
++
+         return await GetSegmentResult(state, playlistPath, segmentPath, segmentExtension, segmentId, job, cancellationToken).ConfigureAwait(false);
+     }
+ 
++    /// <summary>
++    /// Waits for the fMP4 init segment. A media segment request far ahead can restart the job while this waits,
++    /// and whichever job runs for the playlist writes the same init segment, so the wait does not follow one job.
++    /// </summary>
++    private async Task<ActionResult> GetInitSegmentResult(
++        StreamState state,
++        string playlistPath,
++        string initSegmentPath,
++        string segmentExtension,
++        TranscodingJob? transcodingJob)
++    {
++        for (var waited = 0; waited < 30000; waited += 100)
++        {
++            // ffmpeg writes the init segment just before it closes the first media segment.
++            var lastFile = GetLastTranscodingFile(playlistPath, segmentExtension, _fileSystem);
++            if (lastFile is not null
++                && System.IO.File.Exists(initSegmentPath)
++                && !string.Equals(lastFile.FullName, initSegmentPath, StringComparison.OrdinalIgnoreCase)
++                && lastFile.LastWriteTimeUtc >= System.IO.File.GetLastWriteTimeUtc(initSegmentPath))
++            {
++                return GetSegmentResult(state, initSegmentPath, transcodingJob);
++            }
++
++            await Task.Delay(100, HttpContext.RequestAborted).ConfigureAwait(false);
++        }
++
++        _logger.LogWarning("cannot serve {0} as no transcode wrote it in time", initSegmentPath);
++        return NotFound();
++    }
++
+     private static double[] GetSegmentLengths(StreamState state)
+         => GetSegmentLengthsInternal(state.RunTimeTicks ?? 0, state.SegmentLength);
+ 
+@@ -1591,7 +1668,7 @@ public class DynamicHlsController : BaseJellyfinApiController
+         return segments;
+     }
+ 
+-    private string GetCommandLineArguments(string outputPath, StreamState state, bool isEventPlaylist, int startNumber)
++    private string GetCommandLineArguments(string outputPath, StreamState state, bool isEventPlaylist, int startNumber, bool alignedStart = false)
+     {
+         var videoCodec = _encodingHelper.GetVideoEncoder(state, _encodingOptions);
+         var threads = EncodingHelper.GetNumberOfThreads(state, _encodingOptions, videoCodec);
+@@ -1617,6 +1694,14 @@ public class DynamicHlsController : BaseJellyfinApiController
+         var segmentFormat = string.Empty;
+         var segmentContainer = outputExtension.TrimStart('.');
+         var inputModifier = _encodingHelper.GetInputModifier(state, _encodingOptions, segmentContainer);
++        var inputArgument = _encodingHelper.GetInputArgument(state, _encodingOptions, segmentContainer);
++        if (alignedStart)
++        {
++            // An exact seek, so the first frame is the one on the segment grid, not the keyframe before it.
++            inputModifier = inputModifier.Replace(" -noaccurate_seek", string.Empty, StringComparison.Ordinal);
++            inputArgument = inputArgument.Replace(" -noaccurate_seek", string.Empty, StringComparison.Ordinal);
++        }
++
+         var hlsArguments = $"-hls_playlist_type {(isEventPlaylist ? "event" : "vod")} -hls_list_size 0";
+ 
+         if (string.Equals(segmentContainer, "ts", StringComparison.OrdinalIgnoreCase))
+@@ -1666,11 +1751,11 @@ public class DynamicHlsController : BaseJellyfinApiController
+             CultureInfo.InvariantCulture,
+             "{0} {1} -map_metadata -1 -map_chapters -1 -threads {2} {3} {4} {5} -copyts -avoid_negative_ts disabled -max_muxing_queue_size {6} -f hls -max_delay 5000000 -hls_time {7} -hls_segment_type {8} -start_number {9}{10} -hls_segment_filename \"{11}\" {12} -y \"{13}\"",
+             inputModifier,
+-            _encodingHelper.GetInputArgument(state, _encodingOptions, segmentContainer),
++            inputArgument,
+             threads,
+             mapArgs,
+             GetVideoArguments(state, startNumber, isEventPlaylist, segmentContainer),
+-            GetAudioArguments(state),
++            GetAudioArguments(state, alignedStart),
+             maxMuxingQueueSize,
+             state.SegmentLength.ToString(CultureInfo.InvariantCulture),
+             segmentFormat,
+@@ -1685,8 +1770,9 @@ public class DynamicHlsController : BaseJellyfinApiController
+     /// Gets the audio arguments for transcoding.
+     /// </summary>
+     /// <param name="state">The <see cref="StreamState"/>.</param>
++    /// <param name="alignedStart">Whether the transcode starts on the segment grid for an adaptive bitrate rung.</param>
+     /// <returns>The command line arguments for audio transcoding.</returns>
+-    private string GetAudioArguments(StreamState state)
++    private string GetAudioArguments(StreamState state, bool alignedStart = false)
+     {
+         if (state.AudioStream is null)
+         {
+@@ -1802,7 +1888,20 @@ public class DynamicHlsController : BaseJellyfinApiController
+             args += " -ar 48000";
+         }
+ 
+-        args += _encodingHelper.GetAudioFilterParam(state, _encodingOptions);
++        var audioFilterParam = _encodingHelper.GetAudioFilterParam(state, _encodingOptions);
++        if (alignedStart && string.Equals(state.OutputAudioCodec, "aac", StringComparison.OrdinalIgnoreCase))
++        {
++            // Start on the 1024-sample AAC frame grid, so every transcode cuts its segments' audio at the same samples.
++            var sampleRate = state.OutputAudioSampleRate ?? state.AudioStream?.SampleRate ?? 48000;
++            var start = TimeSpan.FromTicks(state.BaseRequest.StartTimeTicks ?? 0).TotalSeconds;
++            var gridStart = Math.Ceiling(start * sampleRate / 1024) * 1024 / sampleRate;
++            var trim = "atrim=start=" + gridStart.ToString("0.#########", CultureInfo.InvariantCulture);
++            audioFilterParam = string.IsNullOrEmpty(audioFilterParam)
++                ? " -af \"" + trim + "\""
++                : audioFilterParam.Replace(" -af \"", " -af \"" + trim + ",", StringComparison.Ordinal);
++        }
++
++        args += audioFilterParam;
+ 
+         return args;
+     }
+diff --git a/Jellyfin.Api/Helpers/DynamicHlsHelper.cs b/Jellyfin.Api/Helpers/DynamicHlsHelper.cs
+index 16e51151d..03955ba32 100644
+--- a/Jellyfin.Api/Helpers/DynamicHlsHelper.cs
++++ b/Jellyfin.Api/Helpers/DynamicHlsHelper.cs
+@@ -25,6 +25,7 @@ using MediaBrowser.Model.Net;
+ using Microsoft.AspNetCore.Http;
+ using Microsoft.AspNetCore.Mvc;
+ using Microsoft.Extensions.Logging;
++using Microsoft.Extensions.Primitives;
+ using Microsoft.Net.Http.Headers;
+ 
+ namespace Jellyfin.Api.Helpers;
+@@ -44,6 +45,14 @@ public class DynamicHlsHelper
+     private readonly ILogger<DynamicHlsHelper> _logger;
+     private readonly IHttpContextAccessor _httpContextAccessor;
+     private readonly EncodingHelper _encodingHelper;
++
++    // Lower adaptive bitrate rungs: share of the requested video bitrate, the box it is scaled into, and its bitrate cap.
++    private static readonly (double Share, int Width, int Height, int MaxBitrate)[] _adaptiveBitrateRungs =
++    [
++        (0.5, 1280, 720, 4000000),
++        (0.25, 960, 540, 2000000),
++        (0.125, 640, 360, 1000000)
++    ];
+     private readonly ITrickplayManager _trickplayManager;
+ 
+     /// <summary>
+@@ -295,22 +304,7 @@ public class DynamicHlsHelper
+ 
+         if (EnableAdaptiveBitrateStreaming(state, isLiveStream, enableAdaptiveBitrateStreaming, _httpContextAccessor.HttpContext.GetNormalizedRemoteIP()))
+         {
+-            var requestedVideoBitrate = state.VideoRequest?.VideoBitRate ?? 0;
+-
+-            // By default, vary by just 200k
+-            var variation = GetBitrateVariation(totalBitrate);
+-
+-            var newBitrate = totalBitrate - variation;
+-            var variantQuery = playlistQuery;
+-            variantQuery["VideoBitrate"] = (requestedVideoBitrate - variation).ToString(CultureInfo.InvariantCulture);
+-            var variantUrl = Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(baseUrl, variantQuery);
+-            AppendPlaylist(builder, state, variantUrl, newBitrate, subtitleGroup);
+-
+-            variation *= 2;
+-            newBitrate = totalBitrate - variation;
+-            variantQuery["VideoBitrate"] = (requestedVideoBitrate - variation).ToString(CultureInfo.InvariantCulture);
+-            variantUrl = Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(baseUrl, variantQuery);
+-            AppendPlaylist(builder, state, variantUrl, newBitrate, subtitleGroup);
++            AppendAdaptiveBitrateVariants(builder, state, playlistQuery, baseUrl, subtitleGroup);
+         }
+ 
+         if (!isLiveStream && (state.VideoRequest?.EnableTrickplay ?? false))
+@@ -323,6 +317,162 @@ public class DynamicHlsHelper
+         return new FileContentResult(Encoding.UTF8.GetBytes(builder.ToString()), MimeTypes.GetMimeType("playlist.m3u8"));
+     }
+ 
++    /// <summary>
++    /// Appends the rungs of the adaptive bitrate ladder around the requested stream.
++    /// Lower rungs take a share of the requested video bitrate in a smaller box; upper rungs double it up to
++    /// what the source and the remote client limit allow, so a stream started on a bad link can climb again.
++    /// </summary>
++    private void AppendAdaptiveBitrateVariants(StringBuilder builder, StreamState state, Dictionary<string, StringValues> playlistQuery, string baseUrl, string? subtitleGroup)
++    {
++        var videoRequest = state.VideoRequest!;
++        var requestedVideoBitrate = videoRequest.VideoBitRate!.Value;
++        var requestedMaxWidth = videoRequest.MaxWidth;
++        var requestedMaxHeight = videoRequest.MaxHeight;
++        var audioBitrate = state.OutputAudioBitrate ?? 0;
++        var previousVideoBitrate = requestedVideoBitrate;
++        var rungs = new List<(int VideoBitrate, int? BoxWidth, int? BoxHeight)>();
++
++        // Rungs above the request. The client measured the connection once, at playback start; a link that gets
++        // better later can carry what a stream started on it would have got. Their box is the client's own limit:
++        // the request's has been narrowed to the requested bitrate already (StreamingHelpers).
++        var ceiling = GetAdaptiveBitrateCeiling(state, audioBitrate);
++        var clientMaxWidth = GetQueryInt(playlistQuery, "MaxWidth");
++        var clientMaxHeight = GetQueryInt(playlistQuery, "MaxHeight");
++        var upperRungs = new List<int>();
++        for (var videoBitrate = (long)requestedVideoBitrate * 2; videoBitrate <= ceiling; videoBitrate *= 2)
++        {
++            upperRungs.Add((int)videoBitrate);
++        }
++
++        // The ceiling itself, where the last doubling left a real gap below it.
++        if (ceiling > (upperRungs.Count > 0 ? upperRungs[^1] : requestedVideoBitrate) * 1.33)
++        {
++            upperRungs.Add(ceiling);
++        }
++
++        for (var i = upperRungs.Count - 1; i >= 0; i--)
++        {
++            rungs.Add((upperRungs[i], clientMaxWidth, clientMaxHeight));
++        }
++
++        foreach (var (share, boxWidth, boxHeight, maxVideoBitrate) in _adaptiveBitrateRungs)
++        {
++            var videoBitrate = Math.Min((int)(requestedVideoBitrate * share), maxVideoBitrate);
++
++            // A rung must save a real share of the bandwidth to be worth an encoder restart.
++            if (videoBitrate > previousVideoBitrate * 0.75 || videoBitrate < 250000)
++            {
++                continue;
++            }
++
++            previousVideoBitrate = videoBitrate;
++            rungs.Add((videoBitrate, Math.Min(boxWidth, requestedMaxWidth ?? boxWidth), Math.Min(boxHeight, requestedMaxHeight ?? boxHeight)));
++        }
++
++        // The upper rungs came first, from the highest down, so the list runs down to the lowest rung. Without a rung
++        // below the request there is no floor rung: the lowest level of the ladder is then the stream playing itself.
++        var floorRung = rungs.Count > 0 && rungs[^1].VideoBitrate < requestedVideoBitrate ? rungs.Count - 1 : -1;
++
++        for (var i = 0; i < rungs.Count; i++)
++        {
++            var (videoBitrate, boxWidth, boxHeight) = rungs[i];
++
++            // Same sizing as the variant's own transcode (StreamingHelpers), so RESOLUTION tells the truth.
++            var resolution = ResolutionNormalizer.Normalize(
++                state.VideoStream?.BitRate,
++                videoBitrate,
++                EncodingHelper.ScaleBitrate(videoBitrate, state.ActualOutputVideoCodec, "h264"),
++                boxWidth,
++                boxHeight,
++                state.TargetFramerate);
++
++            var variantQuery = new Dictionary<string, StringValues>(playlistQuery, StringComparer.OrdinalIgnoreCase)
++            {
++                ["VideoBitrate"] = videoBitrate.ToString(CultureInfo.InvariantCulture)
++            };
++            SetOrRemove(variantQuery, "MaxWidth", resolution.MaxWidth);
++            SetOrRemove(variantQuery, "MaxHeight", resolution.MaxHeight);
++
++            // Transcoded audio is a large part of a low rung; copied audio stays untouched.
++            var variantAudioBitrate = audioBitrate;
++            if (videoBitrate < 1500000 && audioBitrate > 128000 && !EncodingHelper.IsCopyCodec(state.OutputAudioCodec))
++            {
++                variantAudioBitrate = 128000;
++                variantQuery["AudioBitrate"] = variantAudioBitrate.ToString(CultureInfo.InvariantCulture);
++            }
++
++            // The lowest rung runs as a transcode of its own, so a client can keep it loaded next to the rung it plays
++            // without either job stopping the other. Its own device id keeps it out of the session's transcoding info.
++            if (i == floorRung)
++            {
++                AddFloorSuffix(variantQuery, "PlaySessionId");
++                AddFloorSuffix(variantQuery, "DeviceId");
++            }
++
++            var variantUrl = Microsoft.AspNetCore.WebUtilities.QueryHelpers.AddQueryString(baseUrl, variantQuery);
++
++            videoRequest.MaxWidth = resolution.MaxWidth;
++            videoRequest.MaxHeight = resolution.MaxHeight;
++            AppendPlaylist(builder, state, variantUrl, videoBitrate + variantAudioBitrate, subtitleGroup);
++            videoRequest.MaxWidth = requestedMaxWidth;
++            videoRequest.MaxHeight = requestedMaxHeight;
++        }
++
++        static void SetOrRemove(Dictionary<string, StringValues> query, string key, int? value)
++        {
++            if (value.HasValue)
++            {
++                query[key] = value.Value.ToString(CultureInfo.InvariantCulture);
++            }
++            else
++            {
++                query.Remove(key);
++            }
++        }
++
++        static void AddFloorSuffix(Dictionary<string, StringValues> query, string key)
++        {
++            if (query.TryGetValue(key, out var value) && !StringValues.IsNullOrEmpty(value))
++            {
++                query[key] = $"{value}-floor";
++            }
++        }
++
++        static int? GetQueryInt(Dictionary<string, StringValues> query, string key)
++        {
++            return query.TryGetValue(key, out var value)
++                && int.TryParse(value.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
++                    ? parsed
++                    : null;
++        }
++    }
++
++    /// <summary>
++    /// The highest video bitrate a rung of the adaptive bitrate ladder may ask for: what the source carries,
++    /// within the limit set for remote clients. The ladder only ever runs for remote clients.
++    /// </summary>
++    private int GetAdaptiveBitrateCeiling(StreamState state, int audioBitrate)
++    {
++        var remoteClientBitrateLimit = state.User?.RemoteClientBitrateLimit ?? 0;
++        if (remoteClientBitrateLimit <= 0)
++        {
++            remoteClientBitrateLimit = _serverConfigurationManager.Configuration.RemoteClientBitrateLimit;
++        }
++
++        var ceiling = remoteClientBitrateLimit > 0 ? remoteClientBitrateLimit - audioBitrate : int.MaxValue;
++
++        // A rung above what the source carries only costs encoder time. Stay below it as well: a variant asking for
++        // the source bitrate is stream-copied instead of transcoded, and a copy cuts its segments on the source's
++        // own keyframes rather than on the ladder's grid, so a switch to it would not be gapless.
++        var sourceVideoBitrate = state.VideoStream?.BitRate;
++        if (sourceVideoBitrate > 0)
++        {
++            ceiling = Math.Min(ceiling, (int)(EncodingHelper.ScaleBitrate(sourceVideoBitrate.Value, state.VideoStream!.Codec, state.ActualOutputVideoCodec) * 0.9));
++        }
++
++        return ceiling;
++    }
++
+     private StringBuilder AppendPlaylist(StringBuilder builder, StreamState state, string url, int bitrate, string? subtitleGroup)
+     {
+         var playlistBuilder = new StringBuilder();
+@@ -580,11 +730,6 @@ public class DynamicHlsHelper
+             return false;
+         }
+ 
+-        if (EncodingHelper.IsCopyCodec(state.OutputAudioCodec))
+-        {
+-            return false;
+-        }
+-
+         if (!state.IsOutputVideo)
+         {
+             return false;
+@@ -857,43 +1002,6 @@ public class DynamicHlsHelper
+         return string.Empty;
+     }
+ 
+-    private int GetBitrateVariation(int bitrate)
+-    {
+-        // By default, vary by just 50k
+-        var variation = 50000;
+-
+-        if (bitrate >= 10000000)
+-        {
+-            variation = 2000000;
+-        }
+-        else if (bitrate >= 5000000)
+-        {
+-            variation = 1500000;
+-        }
+-        else if (bitrate >= 3000000)
+-        {
+-            variation = 1000000;
+-        }
+-        else if (bitrate >= 2000000)
+-        {
+-            variation = 500000;
+-        }
+-        else if (bitrate >= 1000000)
+-        {
+-            variation = 300000;
+-        }
+-        else if (bitrate >= 600000)
+-        {
+-            variation = 200000;
+-        }
+-        else if (bitrate >= 400000)
+-        {
+-            variation = 100000;
+-        }
+-
+-        return variation;
+-    }
+-
+     private string ReplacePlaylistCodecsField(StringBuilder playlist, StringBuilder oldValue, StringBuilder newValue)
+     {
+         var oldPlaylist = playlist.ToString();
+diff --git a/Jellyfin.Api/Helpers/StreamingHelpers.cs b/Jellyfin.Api/Helpers/StreamingHelpers.cs
+index e17468cfa..5f22c3416 100644
+--- a/Jellyfin.Api/Helpers/StreamingHelpers.cs
++++ b/Jellyfin.Api/Helpers/StreamingHelpers.cs
+@@ -373,7 +373,8 @@ public static class StreamingHelpers
+     /// <returns>The complete file path, including the folder, for the transcoding file.</returns>
+     private static string GetOutputFilePath(StreamState state, string outputFileExtension, IServerConfigurationManager serverConfigurationManager, string? deviceId, string? playSessionId)
+     {
+-        var data = $"{state.MediaPath}-{state.UserAgent}-{deviceId!}-{playSessionId!}";
++        // Adaptive bitrate variants share a play session; the requested bitrate keeps their segments apart.
++        var data = $"{state.MediaPath}-{state.UserAgent}-{deviceId!}-{playSessionId!}-{state.BaseRequest.VideoBitRate}";
+ 
+         var filename = data.GetMD5().ToString("N", CultureInfo.InvariantCulture);
+         var ext = outputFileExtension.ToLowerInvariant();

@@ -1,0 +1,68 @@
+name: build-caddy-image
+
+# The edge proxy runs a custom xcaddy build (Cloudflare DNS + CrowdSec bouncer), so
+# this repo is its registry. Rebuild path + why: docs/services/caddy.md → Upgrade.
+
+on:
+  push:
+    # main only: the tag is what Renovate watches, so a branch build becomes a digest PR.
+    branches: [main]
+    paths:
+      - stacks/caddy/Dockerfile
+      - .github/workflows/build-caddy-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-caddy-image
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/nas-caddy
+
+jobs:
+  build:
+    # Also refuses a dispatch from another branch, which would push the same tag.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest   # GitHub-hosted: the NAS runner has no docker socket.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Build and push
+        run: |
+          set -euo pipefail
+          # The tag tracks upstream Caddy; a plugin-only rebuild re-pushes the same tag
+          # with a new digest, which is what Renovate then offers as a digest bump.
+          ver=$(sed -n 's/^FROM caddy:\([0-9.]\+\)-builder-alpine.*/\1/p' stacks/caddy/Dockerfile)
+          [ -n "$ver" ] || { echo "::error::cannot read the Caddy version from stacks/caddy/Dockerfile"; exit 1; }
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+          docker build -t "$IMAGE:$ver" stacks/caddy
+          docker push "$IMAGE:$ver"
+
+          digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$ver" | cut -d@ -f2)
+          # The compose pin is hand-applied: this stack is the edge, so a new binary
+          # never reaches it without a reviewed commit.
+          {
+            echo "## \`$IMAGE\`"
+            echo
+            echo "Pin this in \`stacks/caddy/docker-compose.yml\`:"
+            echo
+            echo '```yaml'
+            echo "    image: $IMAGE:$ver@$digest"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "$IMAGE:$ver@$digest"
+
+      - name: Verify the plugins are in the binary
+        run: |
+          set -euo pipefail
+          ver=$(sed -n 's/^FROM caddy:\([0-9.]\+\)-builder-alpine.*/\1/p' stacks/caddy/Dockerfile)
+          mods=$(docker run --rm "$IMAGE:$ver" caddy list-modules)
+          for m in dns.providers.cloudflare http.handlers.crowdsec http.handlers.appsec; do
+            printf '%s\n' "$mods" | grep -qx "$m" || { echo "::error::$m missing from the build"; exit 1; }
+          done
+          echo "cloudflare DNS + crowdsec + appsec present"

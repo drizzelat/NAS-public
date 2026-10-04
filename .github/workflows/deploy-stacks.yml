@@ -1,0 +1,125 @@
+name: deploy-stacks
+
+# Deploy changed stacks through Komodo (creating new ones), verify, auto-roll-back by PR.
+# See docs/runbooks/setup-operations/deploy-stacks.md
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'stacks/**'
+  # Manual deploy of named stacks. The hourly reconcile-owned Procedure is the drift backstop.
+  workflow_dispatch:
+    inputs:
+      stacks:
+        description: "Space-separated stack names to deploy."
+        required: false
+        type: string
+      komodo_dry_run:
+        description: "Do every Komodo read and log the create and DeployStack each stack would get, without sending them."
+        required: false
+        type: boolean
+        default: false
+      rollback_dry_run:
+        description: "Rehearse the rollback job for this one stack against main's last commit touching it: every gate and the commit, no push, no PR. Deploys nothing."
+        required: false
+        type: string
+
+# Nothing on the self-hosted runner writes main (SEC-1). The rollback job mints its own App token.
+permissions:
+  contents: read
+
+# Serialize deploys; never cancel an in-flight health-check/rollback.
+concurrency:
+  group: deploy-stacks
+  cancel-in-progress: false
+
+env:
+  # Komodo Core. The vhost is LAN-only and public DNS points the name at Cloudflare, so pin it to
+  # Caddy on the NAS.
+  KOMODO_URL: https://komodo.example.com
+  KOMODO_RESOLVE: komodo.example.com:443:192.168.1.111
+
+jobs:
+  redeploy:
+    if: ${{ inputs.rollback_dry_run == '' }}
+    runs-on: [self-hosted, nas]
+    outputs:
+      # Unhealthy push-derived stacks, for the rollback job. Untrusted there: re-checked against the push.
+      rollback: ${{ steps.verify.outputs.rollback }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history so the whole pushed range is diffable.
+          fetch-depth: 0
+
+      - name: Deploy changed stacks through Komodo, creating new ones
+        id: fire
+        env:
+          # SHAs bounding this push: before..after covers every pushed commit.
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+          # workflow_dispatch input; empty on a push.
+          DISPATCH_STACKS: ${{ inputs.stacks }}
+          # Service user deploy-stacks: Execute+Inspect on Stacks, Execute on the komodo-resources sync. docs/services/komodo.md
+          KOMODO_API_KEY: ${{ secrets.KOMODO_DEPLOY_API_KEY }}
+          KOMODO_API_SECRET: ${{ secrets.KOMODO_DEPLOY_API_SECRET }}
+          KOMODO_DRY_RUN: ${{ inputs.komodo_dry_run }}
+        run: scripts/deploy/fire-webhooks.sh
+
+      - name: Verify redeployed stacks are healthy
+        id: verify
+        if: ${{ steps.fire.outputs.changed != '' }}
+        env:
+          # Space-separated stack names.
+          STACKS: ${{ steps.fire.outputs.changed }}
+          # Pre-push ref for rollback; empty on workflow_dispatch.
+          BEFORE: ${{ steps.fire.outputs.before }}
+          # Stacks this PUSH changed — the only rollback candidates.
+          ROLLBACKABLE: ${{ steps.fire.outputs.rollbackable }}
+          KOMODO_API_KEY: ${{ secrets.KOMODO_DEPLOY_API_KEY }}
+          KOMODO_API_SECRET: ${{ secrets.KOMODO_DEPLOY_API_SECRET }}
+        run: scripts/deploy/verify-healthy.sh
+
+  # Opens a revert PR for the unhealthy stacks and squash-merges it once its checks pass; the merge
+  # push deploys the restored compose through this workflow again. docs/runbooks/setup-operations/deploy-stacks.md
+  rollback:
+    needs: redeploy
+    if: ${{ always() && (needs.redeploy.outputs.rollback != '' || inputs.rollback_dry_run != '') }}
+    runs-on: ubuntu-latest   # GitHub-hosted ONLY — it holds the credential that writes main.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      checks: read     # the PR's validate check run
+      statuses: read   # the PR's renovate-review status
+    steps:
+      # Renovate App: its merge push triggers deploy-stacks (a GITHUB_TOKEN one would not), and it
+      # cannot touch workflows. Branch protection applies to it: the PR merges only once checks pass.
+      - name: Mint the App installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.RENOVATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          permission-contents: write        # the rollback branch and the squash merge
+          permission-pull-requests: write   # the PR
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Open and merge the rollback PR
+        env:
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          # From the push event itself, never from the self-hosted job.
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          REQUESTED: ${{ needs.redeploy.outputs.rollback || inputs.rollback_dry_run }}
+          DRY_RUN: ${{ inputs.rollback_dry_run != '' }}
+          GH_TOKEN: ${{ github.token }}                         # reads only
+          MERGE_TOKEN: ${{ steps.app-token.outputs.token }}     # branch, PR, merge
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: scripts/deploy/open-rollback-pr.sh

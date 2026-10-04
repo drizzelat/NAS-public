@@ -1,0 +1,95 @@
+# Tor WebTunnel bridge behind its own Caddy, which owns the A1's :80/:443: unlisted, never an exit.
+# Docs: docs/services/a1-vps-webtunnel.md
+
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  webtunnel-bridge:
+    image: ghcr.io/drizzelat/webtunnel-bridge:0.0.7@sha256:98d7685067a3c28cde0e4ed69062705a68798f027cbbdc689b767b57101b00cd
+    container_name: a1-webtunnel
+    restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    ports:
+      - "100.64.0.13:9036:9036"   # MetricsPort, tailnet only
+    environment:
+      - OR_PORT=9444                            # never published: torrc has AssumeReachable 1
+      - PT_PORT=15000                           # reached only by the caddy service of this stack
+      - EMAIL=${TOR_BRIDGE_CONTACT:-}           # ContactInfo; Komodo Variable, never git
+      - WEBTUNNEL_URL=${WEBTUNNEL_URL:-}        # https://<domain>/<secret path>; the image refuses an empty one
+      - WEBTUNNEL_ENABLE_ADDITIONAL_VARIABLES=1 # WEBTUNNELV_<Option>=<value> becomes a torrc line
+      - WEBTUNNELV_Address=198.51.100.20        # the container only sees its Docker IP
+      - WEBTUNNELV_AddressDisableIPv6=1
+      - WEBTUNNELV_AccountingMax=1 TBytes       # with the obfs4 bridge's 1 TBytes: 2 TiB of Oracle egress
+      - WEBTUNNELV_AccountingRule=out
+      - WEBTUNNELV_AccountingStart=month 1 00:00
+      - WEBTUNNELV_RelayBandwidthRate=5 MBytes
+      - WEBTUNNELV_RelayBandwidthBurst=10 MBytes
+      - WEBTUNNELV_MaxMemInQueues=256 MB
+      - WEBTUNNELV_MetricsPort=0.0.0.0:9036
+      - WEBTUNNELV_MetricsPortPolicy=accept 100.64.0.11,accept 172.16.0.0/12   # NAS or Docker gateway, see a1-vps-tor-bridge
+    volumes:
+      - /opt/tor-webtunnel/data:/var/lib/tor    # pre-create 101:101 mode 0700, see docs
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+
+  caddy:
+    image: caddy:2-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
+    container_name: a1-caddy
+    restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 256M
+    ports:
+      - "80:80"
+      - "443:443"
+    # Bump `config-rev` whenever the inlined Caddyfile changes: a `configs.*.content` change alone
+    # does not always recreate the container.
+    labels:
+      - "config-rev=2026-10-03-path-rotation"
+    volumes:
+      - /opt/matrix/caddy/data:/data       # certificates + ACME account, kept from the Matrix days
+      - /opt/matrix/caddy/config:/config
+    # /etc/caddy is not a bind mount, so this target is safe.
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    depends_on:
+      - webtunnel-bridge
+
+configs:
+  caddyfile:
+    content: |
+      # NTP Pool request (docs/services/a1-vps-ntp.md): a browser that resolves a pool name to this IP
+      # lands on the project page. http:// only: no certificate for these names is ever attempted.
+      # A * matches one label, so 0.de.pool.ntp.org needs *.*.pool.ntp.org.
+      http://pool.ntp.org, http://*.pool.ntp.org, http://*.*.pool.ntp.org, http://*.ntppool.org {
+          redir https://www.ntppool.org/ permanent
+      }
+
+      # Tor WebTunnel bridge (docs/services/a1-vps-webtunnel.md): only the secret path reaches it.
+      # Unset env renders a plain-HTTP placeholder site, which never attempts a certificate.
+      ${WEBTUNNEL_DOMAIN:-http://webtunnel.invalid} {
+          handle ${WEBTUNNEL_PATH:-/webtunnel-path-unset} {
+              reverse_proxy webtunnel-bridge:15000
+          }
+          handle {
+              header Content-Type "text/html; charset=utf-8"
+              respond `<!doctype html><meta charset="utf-8"><title>Notes</title><p>Nothing here yet.</p>` 200
+          }
+      }

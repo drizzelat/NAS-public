@@ -1,0 +1,119 @@
+name: tailscale-acl
+
+# The tailnet policy lives in tailscale/policy.hujson and is applied from main.
+# Runbook: docs/runbooks/setup-operations/tailscale-acl-gitops.md
+
+on:
+  pull_request:
+    paths:
+      - 'tailscale/**'
+      - '.github/workflows/tailscale-acl.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tailscale/**'
+  schedule:
+    # Drift check only: catches a change made in the admin console, which the next
+    # push would otherwise overwrite without anyone seeing it.
+    - cron: '35 7 * * *'
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 'Fetch the live policy and upload it as an artifact instead of diffing'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tailscale-acl
+  cancel-in-progress: false
+
+jobs:
+  # A port-scoped mistake here takes every public site down (micro-vps-ingress.md),
+  # so the policy is tested on the PR and only applied from main.
+  policy:
+    runs-on: ubuntu-latest   # Not slim: measured ~113 s vs ~45 s, so 2-3 billed minutes instead of 1.
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - id: ready
+        name: Is there a policy file and a client yet?
+        env:
+          CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -f tailscale/policy.hujson ] && [ -n "${CLIENT_ID:-}" ]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::no tailscale/policy.hujson or no OAuth client yet — nothing applied (see the runbook)"
+          fi
+
+      - if: steps.ready.outputs.go == 'true'
+        uses: tailscale/gitops-acl-action@5a4a17f5708e9bf96f4ee915a95e9f83c2eebe1a # v1
+        with:
+          # `-` is the API's alias for the credential's own tailnet.
+          tailnet: '-'
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          policy-file: ./tailscale/policy.hujson
+          action: ${{ github.event_name == 'push' && 'apply' || 'test' }}
+
+  drift:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Seeding path: the live policy, comments and all, as an artifact to commit.
+      # This is how tailscale/policy.hujson is created the first time.
+      - name: Fetch the live policy
+        if: inputs.seed
+        env:
+          CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+        run: |
+          set -euo pipefail
+          token="$(curl -fsS -u "$CLIENT_ID:$CLIENT_SECRET" \
+            -d 'grant_type=client_credentials' \
+            https://api.tailscale.com/api/v2/oauth/token | jq -r .access_token)"
+          mkdir -p /tmp/seed
+          curl -fsS -H "Authorization: Bearer $token" -H 'Accept: application/hujson' \
+            https://api.tailscale.com/api/v2/tailnet/-/acl > /tmp/seed/policy.hujson
+          wc -c /tmp/seed/policy.hujson
+
+      - if: inputs.seed
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tailscale-policy
+          path: /tmp/seed/policy.hujson
+          retention-days: 7
+
+      - name: Compare the live policy with the repo
+        if: ${{ !inputs.seed }}
+        env:
+          CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ ! -f tailscale/policy.hujson ] || [ -z "${CLIENT_ID:-}" ]; then
+            echo "::warning::no tailscale/policy.hujson or no OAuth client yet — nothing compared"
+            exit 0
+          fi
+          token="$(curl -fsS -u "$CLIENT_ID:$CLIENT_SECRET" \
+            -d 'grant_type=client_credentials' \
+            https://api.tailscale.com/api/v2/oauth/token | jq -r .access_token)"
+          # HuJSON, not JSON: the JSON view is the EFFECTIVE policy, carrying defaults the
+          # stored file never spelled out. Compare stored against stored.
+          curl -fsS -H "Authorization: Bearer $token" -H 'Accept: application/hujson' \
+            https://api.tailscale.com/api/v2/tailnet/-/acl > /tmp/live.hujson
+          .github/scripts/hujson-canon.py tailscale/policy.hujson > /tmp/repo.json
+          .github/scripts/hujson-canon.py /tmp/live.hujson > /tmp/live.json
+          if ! diff -u /tmp/repo.json /tmp/live.json; then
+            echo "::error::the live tailnet policy differs from tailscale/policy.hujson — someone edited it in the admin console"
+            exit 1
+          fi
+          echo "tailnet policy matches the repo"
