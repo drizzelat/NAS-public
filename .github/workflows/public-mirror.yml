@@ -1,12 +1,12 @@
 name: public-mirror
 
-# Push to main: export gates only. Weekly dispatch: gates, Claude review of the diff, publish.
+# Push to main: export gates only. Daily dispatch: gates, Claude review of the diff, publish.
 # docs/runbooks/setup-operations/public-mirror.md
 
 on:
   push:
     branches: [main]
-  # Weekly sync trigger: scripts/public-mirror-trigger.sh (host cron). No schedule: GitHub's cron drops runs.
+  # Daily sync trigger: scripts/public-mirror-trigger.sh (host cron). No schedule: GitHub's cron drops runs.
   workflow_dispatch:
     inputs:
       dry_run:

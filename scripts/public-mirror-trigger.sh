@@ -1,5 +1,5 @@
 #!/bin/sh
-# Dispatch the weekly public mirror sync at Sun 12:00 local time: GitHub's own `schedule:`
+# Dispatch the daily public mirror sync at 12:00 local time: GitHub's own `schedule:`
 # drops most slots. Docs: docs/runbooks/setup-operations/public-mirror.md
 set -eu
 
