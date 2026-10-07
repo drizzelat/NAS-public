@@ -446,8 +446,8 @@ patched one. The finding clears once a bouncer release requires a patched versio
 
 It builds from **`main` only** — a push or a dispatch from any other branch is refused. The tag is
 what Renovate watches, so a branch build used to come back as an ordinary-looking digest PR: #288
-was one, graded `RISK: LOW`, and the 05:00 sweep would have deployed it. For the same reason the
-sweep never merges a `nas-caddy` digest bump (`MERGE_SKIP_IMAGES`). **Merge those by hand.**
+was one, graded `RISK: LOW`, and the 05:00 sweep would have deployed it. The build
+is `main`-only now, so a `nas-caddy` digest PR is reviewed and swept like any other.
 
 **This stack is the one exception to "Renovate bumps the upstream digest".** A Caddy CVE needs a
 *rebuild*, not a pull.

@@ -9,12 +9,15 @@ AGENTS.md makes three promises about every stack in `stacks/`:
 
 Two more keep the edge probe and the offsite backup from silently missing a service:
 
-  * the hostnames and held images in `.github/estate.yml` match every list that copies them: the
-    Caddyfile, the SNI allowlist, the edge probe's host lists, the Cloudflare records, network.md,
-    `MERGE_SKIP_IMAGES` (both copies) and renovate.json's hold rules. A host in the Caddyfile that
-    estate.yml lacks is a vhost the probe never asserts,
+  * the hostnames in `.github/estate.yml` match every list that copies them: the Caddyfile, the SNI
+    allowlist, the edge probe's host lists, the Cloudflare records and network.md. A host in the
+    Caddyfile that estate.yml lacks is a vhost the probe never asserts,
   * every `/mnt/data/*` bind mount is under `DATA_INCLUDE` in cloudsync-chain.sh,
     or listed as deliberately unbacked in the backup runbook's "NOT backed up" table.
+
+Agent notes (`docs/agent-notes/`) are held to the same standard: every note has frontmatter, is
+indexed in the README, links only to notes that exist, and names only repo paths that exist. A note
+not re-verified for NOTE_MAX_AGE_DAYS prints a warning (never a failure).
 
 Nothing enforced them, so drift only surfaced when a human went looking. This
 runs in CI on pull requests (see .github/workflows/compose-validate.yml) and is
@@ -27,6 +30,7 @@ Exit 0 = no drift, 1 = drift (each finding printed as a GitHub error
 annotation), 2 = the script itself could not run.
 """
 
+import datetime
 import json
 import re
 import subprocess
@@ -45,13 +49,19 @@ BACKUP_DOC = ROOT / "docs" / "runbooks" / "backup-restore" / "backup.md"
 ESTATE = ROOT / ".github" / "estate.yml"
 NGINX_CONF = STACKS / "micro-vps-ingress" / "nginx" / "nginx.conf"
 DNS_RECORDS = ROOT / "cloudflare" / "dns-records.json"
-RENOVATE_REVIEW = ROOT / ".github" / "workflows" / "renovate-pr-review.yml"
-RENOVATE_JSON = ROOT / "renovate.json"
 
 # Stacks on the Oracle VPS hosts, not the NAS: only the service-doc check applies.
 OFF_NAS_PREFIXES = ("micro-vps-", "a1-vps-")
 
+NOTES = ROOT / "docs" / "agent-notes"
+NOTE_TYPES = {"user", "feedback", "project", "reference"}
+NOTE_MAX_AGE_DAYS = 90
+NOTE_PATH_RE = re.compile(
+    r"^(?:docs|scripts|stacks|\.github|komodo|kuma|vm|cloudflare|tailscale|secrets\.enc)/[A-Za-z0-9_./-]+$"
+)
+
 findings = []
+warnings = []
 
 
 def finding(path, msg):
@@ -214,33 +224,6 @@ def caddy_site_kinds(path, domain):
     return kinds
 
 
-def folded_lists(path, key):
-    """Every `key: >-` folded block in a workflow, as a set of its words."""
-    lines, blocks = path.read_text().splitlines(), []
-    for i, line in enumerate(lines):
-        m = re.match(rf"^(\s*){key}:\s*>-?\s*$", line)
-        if not m:
-            continue
-        words = set()
-        for nxt in lines[i + 1:]:
-            if nxt.strip() and len(nxt) - len(nxt.lstrip()) <= len(m.group(1)):
-                break
-            if nxt.strip() and not nxt.strip().startswith("#"):
-                words |= set(nxt.split())
-        blocks.append(words)
-    return blocks
-
-
-def renovate_held(path):
-    """Images renovate.json holds back from auto-merge for every update type."""
-    held = set()
-    for rule in json.loads(path.read_text()).get("packageRules", []):
-        if (rule.get("automerge") is False and "needs-manual-review" in rule.get("labels", [])
-                and "matchUpdateTypes" not in rule):
-            held |= {re.sub(r"^docker\.io/(library/)?", "", n) for n in rule.get("matchPackageNames", [])}
-    return held
-
-
 def check_estate(env, domain):
     """Every consumer of .github/estate.yml agrees with it, in both directions."""
     estate = load_yaml(ESTATE)
@@ -248,7 +231,6 @@ def check_estate(env, domain):
     direct = set(estate["hosts"]["public"]["direct"])
     lan = set(estate["hosts"]["lan_only"])
     public = cf | direct
-    held = set(estate["held_images"])
 
     def same(path, what, have, want):
         for n in sorted(want - have):
@@ -286,11 +268,6 @@ def check_estate(env, domain):
         if f"`{name}`" not in access:
             finding("docs/network.md", f"the Access control section never names `{name}`, a host in .github/estate.yml")
 
-    for blk in folded_lists(RENOVATE_REVIEW, "MERGE_SKIP_IMAGES") or [set()]:
-        same(".github/workflows/renovate-pr-review.yml", "MERGE_SKIP_IMAGES", blk, held)
-    same("renovate.json", "held packageRules (automerge false, needs-manual-review, no matchUpdateTypes)",
-         renovate_held(RENOVATE_JSON), held)
-
 
 def data_include(path):
     m = re.search(r"^DATA_INCLUDE\s*=\s*\(([^)]*)\)", path.read_text(), re.M)
@@ -312,6 +289,55 @@ def unbacked_datasets(body):
 
 def under(dataset, prefixes):
     return any(dataset == p or dataset.startswith(p + "/") for p in prefixes)
+
+
+def check_agent_notes():
+    """Frontmatter, index, [[links]] and repo paths of docs/agent-notes/*.md."""
+    if not NOTES.is_dir():
+        return
+    readme = (NOTES / "README.md").read_text()
+    indexed = set(re.findall(r"\]\(([A-Za-z0-9_.-]+\.md)\)", readme))
+    notes = sorted(p for p in NOTES.glob("*.md") if p.name != "README.md")
+    stems = {p.stem for p in notes}
+    for name in sorted(indexed - {p.name for p in notes}):
+        finding("docs/agent-notes/README.md", f"indexes {name}, which does not exist")
+    today = datetime.date.today()
+    for note in notes:
+        rel = f"docs/agent-notes/{note.name}"
+        text = note.read_text()
+        fm = re.match(r"---\n(.*?)\n---\n", text, re.S)
+        if not fm:
+            finding(rel, "no frontmatter (name, description, metadata.type, metadata.verified)")
+            continue
+        head = fm.group(1)
+        field = lambda key: (re.search(rf"^\s*{key}:\s*(.+?)\s*$", head, re.M) or [None, ""])[1]
+        if field("name") != note.stem:
+            finding(rel, f"frontmatter name '{field('name')}' must equal the file name '{note.stem}'")
+        if not field("description"):
+            finding(rel, "frontmatter has no description")
+        if field("type") not in NOTE_TYPES:
+            finding(rel, f"metadata.type must be one of {sorted(NOTE_TYPES)}")
+        try:
+            age = (today - datetime.date.fromisoformat(field("verified"))).days
+        except ValueError:
+            finding(rel, "metadata.verified must be an ISO date (YYYY-MM-DD)")
+        else:
+            if age > NOTE_MAX_AGE_DAYS:
+                warnings.append((rel, f"last verified {age} days ago: re-check it against the repo and the hosts"))
+        if note.name not in indexed:
+            finding(rel, "is not indexed in docs/agent-notes/README.md")
+        body = text[fm.end():]
+        prose = re.sub(r"```.*?```", "", body, flags=re.S)
+        for link in sorted(set(re.findall(r"\[\[([a-z0-9][a-z0-9-]*)\]\]", re.sub(r"`[^`\n]*`", "", prose)))):
+            if link not in stems:
+                finding(rel, f"links [[{link}]], which is not a note")
+        for tok in sorted(set(re.findall(r"`([^`\n]+)`", prose))):
+            path = re.sub(r"(?::\d+(?:-\d+)?)?(?:#.*)?$", "", tok).rstrip("/")
+            if NOTE_PATH_RE.match(path) and not (ROOT / path).exists():
+                finding(rel, f"names `{path}`, which does not exist in the repo")
+        for target in sorted(set(re.findall(r"\]\((\.\.?/[^)#\s]+)", prose))):
+            if not (note.parent / target).resolve().exists():
+                finding(rel, f"links {target}, which does not exist")
 
 
 def main():
@@ -389,6 +415,10 @@ def main():
                 f"documents '{doc.stem}', which has no stacks/{doc.stem}/ — remove it",
             )
 
+    check_agent_notes()
+
+    for path, msg in warnings:
+        print(f"::warning file={path}::{msg}")
     for path, msg in findings:
         print(f"::error file={path}::{msg}")
     print(f"\ndocs drift: {len(findings)} finding(s)")

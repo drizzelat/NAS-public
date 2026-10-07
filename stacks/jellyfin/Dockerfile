@@ -3,7 +3,7 @@
 FROM lscr.io/linuxserver/jellyfin:10.11.11ubu2404-ls38@sha256:c9bb091532bec4fa12b3ce3c08d163cab2b369f5f30f1f30ca49a46d97f5eec8 AS base
 
 # Reads from the stock assemblies which commit and assembly version to rebuild, so a new base never pairs with old sources.
-FROM mcr.microsoft.com/dotnet/sdk:9.0@sha256:01fabc4758d1d74e39eda700c8463dae6241a61481f973683692ddcb59a5eeb7 AS version
+FROM mcr.microsoft.com/dotnet/sdk:9.0@sha256:1330d3c4144aec2695036a125d9a3b49a1fc555c9024c981248fa83d40fa8b23 AS version
 COPY --from=base /usr/lib/jellyfin/bin/Jellyfin.Api.dll /usr/lib/jellyfin/bin/MediaBrowser.Controller.dll /stock/
 RUN set -eu; mkdir /version; cd /stock; \
     pwsh -NoProfile -Command '[Diagnostics.FileVersionInfo]::GetVersionInfo("/stock/MediaBrowser.Controller.dll").FileVersion' > /version/release; \
@@ -11,7 +11,7 @@ RUN set -eu; mkdir /version; cd /stock; \
     pwsh -NoProfile -Command '[Reflection.AssemblyName]::GetAssemblyName("/stock/Jellyfin.Api.dll").Version.ToString()' > /version/assembly; \
     head /version/*
 
-FROM mcr.microsoft.com/dotnet/sdk:9.0@sha256:01fabc4758d1d74e39eda700c8463dae6241a61481f973683692ddcb59a5eeb7 AS server
+FROM mcr.microsoft.com/dotnet/sdk:9.0@sha256:1330d3c4144aec2695036a125d9a3b49a1fc555c9024c981248fa83d40fa8b23 AS server
 COPY --from=version /version /version
 COPY patches/jellyfin.patch /patches/
 RUN set -eu; release=$(cat /version/release) commit=$(cat /version/commit) assembly=$(cat /version/assembly); \
@@ -22,7 +22,7 @@ RUN set -eu; release=$(cat /version/release) commit=$(cat /version/commit) assem
     built=$(pwsh -NoProfile -Command '[Reflection.AssemblyName]::GetAssemblyName("/out/Jellyfin.Api.dll").Version.ToString()'); \
     [ "$built" = "$assembly" ] || { echo "built Jellyfin.Api $built, the base image loads $assembly"; exit 1; }
 
-FROM node:22-bookworm@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7 AS web
+FROM node:22-bookworm@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8 AS web
 COPY --from=version /version /version
 COPY patches/jellyfin-web.patch /patches/
 RUN set -eu; git clone --quiet --depth 1 --branch "v$(cat /version/release)" https://github.com/jellyfin/jellyfin-web.git /src; cd /src; \

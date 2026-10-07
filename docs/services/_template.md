@@ -49,7 +49,7 @@ _(Komodo → Stacks → `<name>` → **Restart** (bounce) or **Deploy** (pull an
 
 ### Upgrade
 
-_(Every image is pinned `tag@sha256:digest`. Renovate opens the bump PR, [renovate-pr-review](../runbooks/setup-operations/renovate-pr-review.md) reviews it, and the 05:00–06:00 sweep merges it if cleared — except images on `MERGE_SKIP_IMAGES` (databases, caches, Authentik, the Caddy build), which are merged by hand. Note breaking-change / migration warnings; rollback = revert the commit + redeploy.)_
+_(Every image is pinned `tag@sha256:digest`. Renovate opens the bump PR, [renovate-pr-review](../runbooks/setup-operations/renovate-pr-review.md) reviews it, and the 05:00–06:00 sweep merges it if cleared — no image is exempt; a red review leaves the PR open. Note breaking-change / migration warnings; rollback = revert the commit + redeploy.)_
 
 ### Restore from backup
 

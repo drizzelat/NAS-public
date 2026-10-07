@@ -71,7 +71,7 @@ revoke, delete the key under **API Keys** at `/profile`, then remove both lines 
 ## Dependencies
 
 - `proxy_komodo`, defined in `stacks/caddy` like every other `proxy_*` network.
-- A periphery on each host, deployed by hand as its own stack, never by Komodo:
+- A periphery on each host, applied by the [periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md) cron as its own stack, never by Komodo:
   [nas-periphery](nas-periphery.md), [a1-vps-periphery](a1-vps-periphery.md),
   [micro-vps-periphery](micro-vps-periphery.md), [runner-vm-periphery](runner-vm-periphery.md).
 
@@ -206,7 +206,7 @@ running, only deploys stop.
 
 Renovate bumps both images by digest. Read the release notes for a Komodo **minor**: Core and every
 periphery move together, because a v2 minor can change the Core–periphery transport. Renovate groups
-the images on a `control-plane` rule and holds them back from the merge sweep. Mongo stays on the 8.0
+Core and Periphery into one PR; a merge deploys Core (the hourly `deploy-komodo` Procedure), and the [periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md) cron applies the peripheries once Core runs the new pin. Mongo stays on the 8.0
 major line: `renovate.json` caps it to `8.0.x`. Minor lines (8.2, 8.3) cannot be skipped, so leaving
 8.0 means snapshotting `apps/komodo` and doing one binary upgrade plus an FCV bump per hop.
 
@@ -315,7 +315,7 @@ until removed by hand.
 
 Each periphery is the transport its own Server deploys through; recreating it from Komodo drops the
 connection mid-command. So the four `*-periphery` stacks are repo-tracked and digest-pinned but
-applied over SSH, and are absent from `owned-stacks` and `resources.toml`. Start one only with
+applied by an hourly NAS cron over SSH ([periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md)), and are absent from `owned-stacks` and `resources.toml`. Start one only with
 `PERIPHERY_CORE_PUBLIC_KEYS` set: without it an inbound periphery is an unauthenticated Docker
 socket on `:8120`. The NAS periphery runs the host's compose plugin instead of the bundled one
 ([nas-periphery](nas-periphery.md)). An edit nobody applied shows in check 10 of the

@@ -89,37 +89,6 @@ while read -r pr; do
       echo "#$num: renovate-review=$review — the review did not clear it."; continue ;;
   esac
 
-  # MERGE_SKIP, checked on touched paths not branch name, so a renamed branch or a
-  # bundled PR cannot slip past.
-  skip=""
-  for s in $MERGE_SKIP; do
-    if gh api "repos/$REPO/pulls/$num/files" --paginate --jq '.[].filename' 2>/dev/null \
-         | grep -qx "stacks/$s/docker-compose.yml"; then
-      skip="$s"; break
-    fi
-  done
-  if [ -n "$skip" ]; then
-    echo "#$num: touches stacks/$skip (MERGE_SKIP) — merge it by hand."
-    continue
-  fi
-
-  # Stateful images: a bad bump means data loss or a full auth lockout, and no
-  # risk verdict should be able to merge one unattended. renovate.json labels
-  # these needs-manual-review, but that label never gated THIS sweep.
-  added=$(gh api "repos/$REPO/pulls/$num/files" --paginate --jq '.[].patch // ""' 2>/dev/null \
-            | grep -E '^\+[[:space:]]*image:' || true)
-  hit=""
-  for img in $MERGE_SKIP_IMAGES; do
-    # Match the repo path before the tag, so `postgres` cannot match `postgres-exporter`.
-    if printf '%s\n' "$added" | grep -qE "image:[[:space:]]*(docker\.io/library/)?${img}[:@]"; then
-      hit="$img"; break
-    fi
-  done
-  if [ -n "$hit" ]; then
-    echo "#$num: bumps a stateful image ($hit) — merge it by hand."
-    continue
-  fi
-
   # The soak: Renovate has no release date for most registries, so the sweep dates the images itself.
   if ! youngest=$(pr_youngest_image "$num" "$head"); then
     echo "::warning::#$num: could not date its images — held, not merged."

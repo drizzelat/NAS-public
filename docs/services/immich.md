@@ -116,7 +116,7 @@ in **both German and English**, so it uses a language-flexible model.
 
 ### Upgrade
 
-- Server/ML, the custom VectorChord Postgres and Valkey are all `tag@sha256:digest`-pinned (exact versions in the compose file). Renovate opens the PRs: server + ML go through the review sweep (their **major** bumps are labelled `needs-manual-review`); the Postgres image and Valkey are on the sweep's `MERGE_SKIP_IMAGES` and are merged by hand.
+- Server/ML, the custom VectorChord Postgres and Valkey are all `tag@sha256:digest`-pinned (exact versions in the compose file). Renovate opens the PRs: every image goes through the review sweep, and a red review leaves the PR open.
 - **Read Immich release notes before every bump** — Immich ships frequent breaking DB migrations, applied by `immich-server` itself at startup.
 - **A Postgres major bump is not a deploy.** The `18-vectorchordX.Y.Z` image's *major* only moves by hand via the [postgres-major-upgrade runbook](../runbooks/setup-operations/postgres-major-upgrade.md#immich-pgvecto--vectorchord). Renovate only follows that image by digest (its tag updates are disabled in `renovate.json`), so it never crosses a major.
 - **Do not swap the custom Postgres image** for plain Postgres — the vector extension would be missing.

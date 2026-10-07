@@ -37,27 +37,9 @@ while read -r pr; do
   age=$(( (now - granted) / 3600 ))
   [ "$age" -gt "$MAX_AGE_HOURS" ] || continue
 
-  files=$(gh api "repos/$REPO/pulls/$num/files" --paginate --jq '.[].filename' 2>/dev/null) || files=""
   # Not a stack PR: Renovate's own automerge owns it, not the sweep.
+  files=$(gh api "repos/$REPO/pulls/$num/files" --paginate --jq '.[].filename' 2>/dev/null) || files=""
   grep -q '^stacks/.*/docker-compose\.yml$' <<<"$files" || continue
-  skip=""
-  for s in $MERGE_SKIP; do
-    # `if`, not `&&`: the shell has -e set and a failing AND-list would kill the job.
-    if grep -qx "stacks/$s/docker-compose.yml" <<<"$files"; then
-      skip="$s"; break
-    fi
-  done
-  [ -z "$skip" ] || { echo "#$num: MERGE_SKIP ($skip) — cleared-but-unmerged by design."; continue; }
-
-  added=$(gh api "repos/$REPO/pulls/$num/files" --paginate --jq '.[].patch // ""' 2>/dev/null \
-            | grep -E '^\+[[:space:]]*image:' || true)
-  hit=""
-  for img in $MERGE_SKIP_IMAGES; do
-    if printf '%s\n' "$added" | grep -qE "image:[[:space:]]*(docker\.io/library/)?${img}[:@]"; then
-      hit="$img"; break
-    fi
-  done
-  [ -z "$hit" ] || { echo "#$num: stateful image ($hit) — cleared-but-unmerged by design."; continue; }
 
   stale="$stale #$num (cleared ${age}h ago)"
 done < <(jq -c '.[] | select(.headRefName | startswith("renovate/"))' <<<"$open")

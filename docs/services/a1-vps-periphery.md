@@ -13,7 +13,7 @@ All six A1 stacks deploy through it.
 
 - **Stack folder:** `stacks/a1-vps-periphery/`
 - **Compose file:** `stacks/a1-vps-periphery/docker-compose.yml`
-- **Managed by:** the repo is the source of truth; **applied by hand**, never by Komodo.
+- **Managed by:** the repo is the source of truth; **applied by the hourly [periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md) cron**, never by Komodo.
   See [Why not Komodo](#why-not-komodo).
 - **Host copy:** `/home/ubuntu/periphery/docker-compose.yml` (compose project `periphery`, container `komodo-periphery`).
 - **Komodo Server:** `a1-vps`
@@ -49,6 +49,8 @@ unauthenticated Docker socket on `:8120`. Terminals are disabled (`PERIPHERY_DIS
 
 ## Applying a change
 
+The [periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md) cron does this hourly after a merge. These are the by-hand steps, the repair path when it reports a failure.
+
 Run from a clone of this repo, after the change is merged to `main`:
 
 ```sh
@@ -71,8 +73,8 @@ The `up -d` recreates the periphery, so Komodo shows Server `a1-vps` as unreacha
 ## Version pinning
 
 Pinned to `2.3.3@sha256:…`, the multi-arch manifest list, identical on all three hosts. Core and every
-periphery move together ([komodo.md → Upgrade](komodo.md#upgrade)): Renovate groups the two images and holds them back from the merge
-sweep, so bump Core first, then apply the three peripheries by hand.
+periphery move together ([komodo.md → Upgrade](komodo.md#upgrade)): Renovate groups the two images into one PR, and a merge deploys only Core, and the
+[periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md) cron applies the peripheries once Core runs the new pin.
 
 ## Related
 

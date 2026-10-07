@@ -188,10 +188,8 @@ curl "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" 
 ### Upgrade
 
 - App and `db` (**Postgres 18**) are pinned `tag@sha256:…` (exact versions in the compose file).
-  Renovate opens the PRs. The app goes through the review sweep; its **major** bumps are labelled
-  `needs-manual-review` (DB migrations), and the v3.21 `email_verified` lockout arrived in a
-  *minor*, which is why every bump is reviewed. Postgres is on the sweep's `MERGE_SKIP_IMAGES` and
-  is merged by hand.
+  Renovate opens the PRs. Both go through the review sweep. The v3.21 `email_verified` lockout
+  arrived in a *minor*, which is why every bump is reviewed by its release notes.
 
 ### Restore from backup
 

@@ -81,30 +81,10 @@
       "labels": ["major-update"]
     },
     {
-      "description": "Stateful / blast-radius-critical images (databases, cache, SSO, and the edge's own Caddy build): a bad bump means data loss, full auth lockout (authentik fronts the proxied services), or every site down (ghcr.io/drizzelat/nas-caddy is built from this repo, so its digest PR shows a new digest but not which branch built it). ghcr.io/drizzelat/nas-jellyfin is here for the same reason, and because a new Jellyfin release in it needs the adaptive bitrate patches tested on a scratch instance first (docs/runbooks/setup-operations/jellyfin-abr-image.md). Since the review workflow now gates every stack PR, this rule no longer changes what merges — it keeps the needs-manual-review label so these PRs are obvious in the list and in the GitHub email, and it keeps automerge pinned false in case the docker-compose rule above is ever relaxed. immich-app/postgres is here too (its major/minor/patch are disabled below, so only digests move). Keep this list in sync with MERGE_SKIP_IMAGES in renovate-pr-review.yml, which is what actually holds these PRs back from the sweep.",
-      "matchManagers": ["docker-compose"],
-      "matchPackageNames": [
-        "postgres",
-        "docker.io/library/postgres",
-        "docker.io/library/mariadb",
-        "valkey/valkey",
-        "docker.io/library/redis",
-        "ghcr.io/goauthentik/server",
-        "ghcr.io/immich-app/postgres",
-        "ghcr.io/drizzelat/nas-caddy",
-        "ghcr.io/drizzelat/nas-jellyfin",
-        "docker.io/library/mongo"
-      ],
-      "automerge": false,
-      "labels": ["needs-manual-review"]
-    },
-    {
-      "description": "Komodo is the CONTROL PLANE (docs/services/komodo.md → Upgrade): Core and all three peripheries must move together, a v2 minor can break the Core-periphery transport, and the peripheries are hand-applied, so a merged bump deploys nothing on its own and leaves every host drifting until someone applies it. Grouped so Core and Periphery arrive in one PR. Never swept up: both images are on MERGE_SKIP_IMAGES in renovate-pr-review.yml, and mongo sits in the stateful rule above.",
+      "description": "Komodo Core and Periphery move together (docs/services/komodo.md → Upgrade), so they arrive in one PR.",
       "matchManagers": ["docker-compose"],
       "matchPackageNames": ["ghcr.io/moghtech/komodo-core", "ghcr.io/moghtech/komodo-periphery"],
-      "groupName": "komodo",
-      "automerge": false,
-      "labels": ["needs-manual-review", "control-plane"]
+      "groupName": "komodo"
     },
     {
       "description": "FileBrowser Quantum ships two tag lines from one repo: `<x.y.z>-stable` and `<x.y.z>-beta` (the 2.x rewrite). BOTH are semver prereleases, so a `-stable` pin is itself unstable and Renovate will happily offer `2.0.5-beta` as the next major. Constrain it to the stable line; moving to 2.x is a hand-edit once it ships stable. Same class of trap as the portainer-ee tag lines above.",
@@ -139,18 +119,6 @@
       "versioning": "regex:^v?(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)(?:_v\\d+(?:\\.\\d+)*)?-ls(?<build>\\d+)$"
     },
     {
-      "description": "App images that run irreversible DB schema migrations on first boot: gate MAJOR only to manual review. The deploy auto-rollback reverts the compose pin but NOT a migrated database, so a bad major = old image can't read the new schema = restore-from-dump. patch/minor/digest go through the review sweep like any other stack PR. Both immich images are listed so server + machine-learning never diverge across a major.",
-      "matchManagers": ["docker-compose"],
-      "matchPackageNames": [
-        "ghcr.io/immich-app/immich-server",
-        "ghcr.io/immich-app/immich-machine-learning",
-        "ghcr.io/mealie-recipes/mealie"
-      ],
-      "matchUpdateTypes": ["major"],
-      "automerge": false,
-      "labels": ["needs-manual-review", "major-update"]
-    },
-    {
       "description": "immich's custom Postgres uses a bespoke vendor tag (18-vectorchordX.Y.Z); only follow it by digest. Bump the tag manually per immich release notes.",
       "matchPackageNames": ["ghcr.io/immich-app/postgres"],
       "matchUpdateTypes": ["major", "minor", "patch"],
@@ -173,7 +141,7 @@
       "platformAutomerge": false
     },
     {
-      "description": "Everything stacks/caddy/Dockerfile builds from - both caddy base images and the Go modules of the customManager above - in one PR. Merging it only rebuilds ghcr.io/drizzelat/nas-caddy on main (build-caddy-image.yml); the edge moves when the digest PR that follows is merged by hand (MERGE_SKIP_IMAGES). One PR per batch = one build and one digest PR, not one of each per module.",
+      "description": "Everything stacks/caddy/Dockerfile builds from - both caddy base images and the Go modules of the customManager above - in one PR. Merging it only rebuilds ghcr.io/drizzelat/nas-caddy on main (build-caddy-image.yml); the edge moves when the digest PR that follows is reviewed and merged like any other. One PR per batch = one build and one digest PR, not one of each per module.",
       "matchFileNames": ["stacks/caddy/Dockerfile"],
       "groupName": "caddy image build"
     },
@@ -190,7 +158,7 @@
       "allowedVersions": "<23"
     },
     {
-      "description": "Everything stacks/jellyfin/Dockerfile builds from - the linuxserver/jellyfin base, and the .NET SDK and Node images the patched Jellyfin.Api.dll and web client are compiled with - in one PR. Its build-jellyfin-image check shows whether the patches still apply to a new Jellyfin release. Merging it only rebuilds ghcr.io/drizzelat/nas-jellyfin on main; the server moves when the nas-jellyfin PR that follows is merged by hand (MERGE_SKIP_IMAGES).",
+      "description": "Everything stacks/jellyfin/Dockerfile builds from - the linuxserver/jellyfin base, and the .NET SDK and Node images the patched Jellyfin.Api.dll and web client are compiled with - in one PR. Its build-jellyfin-image check shows whether the patches still apply to a new Jellyfin release. Merging it only rebuilds ghcr.io/drizzelat/nas-jellyfin on main; the server moves when the nas-jellyfin PR that follows is reviewed and merged like any other.",
       "matchFileNames": [
         "stacks/jellyfin/Dockerfile"
       ],

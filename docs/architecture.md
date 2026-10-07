@@ -312,8 +312,8 @@ flowchart TB
   subgraph github["GitHub"]
     pr["pull request"]
     gates["required checks, GitHub-hosted runners<br>validate (compose · policy · Caddyfile · shellcheck · docs-drift · gitleaks) · renovate-review"]
-    sweep["merge sweep, 05:20 local time<br>only DELTA: NOOP or RISK: LOW"]
-    byhand["merge by hand<br>DBs · SSO · self-built images · control plane · anything flagged"]
+    sweep["merge sweep, 05:20 local time<br>green renovate-review only"]
+    byhand["merge by hand<br>your own PRs · a red verdict you approved"]
     mainb[("main")]
   end
 
@@ -333,7 +333,7 @@ flowchart TB
   author --> pr
   renovate --> pr
   pr --> gates
-  gates -->|"stack bump, cleared"| sweep
+  gates -->|"Renovate stack bump, green"| sweep
   gates -->|"everything else"| byhand
   sweep --> mainb
   byhand --> mainb
@@ -354,9 +354,8 @@ flowchart TB
 ```
 
 - **Renovate raises every image bump; nothing merges one blind.** Each stack PR gets an image-delta
-  check and a Claude risk verdict (`renovate-review`), and the morning sweep merges only a no-op or
-  `RISK: LOW`. Databases, SSO, the self-built images and the Komodo control plane are always merged
-  by hand — [scheduled-tasks.md → Renovate](scheduled-tasks.md#renovate--dependency-update-prs-github-not-host).
+  check and a Claude risk verdict (`renovate-review`), and the morning sweep merges a PR when
+  it is green (a no-op or `RISK: LOW`) and leaves a red one alone — [scheduled-tasks.md → Renovate](scheduled-tasks.md#renovate--dependency-update-prs-github-not-host).
 - **Self-built images** (`nas-caddy`, `nas-jellyfin`, the A1's Tor bridges) are built from their
   `stacks/<name>/Dockerfile` by GitHub-hosted workflows and pushed to ghcr.io. Only `main` pushes;
   a new build reaches a host when its compose pin moves in a pull request.
@@ -365,8 +364,8 @@ flowchart TB
   tears one down — [deploy-stacks](runbooks/setup-operations/deploy-stacks.md). Komodo's hourly
   `reconcile-owned` Procedure deploys anything a lost run left behind.
 - **`komodo/resources.toml` picks the host**, one `server` per Stack.
-- **Some folders sit outside this path**, applied by hand:
-  - The four peripheries, because a control plane cannot redeploy the transport it deploys through.
+- **Some folders sit outside this path**:
+  - The four peripheries, applied by an hourly NAS cron over SSH ([periphery-auto-apply](runbooks/setup-operations/periphery-auto-apply.md)), because a control plane cannot redeploy the transport it deploys through.
   - `komodo`, which Komodo's `deploy-komodo` Procedure deploys hourly, because Core cannot be
     deployed by a CI job that talks to Core.
   - `github-runner`, which Komodo's `deploy-runner` Procedure deploys between jobs, because no job

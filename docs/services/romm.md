@@ -130,8 +130,7 @@ Komodo → Stacks → `romm` → **Deploy** (or **Restart**). Or push to `stacks
 ### Upgrade
 
 Renovate opens the PRs. `rommapp/romm` goes through the review sweep — read RomM's release notes
-for DB-migration warnings. `mariadb` is on the sweep's `MERGE_SKIP_IMAGES`, so its bumps are merged
-by hand. Rollback = revert the commit + redeploy (for the app; see below for the database).
+for DB-migration warnings. `mariadb` goes through the same review. Rollback = revert the commit + redeploy (for the app; see below for the database).
 
 - **MariaDB stays on the 12.3 LTS line.** `renovate.json` caps `mariadb` to `12.3`, so Renovate
   offers only its digests and patches; rolling releases (12.4+, 13.x) never open a PR. Moving to the

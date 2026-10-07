@@ -71,9 +71,7 @@ Jellyfin and the *arr suite, which it did as part of `mediaserver`.
 
 ### Upgrade
 
-Pinned `tag@sha256:digest`. The Postgres image is on the stateful/blast-radius list in
-`renovate.json` (labelled `needs-manual-review`) and on the sweep's `MERGE_SKIP_IMAGES`, so its bumps
-are merged by hand; the GameVault image goes through the normal review sweep. GameVault's Postgres migrated
+Pinned `tag@sha256:digest`. Renovate bumps for the Postgres and GameVault images both go through the review sweep. GameVault's Postgres migrated
 17→18 on 2026-07-02 — see the
 [postgres-major-upgrade runbook](../runbooks/setup-operations/postgres-major-upgrade.md).
 

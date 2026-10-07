@@ -303,7 +303,7 @@ for s in $HAND_APPLIED; do
   fi
   checked=$((checked + 1))
   if [[ "$have" != "$want" ]]; then
-    fail "periphery config: komodo-periphery on $server runs config ${have:0:12}, stacks/$s/docker-compose.yml hashes to ${want:0:12}; apply it by hand (docs/services/$s.md)"
+    fail "periphery config: komodo-periphery on $server runs config ${have:0:12}, stacks/$s/docker-compose.yml hashes to ${want:0:12}; the periphery-update cron applies it, or do it by hand (docs/services/$s.md)"
   fi
 done
 [[ -z "$unchecked" ]] || say "NOTE  periphery config: unchecked, applied with a compose version neither the runner ($local_ver) nor the NAS can reproduce:$unchecked"

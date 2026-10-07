@@ -313,7 +313,7 @@ is the part a blueprint cannot do.
 ### Upgrade
 
 - Server + worker are hard-pinned to one `ghcr.io/goauthentik/server` `tag@sha256:…` (the `AUTHENTIK_TAG`/`AUTHENTIK_IMAGE` env override was dropped — a fixed digest conflicts with a templated tag); Postgres is a pinned `*-alpine` `tag@sha256:…`. Exact versions live in `stacks/authentik/docker-compose.yml`.
-- Renovate opens the PR (server and worker move together in one stack PR). Both images are on the sweep's `MERGE_SKIP_IMAGES`, so it is **merged by hand** — **read the Authentik release notes for breaking changes** first. The worker runs DB migrations on start.
+- Renovate opens the PR (server and worker move together in one stack PR). The review sweep merges it when green. Authentik uses CalVer, so **read the release notes for breaking changes** on a red one. The worker runs DB migrations on start.
 - **Never change `AUTHENTIK_SECRET_KEY`** — it invalidates sessions/tokens.
 
 ### Restore from backup

@@ -209,23 +209,6 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
           # Seconds to let one merge's deploy-stacks run finish before merging the next.
           DEPLOY_WAIT: 420
-          # Stack folders never swept up, however the review graded them — merge by hand. None today.
-          MERGE_SKIP: ""
-          # Same, but matched on the IMAGE a PR bumps rather than the stack folder, so an
-          # app bump still sweeps while its database does not. Copies held_images in .github/estate.yml,
-          # as do renovate.json's hold rules; docs-drift.py fails a PR where they differ.
-          MERGE_SKIP_IMAGES: >-
-            postgres
-            valkey/valkey
-            redis
-            mariadb
-            ghcr.io/goauthentik/server
-            ghcr.io/immich-app/postgres
-            ghcr.io/drizzelat/nas-caddy
-            ghcr.io/drizzelat/nas-jellyfin
-            mongo
-            ghcr.io/moghtech/komodo-core
-            ghcr.io/moghtech/komodo-periphery
         run: scripts/review/merge-sweep.sh
 
   # DEAD-MAN'S SWITCH: cleared PRs merge silently, so a dead sweep looks like a
@@ -243,21 +226,5 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          MERGE_SKIP: ""
-          # Must mirror the sweep's list (held_images in .github/estate.yml, checked by docs-drift.py),
-          # or every held stateful bump alarms as "cleared but never merged" — which is by design,
-          # not a broken sweep.
-          MERGE_SKIP_IMAGES: >-
-            postgres
-            valkey/valkey
-            redis
-            mariadb
-            ghcr.io/goauthentik/server
-            ghcr.io/immich-app/postgres
-            ghcr.io/drizzelat/nas-caddy
-            ghcr.io/drizzelat/nas-jellyfin
-            mongo
-            ghcr.io/moghtech/komodo-core
-            ghcr.io/moghtech/komodo-periphery
           MAX_AGE_HOURS: 24
         run: scripts/review/stale-alarm.sh

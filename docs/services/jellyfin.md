@@ -195,8 +195,10 @@ commit the stock files were built from:
 - **[`build-jellyfin-image.yml`](../../.github/workflows/build-jellyfin-image.yml) builds it** on a
   GitHub-hosted runner and checks that both patched parts are in the image. A pull request only
   builds. `main` pushes `ghcr.io/drizzelat/nas-jellyfin:<linuxserver tag>` and prints the pin.
-- **The compose pin moves by hand**, like `nas-caddy`: the sweep never merges a `nas-jellyfin` bump
-  (`MERGE_SKIP_IMAGES`). A Dockerfile bump only rebuilds the image.
+- **The compose pin moves through a Renovate PR that the review always fails**: the agent prompt makes any
+  `nas-jellyfin` bump `RISK: REVIEW`, so test the new tag on a scratch instance, then approve the PR and
+  re-run the review ([hand-merge route](../runbooks/setup-operations/renovate-pr-review.md#merging-a-held-pr-by-hand)).
+  A Dockerfile bump only rebuilds the image.
 - **The package is public**, so the NAS pulls it without a registry credential. The image carries
   modified GPL code; its source is upstream plus the two patch files, which the public mirror
   publishes.

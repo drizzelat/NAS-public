@@ -25,7 +25,7 @@ the mounts would stay on the deleted directory, and those Stacks' `post_deploy` 
 
 - **Stack folder:** `stacks/nas-periphery/`
 - **Compose file:** `stacks/nas-periphery/docker-compose.yml`
-- **Managed by:** the repo is the source of truth; **applied by hand**, never by Komodo.
+- **Managed by:** the repo is the source of truth; **applied by the hourly [periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md) cron**, never by Komodo.
   See [Why not Komodo](#why-not-komodo).
 - **Host copy:** the on-NAS clone, `/mnt/apps/scripts/nas/stacks/nas-periphery/`, which `git-pull-nas.sh` keeps on `main` (compose project `periphery`, container `komodo-periphery`).
 - **Komodo Server:** `nas`
@@ -77,6 +77,8 @@ Only the NAS needs this. The VPS peripheries log no denials (0 on the A1 in 15 m
 
 ## Applying a change
 
+The [periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md) cron does this hourly after a merge. These are the by-hand steps, the repair path when it reports a failure.
+
 Run after the change is merged **and** the on-NAS clone has pulled it (`git -C /mnt/apps/scripts/nas log -1`):
 
 ```sh
@@ -96,8 +98,8 @@ The `up -d` recreates the periphery, so Komodo shows Server `nas` as unreachable
 ## Version pinning
 
 Pinned to `2.3.3@sha256:…`, the multi-arch manifest list, identical on all three hosts. Core and every
-periphery move together ([komodo.md → Upgrade](komodo.md#upgrade)): Renovate groups the two images and holds them back from the merge
-sweep, so bump Core first, then apply the three peripheries by hand.
+periphery move together ([komodo.md → Upgrade](komodo.md#upgrade)): Renovate groups the two images into one PR, and a merge deploys only Core, and the
+[periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md) cron applies the peripheries once Core runs the new pin.
 
 ## Related
 

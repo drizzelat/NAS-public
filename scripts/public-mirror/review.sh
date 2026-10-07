@@ -49,7 +49,14 @@ size=$(wc -c <"$work/filtered.diff")
 [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ] \
   || verdict HOLD "Neither CLAUDE_CODE_OAUTH_TOKEN nor ANTHROPIC_API_KEY is set."
 
-{ echo "# Changed files"; echo; cat "$stage/files.txt"; echo; echo "# Diff"; echo; cat "$work/filtered.diff"; } >"$work/input"
+# List only the files the model can see a diff for (plus deletions, which the instructions explain). A file whose
+# only change was a pin has no hunk left; listed as `M` with nothing below it, it reads as a truncated diff and HOLDs.
+awk -F'\t' '
+  NR == FNR { if ($0 ~ /^diff --git /) { p = $0; sub(/^.* b\//, "", p); seen[p] = 1 } next }
+  $1 ~ /^D/ || ($NF in seen)
+' "$work/filtered.diff" "$stage/files.txt" >"$work/files.txt"
+
+{ echo "# Changed files"; echo; cat "$work/files.txt"; echo; echo "# Diff"; echo; cat "$work/filtered.diff"; } >"$work/input"
 
 # No tools: the diff arrives on stdin, so nothing in it can make the model read or run anything.
 # Run outside the checkout, or the repo's CLAUDE.md would be loaded as instructions.
