@@ -60,6 +60,8 @@ services:
       - proxy_jellyfin
       - proxy_romm
 
+
+
   # Lives in this stack because the bouncer it serves is compiled into Caddy. See docs/services/caddy.md.
   crowdsec:
     image: crowdsecurity/crowdsec:v1.8.1@sha256:0f2523fa61ef507f15d953045cface490cc880670c62f2755ced17524107f71a
@@ -175,3 +177,7 @@ networks:
     name: proxy_jellyfin
   proxy_romm:
     name: proxy_romm
+
+
+
+
