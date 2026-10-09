@@ -9,7 +9,7 @@ RUN xcaddy build \
       --with github.com/hslatman/caddy-crowdsec-bouncer/http@v0.14.1 \
       --with github.com/hslatman/caddy-crowdsec-bouncer/appsec@v0.14.1 \
       --replace golang.org/x/crypto=golang.org/x/crypto@v0.57.0 \
-      --replace golang.org/x/net=golang.org/x/net@v0.59.0 \
+      --replace golang.org/x/net=golang.org/x/net@v0.60.0 \
       --replace golang.org/x/text=golang.org/x/text@v0.42.0 \
       --replace google.golang.org/grpc=google.golang.org/grpc@v1.84.0
 
