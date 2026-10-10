@@ -72,6 +72,9 @@ Kept in the vault (`scripts/secrets.sh edit authentik`); `scripts/secrets.sh pus
   acquisition names `authentik-server-1`) and setting `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS`,
   which changes which `X-Forwarded-For` entry Authentik believes.
 - PostgreSQL is **Postgres 18** (`*-alpine`), pinned `tag@sha256:…` in the compose file so an unreviewed bump can't break the DB schema. Migrated 16→18 on 2026-07-02 (versioned datadir) — see [postgres-major-upgrade runbook](../runbooks/setup-operations/postgres-major-upgrade.md).
+- **`ak shell` inside `worker` or `server` can OOM-kill that container.** The shell is a second Django
+  process (about 300 MB) in the same 1G cgroup, so a container above roughly 700 MiB is killed and
+  restarts. Check `docker stats` first.
 - The worker runs **without** the Docker socket or root — only the embedded outpost is used (no
   Docker-type outpost needs host Docker access). If a Docker outpost is added later, harden via a
   socket proxy instead of remounting the raw socket — see
@@ -120,7 +123,11 @@ Everything else, and some of it is load-bearing:
   [Application access](#application-access-the-login-allowlist).
 - **Certificates** (`authentik Self-signed Certificate`, the internal JWT certificate) — private key
   material.
-- **The brand** (default flows, branding) and the `Local Docker connection` service connection.
+- **The brand** (default flows, branding).
+- **No Docker service connection.** The default `Local Docker connection` was deleted on 2026-10-09:
+  the worker has no socket, so its `outpost_service_connection_monitor` task failed every 2.5 min and
+  the worker's memory grew about 40 MiB/day until the 1G limit OOM-killed it. Do not recreate it
+  without mounting a socket proxy.
 
 ### Application access (the login allowlist)
 

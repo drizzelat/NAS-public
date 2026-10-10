@@ -6,7 +6,7 @@ x-logging: &default-logging   # json-file never rotates by default. docs/runbook
 
 services:
   github-runner:
-    image: myoung34/github-runner:2.337.0-ubuntu-noble@sha256:1b947d2475cc6f4c3edf0e91dd879b091857e41a311be917016243479bb34101
+    image: myoung34/github-runner:2.338.0-ubuntu-noble@sha256:2112bde2ee92b7480babfbe3043d0461e322b97ca01e6ac94698895f3dc1f528
     container_name: github-runner
     restart: unless-stopped
     logging: *default-logging

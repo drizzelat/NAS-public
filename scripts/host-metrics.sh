@@ -39,7 +39,7 @@ fi
 # RestartCount is the daemon's own count of policy restarts; a recreate starts it from 0 again.
 ids="$(docker ps -aq 2>/dev/null)"
 # shellcheck disable=SC2086  # one argument per container id
-if [ -n "$ids" ] && rows="$(docker inspect --format '{{.Name}} {{.RestartCount}} {{.Id}}' $ids 2>&1)"; then
+if [ -n "$ids" ] && rows="$(docker inspect --format '{{.Name}} {{.RestartCount}} {{.Id}} {{or (index .Config.Labels "com.docker.compose.project") "-"}}' $ids 2>&1)"; then
   echo "# TYPE docker_container_restarts_total counter" >>"$TMP"
   echo "$rows" | awk '{ sub(/^\//, "", $1); printf "docker_container_restarts_total{name=\"%s\"} %s\n", $1, $2 }' >>"$TMP"
   section docker 1
@@ -47,24 +47,25 @@ if [ -n "$ids" ] && rows="$(docker inspect --format '{{.Name}} {{.RestartCount}}
   # CPU and memory come from the container's own cgroup (v2): the cgroupfs driver puts it under docker/,
   # the systemd driver under system.slice/. Working set = memory.current less reclaimable page cache.
   cpu_out=""; mem_out=""; lim_out=""; seen=0
-  while read -r name _ id; do
+  while read -r name _ id stack; do
     dir=""
     for d in "/sys/fs/cgroup/docker/$id" "/sys/fs/cgroup/system.slice/docker-$id.scope"; do
       [ -r "$d/cpu.stat" ] && dir="$d" && break
     done
     [ -n "$dir" ] || continue   # stopped, or no cgroup under either layout
     name="${name#/}"
+    [ "$stack" = - ] && stack="$name"   # not a compose container: its own group
     usage="$(sed -n 's/^usage_usec //p' "$dir/cpu.stat")"
     current="$(cat "$dir/memory.current")"
     inactive="$(sed -n 's/^inactive_file //p' "$dir/memory.stat")"
     limit="$(cat "$dir/memory.max")"
     [ -n "$usage" ] && [ -n "$current" ] && [ -n "$inactive" ] || continue
     seen=$((seen + 1))
-    cpu_out="${cpu_out}docker_container_cpu_usage_seconds_total{name=\"$name\"} $((usage / 1000000)).$(printf '%06d' $((usage % 1000000)))
+    cpu_out="${cpu_out}docker_container_cpu_usage_seconds_total{name=\"$name\",stack=\"$stack\"} $((usage / 1000000)).$(printf '%06d' $((usage % 1000000)))
 "
-    mem_out="${mem_out}docker_container_memory_working_set_bytes{name=\"$name\"} $((current - inactive))
+    mem_out="${mem_out}docker_container_memory_working_set_bytes{name=\"$name\",stack=\"$stack\"} $((current - inactive))
 "
-    case "$limit" in max) ;; *) lim_out="${lim_out}docker_container_memory_limit_bytes{name=\"$name\"} $limit
+    case "$limit" in max) ;; *) lim_out="${lim_out}docker_container_memory_limit_bytes{name=\"$name\",stack=\"$stack\"} $limit
 " ;; esac
   done <<EOF
 $rows

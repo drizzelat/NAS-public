@@ -39,6 +39,19 @@
           "text": "nas",
           "value": "nas"
         }
+      },
+      {
+        "name": "group",
+        "label": "Group by",
+        "type": "custom",
+        "query": "Stack : stack,Container : name",
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "selected": false,
+          "text": "Stack",
+          "value": "stack"
+        }
       }
     ]
   },
@@ -808,7 +821,7 @@
     {
       "id": 17,
       "type": "timeseries",
-      "title": "CPU by container",
+      "title": "CPU by ${group:text}",
       "gridPos": {
         "h": 9,
         "w": 12,
@@ -839,16 +852,16 @@
             "type": "prometheus",
             "uid": "victoriametrics"
           },
-          "expr": "topk(10, rate(docker_container_cpu_usage_seconds_total{host=\"$host\"}[15m]))",
-          "legendFormat": "{{name}}"
+          "expr": "topk_max(10, sum by ($group) (rate(docker_container_cpu_usage_seconds_total{host=\"$host\"}[15m])))",
+          "legendFormat": "{{$group}}"
         }
       ],
-      "description": "From host-metrics.sh every 5 min on each host, read from the container cgroups. Top 10. 1.0 is one full core."
+      "description": "From host-metrics.sh every 5 min on each host, read from the container cgroups. Top 10 by peak, summed per Docker Compose stack or per container (Group by). 1.0 is one full core."
     },
     {
       "id": 18,
       "type": "timeseries",
-      "title": "Memory by container",
+      "title": "Memory by ${group:text}",
       "gridPos": {
         "h": 9,
         "w": 12,
@@ -879,11 +892,11 @@
             "type": "prometheus",
             "uid": "victoriametrics"
           },
-          "expr": "topk(10, docker_container_memory_working_set_bytes{host=\"$host\"})",
-          "legendFormat": "{{name}}"
+          "expr": "topk_max(10, sum by ($group) (docker_container_memory_working_set_bytes{host=\"$host\"}))",
+          "legendFormat": "{{$group}}"
         }
       ],
-      "description": "From host-metrics.sh every 5 min on each host, read from the container cgroups. Top 10. Working set: usage less reclaimable page cache."
+      "description": "From host-metrics.sh every 5 min on each host, read from the container cgroups. Top 10 by peak, summed per Docker Compose stack or per container (Group by). Working set: usage less reclaimable page cache."
     },
     {
       "id": 19,
