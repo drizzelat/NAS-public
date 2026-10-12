@@ -8,7 +8,7 @@ x-logging: &default-logging   # json-file never rotates by default. docs/runbook
 
 services:
   obfs4-bridge:
-    image: ghcr.io/drizzelat/obfs4-bridge:0.8.1@sha256:34100a90f6460266114dd6dc64c47a276881242548cb179bdc9dc44b34f26fa3
+    image: ghcr.io/drizzelat/obfs4-bridge:0.8.1@sha256:f190a10ce151dc5d7c2ae225d67308dc64f090f262e8a3dc88462bf8fed3dac9
     container_name: a1-tor-bridge
     restart: unless-stopped
     logging: *default-logging

@@ -1,6 +1,6 @@
 # The official caddy image has neither the Cloudflare DNS provider (needed for the
 # *.example.com wildcard over DNS-01) nor a CrowdSec bouncer. docs/services/caddy.md
-FROM caddy:2.11.6-builder-alpine@sha256:096ec6e825e219175bd5be64b5e7a4000977f701a2bcaab825621d9fb1e1154b AS builder
+FROM caddy:2.11.7-builder-alpine@sha256:aa705b1e8e4bce41a7a30de934c1e00f6821667c1d1206424465065c92cb7674 AS builder
 
 # Every module version is pinned, and Renovate bumps them (customManagers in renovate.json).
 # Each --replace forces a patched dependency Caddy or a plugin still pins — docs/services/caddy.md → Image.
