@@ -59,7 +59,7 @@ services:
 
   # Also the scraper: -promscrape.config removes the need for a separate vmagent.
   victoriametrics:
-    image: victoriametrics/victoria-metrics:v1.153.0@sha256:5eff7af5341e401471002f58d106d399e614a62f3d240f2dbc21901e49eed5dd
+    image: victoriametrics/victoria-metrics:v1.154.0@sha256:4bd592341587d669b7f57d54bbb82bd21ac8675f4e24234b7703a7c0f85197d8
     container_name: victoriametrics
     restart: unless-stopped
     logging: *default-logging
@@ -97,7 +97,7 @@ services:
   # Evaluates the alerting rules. -notifier.blackhole: there is no Alertmanager, because
   # the only working mail path here is the TrueNAS one. docs/services/observability.md#alerting
   vmalert:
-    image: victoriametrics/vmalert:v1.153.0@sha256:0c1c7718b54b03e8559d0f257f31f1bd79ef7fa32ac6e9ed90d7b92a74a4fe76
+    image: victoriametrics/vmalert:v1.154.0@sha256:f11d77f9ff68dfd63c871d0e59ae7b479f9c3fd0e8a685fef690fb88b794d938
     container_name: vmalert
     restart: unless-stopped
     logging: *default-logging
