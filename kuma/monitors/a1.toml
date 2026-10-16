@@ -8,23 +8,33 @@ max_age_hours = 36
 name = "Authentik (SSO)"
 type = "http"
 url = "https://auth.example.com/"
+retry_interval = 40
+maxretries = 2
 
 [[monitor]]
 name = "Files"
 type = "http"
 url = "https://files.example.com"
+retry_interval = 40
+maxretries = 2
 
 [[monitor]]
 name = "Immich API"
 type = "http"
 url = "https://immich.example.com/"
+retry_interval = 40
+maxretries = 2
 
 [[monitor]]
 name = "Mealie"
 type = "http"
 url = "https://mealie.example.com/"
+retry_interval = 40
+maxretries = 2
 
 [[monitor]]
 name = "Jellyfin"
 type = "http"
 url = "https://jellyfin.example.com/health"
+retry_interval = 40
+maxretries = 2

@@ -63,6 +63,8 @@ None. All settings are flags in the compose `command:`.
 - **Bandwidth.** The proxy has no bandwidth limit, and `-capacity` cannot be used (see Configuration).
   *Snowflake traffic per day* on the dashboard shows what it costs. If remote streaming suffers, lower
   [Conduit](conduit.md)'s `--bandwidth` first, which uploads through the same line, then stop this stack.
+- **Memory limit 384 MiB.** Working set sits at 125–150 MiB and bursts to 220–254 MiB with client
+  load (not a leak). At the old 256 MiB cap a burst got it OOM-killed on 2026-10-15; Docker restarts it.
 - **Metric units lie.** `tor_snowflake_proxy_traffic_{inbound,outbound}_bytes_total` count **KB**
   (bytes / 1000; the help text says so), so every dashboard query multiplies by 1000.
   `tor_snowflake_proxy_connections_total` carries a `country` label.
