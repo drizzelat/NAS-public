@@ -55,7 +55,7 @@ name = "Deploy owned stacks if changed"
 # Plain names only, exactly komodo/owned-stacks (scripts/komodo/check-owned.sh enforces both). Never a
 # wildcard or a regex: a Stack that was never deployed counts as changed, so "*" would adopt all 24.
 executions = [
-  { execution.type = "BatchDeployStackIfChanged", execution.params.pattern = "a1-vps-node-exporter, a1-vps-ntp, a1-vps-tor-bridge, a1-vps-webtunnel, a1-vps-kuma, micro-vps-node-exporter, micro-vps-ingress, mealie, romm, books, games, files, immich, arr, downloads, jellyfin, conduit, snowflake, observability, kuma, authentik, adguard, tailscale, caddy" },
+  { execution.type = "BatchDeployStackIfChanged", execution.params.pattern = "a1-vps-node-exporter, a1-vps-ntp, a1-vps-tor-bridge, a1-vps-webtunnel, a1-vps-kuma, micro-vps-node-exporter, micro-vps-ingress, mealie, romm, books, games, files, immich, arr, downloads, jellyfin, conduit, snowflake, observability, kuma, authentik, adguard, tailscale, caddy, infinite-craft" },
 ]
 
 # The runner's own deploy path: no CI job deploys the runner it runs on. Hourly, and the
@@ -302,6 +302,20 @@ webhook_enabled = true
 environment = """
 GAMEVAULT_DB_PW=[[GAMES__GAMEVAULT_DB_PW]]
 """
+
+[[stack]]
+name = "infinite-craft"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/infinite-craft"
+file_paths = ["docker-compose.yml"]
+project_name = "infinite-craft"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+# Fails the deploy unless /app shows the clone's code; a re-clone orphans the mount.
+post_deploy.command = "sh ../../scripts/komodo/mount-matches.sh craft-worker /app app"
 
 [[stack]]
 name = "files"

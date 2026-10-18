@@ -87,7 +87,7 @@
       "groupName": "komodo"
     },
     {
-      "description": "FileBrowser Quantum ships two tag lines from one repo: `<x.y.z>-stable` and `<x.y.z>-beta` (the 2.x rewrite). BOTH are semver prereleases, so a `-stable` pin is itself unstable and Renovate will happily offer `2.0.5-beta` as the next major. Constrain it to the stable line; moving to 2.x is a hand-edit once it ships stable. Same class of trap as the portainer-ee tag lines above.",
+      "description": "FileBrowser Quantum ships two tag lines from one repo: `<x.y.z>-stable` and `<x.y.z>-beta`. BOTH are semver prereleases, so a `-stable` pin is itself unstable and Renovate will happily offer a `-beta` as the next version. Constrain it to the stable line. Same class of trap as the portainer-ee tag lines above.",
       "matchManagers": ["docker-compose"],
       "matchPackageNames": ["gtstef/filebrowser"],
       "allowedVersions": "/-stable$/"

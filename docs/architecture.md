@@ -199,12 +199,14 @@ flowchart LR
   end
 
   romm["romm<br>retro games + SMB share"]
+  craft["infinite-craft<br>recipe crawler + graph page"]
   truenas["TrueNAS web UI<br>the host, not a stack"]
   runner["github-runner<br>no web UI"]
   snowflake["snowflake<br>Tor proxy, host network"]
   proton(["ProtonVPN"])
   a1tor(["Tor bridge on the A1"])
   oraclehosts(["node-exporter on the<br>A1 and the micro VPS"])
+  nealfun(["neal.fun"])
 
   tailscale -->|"remote devices"| caddy
   adguard -.->|"names resolve to the NAS"| caddy
@@ -213,6 +215,8 @@ flowchart LR
   caddy --> media
   caddy --> ops
   caddy --> romm
+  caddy --> craft
+  craft -.->|"crawl, off by default"| nealfun
   caddy --> truenas
   immich -.->|"OIDC"| authentik
   files -.->|"OIDC"| authentik

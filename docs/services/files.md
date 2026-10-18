@@ -36,7 +36,7 @@ holes in a proxy provider.
 | Container path | Host path | Purpose |
 | -------------- | --------- | ------- |
 | `/config` (ro) | `/mnt/apps/komodo/repos/nas/stacks/files` | `config.yaml`, read-only from Komodo's clone. `post_deploy` checks the mount matches the clone ([komodo.md → Rules](komodo.md#config-mounts-come-from-komodos-clone)) |
-| `/state` | `/mnt/apps/files` | SQLite DB (users, shares, index) + preview cache |
+| `/state` | `/mnt/apps/files` | SQLite DB `filebrowser.sqlite` (users, shares, index) + preview cache; `database.db.old` is the retired v1 BoltDB |
 | `/srv/smb_share` | `/mnt/data/smb_share` | The files themselves |
 
 `/config` is the **directory**, not the file: git replaces `config.yaml`'s inode on pull and a
@@ -83,16 +83,17 @@ is how the secret stays out of the committed `config.yaml`. Managed with
 - Every user who gets in has `modify`/`create`/`delete`/`share` on the whole share by default
   (`userDefaults.account.permissions`). Narrow a specific user in Settings → Users after their
   first login; the defaults only apply at creation.
-- `server.externalUrl` is what share links are built from. It has to be the public hostname.
+- `http.externalUrl` is what share links are built from. It has to be the public hostname. The OIDC `redirect_uri` is built from Caddy's `X-Forwarded-Proto`/`-Host` instead, so `http.trustProxyHeaders` stays `true` (the port is not published; only Caddy reaches it).
 - **No local login at all.** Break-glass (Authentik down and you need in), in two steps because the
   DB already has OIDC users and so no admin is auto-created:
   1. Set `auth.methods.password.enabled: true` in `stacks/files/config.yaml` and merge;
      `deploy-stacks` deploys it.
-  2. Mint a local admin: `sudo -n docker exec -it files filebrowser set -u breakglass,<password> -a -c /config/config.yaml`.
+  2. Mint a local admin: `sudo -n docker exec -it files filebrowser user set breakglass --password <password> -c /config/config.yaml`, then `user promote breakglass` (v2 CLI per the 2.0.0 release notes; check `filebrowser user --help`).
 
   Turn password auth back off once Authentik is fixed, and delete that user.
-- Tag line is `<x.y.z>-stable`. `beta` is the 2.x rewrite — `renovate.json` constrains this image
-  to `/-stable$/` so a beta is never offered as a major.
+- Tag line is `<x.y.z>-stable`. `-beta` tags are prereleases — `renovate.json` constrains this image
+  to `/-stable$/` so a beta is never offered.
+- Runs the 2.x line (SQLite, not BoltDB). HTTP settings (`port`, `baseURL`, `externalUrl`) live under `http:`, the database under `server.database`.
 
 ## First-time UI setup
 
@@ -123,6 +124,14 @@ is how the secret stays out of the committed `config.yaml`. Managed with
 - Pinned `tag@sha256:` in the compose file. Renovate opens the PR for the next `-stable`;
   [renovate-pr-review](../../.github/workflows/renovate-pr-review.yml) reviews it and the sweep
   merges it when cleared.
+- **v1 → v2 (one-time).** Before merging the PR that first pins 2.x, on the NAS: copy
+  `/mnt/apps/files/database.db` somewhere outside `apps/files` (or `zfs snapshot apps/files@pre-v2`),
+  then `mv /mnt/apps/files/database.db /mnt/apps/files/database.db.old`. The first start imports
+  users, shares and tokens from `database.db.old` into `filebrowser.sqlite` (log line
+  `Migration completed successfully!`). Skip the `mv` and the import finds nothing: v2 starts with an
+  empty DB, so shares are lost until you restore. Rollback is pin 1.5.8, `mv database.db.old database.db`
+  and restore the old `config.yaml`; the v1 file is never written by v2. Once stable,
+  `server.database.migrateFrom` may be removed; it is a no-op on a populated SQLite DB.
 
 ### Restore from backup
 
@@ -146,7 +155,7 @@ is how the secret stays out of the committed `config.yaml`. Managed with
   `userDefaults` said otherwise. Fix that user in Settings → Users, not in `config.yaml`.
 - **No admin UI despite being in `authentik Admins`** → the group name must match the claim
   exactly, space and capital A included; and the promotion only lands on a fresh login.
-- **Share link opens but the file 404s** → `server.externalUrl` does not match the hostname the
+- **Share link opens but the file 404s** → `http.externalUrl` does not match the hostname the
   link was opened on.
 - **Permission denied browsing files** → container must run as UID/GID 568 to match
   `/mnt/data/smb_share` ownership.

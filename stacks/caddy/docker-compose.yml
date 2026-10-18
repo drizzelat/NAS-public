@@ -55,6 +55,7 @@ services:
       - proxy_observability
       - proxy_arr
       - proxy_books
+      - proxy_craft
       - proxy_downloads
       - proxy_games
       - proxy_jellyfin
@@ -169,6 +170,8 @@ networks:
     name: proxy_arr
   proxy_books:
     name: proxy_books
+  proxy_craft:
+    name: proxy_craft
   proxy_downloads:
     name: proxy_downloads
   proxy_games:

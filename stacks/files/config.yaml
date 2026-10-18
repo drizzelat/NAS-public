@@ -1,13 +1,12 @@
 # Read-only from the on-NAS repo clone. Do NOT add a second `*-config.yaml` here:
 # Quantum merges every sibling matching that suffix into this file.
 server:
-  port: 30052
-  baseURL: "/"
-  database: "/state/database.db"
+  database:
+    path: "/state/filebrowser.sqlite"
+    # One-time v1 BoltDB import; no-op once the SQLite file is populated. docs/services/files.md → Upgrade.
+    migrateFrom: "/state/database.db.old"
   cacheDir: "/state/cache"
   cacheDirCleanup: true
-  # Share links are built from this. It must be the public name, not the container.
-  externalUrl: "https://files.example.com"
   disableUpdateCheck: true
   sources:
     - path: "/srv/smb_share"
@@ -16,8 +15,23 @@ server:
         defaultEnabled: true
         defaultUserScope: "/"
         createUserDir: false
+        # v2 moved file permissions from the user to the source; every user gets all of them.
+        defaultPermissions:
+          view: true
+          download: true
+          modify: true
+          create: true
+          delete: true
   logging:
     - levels: "info|warning|error"
+
+http:
+  port: 30052
+  baseURL: "/"
+  # Share links are built from this. It must be the public name, not the container.
+  externalUrl: "https://files.example.com"
+  # OIDC redirect_uri comes from X-Forwarded-*, not externalUrl. Safe: only Caddy reaches the port.
+  trustProxyHeaders: true
 
 frontend:
   name: "NAS Files"
@@ -49,10 +63,6 @@ userDefaults:
     permissions:
       admin: false
       api: false
-      modify: true
-      create: true
-      delete: true
-      download: true
       share: true
       realtime: true
   ui:

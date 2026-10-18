@@ -20,6 +20,7 @@ hosts:
   lan_only:
     - adguard
     - bazarr
+    - craft
     - games
     - grafana
     - komodo

@@ -17,6 +17,7 @@ One file per service. File name matches the stack folder name under `stacks/`.
 | [Games](games.md) | `stacks/games/` | GameVault and its own Postgres |
 | [GitHub Actions Runner](github-runner.md) | `stacks/github-runner/` | Self-hosted runner: stack deploys through Komodo, nightly health check, deploy-state probe |
 | [Immich](immich.md) | `stacks/immich/` | Self-hosted photo and video backup and gallery with ML features |
+| [Infinite Craft](infinite-craft.md) | `stacks/infinite-craft/` | Recipe crawler and interactive graph page for neal.fun's Infinite Craft, LAN-only; crawl off by default |
 | [Jellyfin (+ Seerr)](jellyfin.md) | `stacks/jellyfin/` | Media player (public, Authentik SSO) and its request UI (LAN-only) |
 | [Komodo Core](komodo.md) | `stacks/komodo/` (deployed by itself, not CI) | The control plane: deploys every stack through a periphery on each host |
 | [Uptime Kuma](kuma.md) | `stacks/kuma/` | Internal uptime monitoring; the external watchdog is [A1 Uptime Kuma](a1-vps-kuma.md) |

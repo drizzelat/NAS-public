@@ -1,0 +1,104 @@
+# Infinite Craft recipe crawler + graph page (LAN-only). Code runs from the Komodo clone, no image build.
+# Docs: docs/services/infinite-craft.md
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-python: &python
+  image: python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
+  restart: unless-stopped
+  logging: *default-logging
+  user: "950:950"
+  read_only: true
+  security_opt:
+    - no-new-privileges=true
+  cap_drop:
+    - ALL
+  tmpfs:
+    - /tmp
+  environment: &python-env
+    TZ: Europe/Berlin
+    PYTHONDONTWRITEBYTECODE: "1"
+    PYTHONUNBUFFERED: "1"
+
+services:
+  craft-worker:
+    <<: *python
+    container_name: craft-worker
+    command: ["python", "/app/worker.py"]
+    environment:
+      <<: *python-env
+      CRAFT_DB: /data/craft.db
+      CRAFT_OUT: /data/www/graph.html
+      CRAFT_CRAWL: ${CRAFT_CRAWL:-0}                  # 0 until the crawl is deliberately enabled
+      CRAFT_API_URL: ${CRAFT_API_URL:-https://neal.fun/api/infinite-craft/pair}
+      CRAFT_MAX_DEPTH: ${CRAFT_MAX_DEPTH:-2}
+      CRAFT_DELAY: ${CRAFT_DELAY:-1.0}
+      CRAFT_BATCH: ${CRAFT_BATCH:-500}                # requests per slice, then the page is rebuilt
+      CRAFT_INTERVAL: ${CRAFT_INTERVAL:-3600}
+      CRAFT_VIZ_MAX_NODES: ${CRAFT_VIZ_MAX_NODES:-6000}   # embedded in the page: the slider's upper end
+      CRAFT_VIZ_SHOW: ${CRAFT_VIZ_SHOW:-2000}             # drawn when the page opens
+      CRAFT_VIZ_MAX_DEPTH: ${CRAFT_VIZ_MAX_DEPTH:-0}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, sys; sys.exit(0 if os.path.exists('/data/www/graph.html') else 1)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 768M
+    volumes:
+      - /mnt/apps/komodo/repos/nas/stacks/infinite-craft/app:/app:ro   # the DIRECTORY, see files
+      - /mnt/apps/infinite-craft:/data
+
+  craft-web:
+    <<: *python
+    container_name: craft-web
+    command: ["python", "-m", "http.server", "8080", "--directory", "/data/www"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8080/graph.html', timeout=4)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+    networks:
+      - default
+      - proxy_craft
+    volumes:
+      - /mnt/apps/infinite-craft:/data:ro
+    depends_on:
+      - craft-worker
+
+  # Own /pair backend. Off unless COMPOSE_PROFILES=backend; needs ANTHROPIC_API_KEY. Not neal.fun's recipes.
+  craft-backend:
+    <<: *python
+    profiles: ["backend"]
+    container_name: craft-backend
+    command: ["python", "/app/backend.py"]
+    environment:
+      <<: *python-env
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CRAFT_BACKEND_DB: /data/backend.db
+      CRAFT_BACKEND_MODEL: ${CRAFT_BACKEND_MODEL:-claude-haiku-5-5}
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+    volumes:
+      - /mnt/apps/komodo/repos/nas/stacks/infinite-craft/app:/app:ro
+      - /mnt/apps/infinite-craft:/data
+
+networks:
+  proxy_craft:
+    external: true
