@@ -24,6 +24,7 @@ One file per service. File name matches the stack folder name under `stacks/`.
 | [NAS periphery](nas-periphery.md) | `stacks/nas-periphery/` (applied by hand, not by Komodo) | Komodo periphery on the NAS |
 | [Mealie](mealie.md) | `stacks/mealie/` | Recipe manager and meal planner (public via Authentik OIDC) |
 | [Observability](observability.md) | `stacks/observability/` | Vector + VictoriaLogs + VictoriaMetrics + Grafana — traffic and service analytics; replaced GoAccess |
+| [Proxmox Backup Server](pbs.md) | `stacks/pbs/` | PBS 4 as the backup target for a remote PVE host, which reaches it through an outbound SSH tunnel |
 | [RomM](romm.md) | `stacks/romm/` | Retro game library — browser emulation (EmulatorJS) + SMB share for GameCube/Wii/Switch |
 | [Runner VM periphery](runner-vm-periphery.md) | `stacks/runner-vm-periphery/` (applied over SSH, not by Komodo) | Komodo periphery inside the runner VM |
 | [Snowflake](snowflake.md) | `stacks/snowflake/` | Tor Snowflake proxy — outbound-only WebRTC relay for censored Tor users |

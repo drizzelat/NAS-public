@@ -1,0 +1,82 @@
+# Proxmox Backup Server plus the SSH tunnel that publishes it on the PVE host. Docs: docs/services/pbs.md
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  pbs:
+    # Unofficial community build of the Proxmox packages; no official PBS image exists.
+    image: ayufan/proxmox-backup-server:v4.2.0-1@sha256:01f685a010025233b649417a317cc175b27920cd64f0429abfdc46a0d8d2e88a
+    container_name: pbs
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "192.168.1.111:8007:8007"   # LAN admin UI; the PVE host reaches it through the tunnel instead
+    stop_signal: SIGHUP
+    security_opt:
+      - no-new-privileges=true
+    # runit starts as root: it chowns its dirs and drops to `backup` for the proxy.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
+    tmpfs:
+      - /run   # PBS auth breaks without a tmpfs /run
+    volumes:
+      - /mnt/apps/pbs/etc:/etc/proxmox-backup
+      - /mnt/apps/pbs/lib:/var/lib/proxmox-backup
+      - /mnt/apps/pbs/logs:/var/log/proxmox-backup
+      - /mnt/data/pbs:/backups   # datastore `main` lives at /backups/main
+    environment:
+      - TZ=Europe/Berlin
+    healthcheck:
+      test: ["CMD", "curl", "-fsk", "-o", "/dev/null", "https://localhost:8007/"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1536M
+
+  tunnel:
+    # Reverse tunnel: PVE's 127.0.0.1:8007 -> pbs:8007, through a jump host.
+    image: jnovack/autossh:2.1.0@sha256:ed527165fbc02ea934a1ab2c7fcc141e72f35616ab6527c8372b94aee1998102
+    container_name: pbs-tunnel
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      - pbs
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    environment:
+      - SSH_KEY_FILE=/tunnel/id_ed25519
+      - SSH_KNOWN_HOSTS_FILE=/tunnel/known_hosts
+      - SSH_OPTIONS=-F /tunnel/ssh_config   # defines pve-host (via jump-host) and pins both host keys
+      - SSH_REMOTE_USER=root
+      - SSH_REMOTE_HOST=pve-host
+      - SSH_MODE=-R
+      - SSH_BIND_IP=127.0.0.1   # loopback on the PVE host only
+      - SSH_TUNNEL_PORT=8007
+      - SSH_TARGET_HOST=pbs
+      - SSH_TARGET_PORT=8007
+    volumes:
+      - /mnt/apps/pbs/tunnel:/tunnel:ro   # key, known_hosts, ssh_config; hand-placed, see docs/services/pbs.md
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M

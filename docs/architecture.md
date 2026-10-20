@@ -203,12 +203,15 @@ flowchart LR
   truenas["TrueNAS web UI<br>the host, not a stack"]
   runner["github-runner<br>no web UI"]
   snowflake["snowflake<br>Tor proxy, host network"]
+  pbs["pbs<br>Proxmox Backup Server<br>+ outbound SSH tunnel"]
+  pvehost(["Remote Proxmox VE host<br>via its jumphost VM"])
   proton(["ProtonVPN"])
   a1tor(["Tor bridge on the A1"])
   oraclehosts(["node-exporter on the<br>A1 and the micro VPS"])
   nealfun(["neal.fun"])
 
   tailscale -->|"remote devices"| caddy
+  pbs ==>|"reverse SSH tunnel, via the jumphost"| pvehost
   adguard -.->|"names resolve to the NAS"| caddy
   caddy --> authentik
   caddy --> personal
@@ -250,6 +253,7 @@ flowchart LR
 - **VictoriaMetrics joins a scraped stack's `proxy_*` network, never its internal one**, so the
   metrics store never shares a network with a database — [observability](services/observability.md).
 - `snowflake` and `node-exporter` run on the host network, outside the `proxy_*` model.
+- `pbs` runs PBS plus an `autossh` container that dials out to the PVE host through its jumphost: nothing connects in, and the PVE host sees PBS on its own loopback — [pbs](services/pbs.md).
 
 ## 4. The media pipeline
 
