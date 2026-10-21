@@ -9,12 +9,12 @@ encrypted WireGuard-based mesh without the FritzBox WireGuard VPN.
 
 This is the **primary** remote-access path. The FritzBox WireGuard VPN is kept
 as a **fallback** because it runs on the router and stays reachable when the NAS
-is powered off (Wake-on-LAN — the board has no IPMI). See [network.md](../network.md).
+is powered off (Wake-on-LAN — the board has no IPMI). See network.md.
 
 **Second consumer of this tailnet: the public ingress.** The Oracle VPS front door reaches Caddy's
 `:8443` listener over this same tailnet (VPS node `100.64.0.12` → NAS peer `nas` `100.64.0.11`). So if this
 subnet router / node goes down, **public sites go down too**, not just remote admin. See
-[micro-vps-ingress.md](micro-vps-ingress.md).
+micro-vps-ingress.md.
 
 ## Stack
 
@@ -27,7 +27,7 @@ subnet router / node goes down, **public sites go down too**, not just remote ad
 
 | Field | Value                                                          |
 | ----- | -------------------------------------------------------------- |
-| URL   | n/a — no web UI. Managed at <https://login.tailscale.com/admin>; the ACL belongs in `tailscale/policy.hujson` ([runbook](../runbooks/setup-operations/tailscale-acl-gitops.md)) |
+| URL   | n/a — no web UI. Managed at <https://login.tailscale.com/admin>; the ACL belongs in `tailscale/policy.hujson` (runbook) |
 | Port  | None on the LAN. Outbound UDP 41641 + DERP relays only         |
 | Auth  | Tailscale account; node joins via `TS_AUTHKEY`                 |
 
@@ -69,7 +69,7 @@ compose file, not env vars.
   `.111:53` is a local delivery and works. This is why **Split DNS / AdGuard
   resolution over Tailscale only works in host mode.**
 - **No LAN port exposed** — Tailscale is outbound-only (UDP 41641 + DERP), so
-  nothing is added to the exposed-ports table in [network.md](../network.md).
+  nothing is added to the exposed-ports table in network.md.
 - **Subnet-route SNAT is disabled** (`--snat-subnet-routes=false`). Default-on
   SNAT masquerades tunnel traffic to the NAS IP, which made the edge proxy see a
   Docker gateway instead of the client and refuse every LAN-only service. With SNAT

@@ -8,7 +8,7 @@ does the work. If it is down, Komodo can neither deploy nor inspect anything her
 running either way.
 
 **Komodo deploys both application stacks on this host through it**: [micro-vps-node-exporter](micro-vps-node-exporter.md) and
-[micro-vps-ingress](micro-vps-ingress.md), both in `komodo/owned-stacks`. Their env comes from Komodo
+micro-vps-ingress, both in `komodo/owned-stacks`. Their env comes from Komodo
 Variables (ingress has none), and the periphery keeps their clone at `/etc/komodo/repos/nas`, which
 is also the ingress's break-glass.
 
@@ -19,7 +19,7 @@ and `MemAvailable` stayed at or above 341 MiB.
 
 - **Stack folder:** `stacks/micro-vps-periphery/`
 - **Compose file:** `stacks/micro-vps-periphery/docker-compose.yml`
-- **Managed by:** the repo is the source of truth; **applied by the hourly [periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md) cron**, never by Komodo.
+- **Managed by:** the repo is the source of truth; **applied by the hourly periphery auto-apply cron**, never by Komodo.
   See [Why not Komodo](#why-not-komodo).
 - **Host copy:** `/home/ubuntu/periphery/docker-compose.yml` (compose project `periphery`, container `komodo-periphery`).
 - **Komodo Server:** `micro-vps`
@@ -56,7 +56,7 @@ unauthenticated Docker socket on `:8120`. Terminals are disabled (`PERIPHERY_DIS
 
 ## Applying a change
 
-The [periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md) cron does this hourly after a merge. These are the by-hand steps, the repair path when it reports a failure.
+The periphery auto-apply cron does this hourly after a merge. These are the by-hand steps, the repair path when it reports a failure.
 
 Run from a clone of this repo, after the change is merged to `main`:
 
@@ -81,7 +81,7 @@ The `up -d` recreates the periphery, so Komodo shows Server `micro-vps` as unrea
 
 Pinned to `2.3.3@sha256:…`, the multi-arch manifest list, identical on all three hosts. Core and every
 periphery move together ([komodo.md → Upgrade](komodo.md#upgrade)): Renovate groups the two images into one PR, and a merge deploys only Core, and the
-[periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md) cron applies the peripheries once Core runs the new pin.
+periphery auto-apply cron applies the peripheries once Core runs the new pin.
 
 ## Related
 

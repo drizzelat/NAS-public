@@ -7,7 +7,7 @@ behind it. The whole edge policy is one reviewable file, [`stacks/caddy/Caddyfil
 `caddy validate` required check on every pull request.
 
 Public internet traffic reaches it from the **Oracle VPS** front door over Tailscale — see
-[micro-vps-ingress.md](micro-vps-ingress.md). It replaced NPMplus in 2026-09.
+micro-vps-ingress.md. It replaced NPMplus in 2026-09.
 
 ## Stack
 
@@ -87,7 +87,7 @@ Three containers:
 ## Environment variables
 
 Set as Komodo Variables `CADDY__<KEY>` (`scripts/secrets.sh push caddy`); the plaintext lives in the gitignored `secrets/stack-env/caddy.env`
-and the ciphertext in `secrets.enc/` — see the [secret-sync runbook](../runbooks/setup-operations/secret-sync.md).
+and the ciphertext in `secrets.enc/` — see the secret-sync runbook.
 
 | Variable | Description |
 | -------- | ----------- |
@@ -96,7 +96,7 @@ and the ciphertext in `secrets.enc/` — see the [secret-sync runbook](../runboo
 
 There is deliberately **no ACME contact address**. Nothing e-mails you about a
 failing renewal, so certificate expiry is a Kuma check, not an assumption — *Caddy wildcard cert
-(\*.example.com)*, see the [kuma-monitors runbook](../runbooks/setup-operations/kuma-monitors.md).
+(\*.example.com)*, see the kuma-monitors runbook.
 It notifies at 21/14/7 days remaining, all of which are past the point Caddy should have renewed,
 so it fires only when renewal has already failed.
 
@@ -117,8 +117,8 @@ That site block also **default-denies**: any `*.example.com` name with no block 
 
 Five hostnames are public (`auth`, `files`, `immich`, `jellyfin`, `mealie`); every other one is
 LAN-only. The
-full per-host list is the access-control section of [network.md](../network.md), and
-[`edge-access-policy.yml`](../../.github/workflows/edge-access-policy.yml) asserts it every 6 h.
+full per-host list is the access-control section of network.md, and
+`edge-access-policy.yml` asserts it every 6 h.
 
 LAN-only hosts import one snippet:
 
@@ -139,7 +139,7 @@ LAN-only hosts import one snippet:
 
 A non-matching client gets `abort` — the connection is closed with no HTTP response, so a refusal
 does not confirm the vhost exists. On the wire that is **curl exit 52**, see the
-[probe runbook](../runbooks/setup-operations/edge-access-policy-probe.md).
+probe runbook.
 
 ### The `:8443` PROXY-protocol listener
 
@@ -287,7 +287,7 @@ is not in effect and every ban this raises will hit a PoP.
 `xmlrpc` / `/passwd` / `.aws` / `actuator` / `struts` path class, on every public vhost except
 `files` (below). It exists because CrowdSec cannot win this one on timing.
 
-All three [standing manual bans](../runbooks/setup-operations/crowdsec-bouncer.md#standing-manual-bans)
+All three standing manual bans
 have the same shape: an IP nobody has seen before fires a few hundred requests at a
 secret-harvest wordlist and is gone. The 2026-09-24 burst ran **13:38:50 to 13:39:06 UTC — 16
 seconds**. CrowdSec's scenarios fired and banned it, exactly as designed; it had already left. A
@@ -341,7 +341,7 @@ EOF
 
 Jellyfin's password endpoints are blocked at the public edge only, so the web UI logs in through
 Authentik while Seerr and native apps keep using local credentials on the LAN — see the
-[jellyfin-authentik-sso runbook](../runbooks/setup-operations/jellyfin-authentik-sso.md). The
+jellyfin-authentik-sso runbook. The
 public edge *is* a separate site block (`https://jellyfin.example.com:8443`). `/sso/*` and
 `/QuickConnect/*` stay open by not being matched.
 
@@ -399,7 +399,7 @@ point: public share and upload links have to resolve without an Authentik sessio
 
 ### Retiring a name
 
-Delete its vhost and drop it from `LAN_ONLY_HOSTS` and [network.md](../network.md). Nothing is
+Delete its vhost and drop it from `LAN_ONLY_HOSTS` and network.md. Nothing is
 needed at Cloudflare or AdGuard: both cover `*.example.com` with a wildcard.
 
 A retired name still resolves and TLS still completes, because the wildcard certificate matches —
@@ -456,19 +456,19 @@ is `main`-only now, so a `nas-caddy` digest PR is reviewed and swept like any ot
 
 - The 18 `proxy_*` Docker networks: `proxy_network` (CrowdSec, and the `victoriametrics` scrape)
   plus one per proxied stack. This stack **defines** them; every other stack consumes them as
-  `external: true`. Adding one is [network.md](../network.md) → Adding a New Stack. They still
+  `external: true`. Adding one is network.md → Adding a New Stack. They still
   carry the `npm` compose project label from before Caddy, so every `caddy` deploy logs a harmless
   `network … was not created for project "caddy"` warning.
 - The [observability stack](observability.md) also reads `/mnt/apps/caddy/logs/access.log` — a
   second reader alongside CrowdSec, which is not a conflict — and puts `victoriametrics` on
   `proxy_network` to scrape `crowdsec:6060`.
 - `crowdsec`, reached as `crowdsec:8080` (LAPI) and `crowdsec:7422` (AppSec) over `proxy_network`.
-- **Public reachability** depends on the [VPS ingress](micro-vps-ingress.md) + Tailscale.
+- **Public reachability** depends on the VPS ingress + Tailscale.
 
 ## Notes
 
 - **CrowdSec parses Caddy's JSON access log with `crowdsecurity/caddy`** — see the
-  [crowdsec-bouncer runbook](../runbooks/setup-operations/crowdsec-bouncer.md). Verify with
+  crowdsec-bouncer runbook. Verify with
   `cscli metrics show acquisition`: "Lines parsed" must be non-zero.
 - **AppSec fails open** (`appsec_fail_open`). CrowdSec stops with its own stack, and a restart must
   not take every site down with it. LAPI remediation is unaffected.

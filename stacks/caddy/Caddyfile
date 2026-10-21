@@ -1,0 +1,106 @@
+# Example only. The deployed Caddyfile is private; this shows its structure, not its rules or its host list.
+# Ports 80/443 serve the LAN and the tailnet; :8443 is the listener the VPS ingress forwards public traffic to.
+# Rationale: docs/services/caddy.md.
+{
+	# Plugin directives have no built-in place in the handler order.
+	order crowdsec first
+	order appsec after crowdsec
+
+	# Only :8443 takes PROXY protocol, and only from the ingress VPS's tailnet address.
+	# `proxy_protocol` must precede `tls`: it reads plaintext at the head of the connection.
+	servers :8443 {
+		listener_wrappers {
+			proxy_protocol {
+				allow 100.64.0.12/32
+				fallback_policy reject
+			}
+			tls
+		}
+
+		# Orange-clouded sites arrive from Cloudflare: trust its header for the client IP on :8443 only.
+		# The real list is Cloudflare's published ranges (https://www.cloudflare.com/ips/); these are placeholders.
+		trusted_proxies static 198.51.100.0/24 2001:db8::/32
+		client_ip_headers CF-Connecting-IP
+	}
+
+	crowdsec {
+		api_url http://crowdsec:8080
+		api_key {env.CROWDSEC_API_KEY}
+		appsec_url http://crowdsec:7422
+		appsec_fail_open
+	}
+}
+
+# One shared access log; CrowdSec parses it.
+(edge_log) {
+	log {
+		output file /var/log/caddy/access.log
+	}
+}
+
+# Secret-harvest wordlists, refused at the edge.
+(scanner_deny) {
+	@scanner path_regexp (?i)(\.env|\.php|wp-|\.git/)
+	respond @scanner 403
+}
+
+# LAN and tailnet only. The ingress VPS is on the tailnet too, so it is excluded by address:
+# public traffic must never pass this matcher.
+(lan_only) {
+	@lan {
+		remote_ip 192.168.1.0/24 100.64.0.0/10
+		not remote_ip 100.64.0.12
+	}
+	handle @lan {
+		crowdsec
+		appsec
+		reverse_proxy {args[0]}
+	}
+	handle {
+		abort
+	}
+}
+
+# Wildcard certificate over DNS-01, so internal names stay out of Certificate Transparency.
+# Any name without a site block of its own is dropped.
+*.example.com {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+	abort
+}
+
+# An internal service: one line per vhost.
+app.example.com, https://app.example.com:8443 {
+	import edge_log
+	import lan_only http://app:8080
+}
+
+# A public service: reachable from the LAN and through the VPS ingress alike.
+public.example.com, https://public.example.com:8443 {
+	import edge_log
+	import scanner_deny
+	crowdsec
+	appsec
+	reverse_proxy http://public-app:8080
+}
+
+# A public service whose password login is blocked at the public edge only: the :8443 twin is a
+# separate site block, so "am I on the public edge?" is never a condition inside one.
+media.example.com {
+	import edge_log
+	import scanner_deny
+	crowdsec
+	appsec
+	reverse_proxy http://media:8096
+}
+
+https://media.example.com:8443 {
+	import edge_log
+	import scanner_deny
+	crowdsec
+	appsec
+	@pw_login path_regexp (?i)^/users/authenticate$
+	respond @pw_login 403
+	reverse_proxy http://media:8096
+}

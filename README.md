@@ -1,7 +1,9 @@
-> **Public mirror.** A sanitized, read-only copy of a private homelab repo, synced weekly.
-> Secrets, the encrypted vault and some internal docs are left out; domains, public IPs, SSH keys
-> and personal details are replaced with example values, so nothing here deploys as-is.
-> Links to pull requests and removed files do not resolve.
+> **Public mirror.** A sanitized, read-only copy of a private homelab repo, synced daily.
+> Secrets, the encrypted vault, the access policy files and most internal docs are left out; domains,
+> public IPs, SSH keys and personal details are replaced with example values, so nothing here deploys
+> as-is. A path named in the text but missing here is one of those private files; links to them are
+> removed, and links to pull requests do not resolve. A file that starts with "Example only" (the
+> Caddyfile, the tailnet policy, the ingress nginx.conf) is a generic stand-in for a private one.
 
 # NAS
 
@@ -13,12 +15,12 @@ This repository is the single source of truth for the home NAS. It contains all 
 |---|---|
 | **Architecture diagrams** (how it fits together) | [`docs/architecture.md`](docs/architecture.md) |
 | **Services overview** | [`docs/services/`](docs/services/) |
-| **Network map** (IPs & ports) | [`docs/network.md`](docs/network.md) |
-| **Storage layout** | [`docs/storage.md`](docs/storage.md) |
-| **Scheduled tasks** | [`docs/scheduled-tasks.md`](docs/scheduled-tasks.md) |
-| **How-to runbooks** | [`docs/runbooks/`](docs/runbooks/) |
-| **Roadmap** (decided, not built) | [`docs/roadmap.md`](docs/roadmap.md) |
-| **Service ideas** (shortlist, nothing chosen) | [`docs/service-ideas.md`](docs/service-ideas.md) |
+| **Network map** (IPs & ports) | `docs/network.md` |
+| **Storage layout** | `docs/storage.md` |
+| **Scheduled tasks** | `docs/scheduled-tasks.md` |
+| **How-to runbooks** | `docs/runbooks/` |
+| **Roadmap** (decided, not built) | `docs/roadmap.md` |
+| **Service ideas** (shortlist, nothing chosen) | `docs/service-ideas.md` |
 | **Architecture review** (2026-09-25) | not published |
 | **Docker stacks** | [`stacks/`](stacks/) |
 
@@ -28,7 +30,7 @@ Stacks are **Komodo Stacks** declared in [`komodo/resources.toml`](komodo/resour
 
 1. Edit the relevant `stacks/<name>/docker-compose.yml`
 2. Commit and push (image bumps arrive as Renovate PRs, merged by the review sweep)
-3. [`deploy-stacks`](.github/workflows/deploy-stacks.yml) deploys every changed stack through Komodo, health-checks it and rolls it back if it comes up unhealthy — see the [deploy-stacks runbook](docs/runbooks/setup-operations/deploy-stacks.md)
+3. [`deploy-stacks`](.github/workflows/deploy-stacks.yml) deploys every changed stack through Komodo, health-checks it and rolls it back if it comes up unhealthy — see the deploy-stacks runbook
 
 Not deployed that way, applied by hand instead:
 
@@ -37,12 +39,12 @@ Not deployed that way, applied by hand instead:
 
 ## Adding a new service
 
-See the [new service runbook](docs/runbooks/setup-operations/new-service.md).
+See the new service runbook.
 
 ## Replicating this setup
 
 Want to build a NAS like this one from scratch? See the
-[replicate-setup runbook](docs/runbooks/setup-operations/replicate-setup.md) — the full build order
+replicate-setup runbook — the full build order
 from TrueNAS install through GitOps, reverse proxy, SSO, and offsite backups.
 
 ## AI assistants

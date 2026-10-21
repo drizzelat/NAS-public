@@ -2,7 +2,7 @@
 
 ## Overview
 
-Komodo Periphery on the [runner VM](../runbooks/setup-operations/runner-vm.md) (**x86_64**). It is the agent Komodo Core runs
+Komodo Periphery on the runner VM (**x86_64**). It is the agent Komodo Core runs
 `docker compose` through for every stack on this host: the
 [GitHub runner](github-runner.md). If it is down, Komodo can neither deploy nor inspect anything here. Containers keep running
 either way.
@@ -11,7 +11,7 @@ either way.
 
 - **Stack folder:** `stacks/runner-vm-periphery/`
 - **Compose file:** `stacks/runner-vm-periphery/docker-compose.yml`
-- **Managed by:** the repo is the source of truth; **applied by the hourly [periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md) cron**, never by Komodo.
+- **Managed by:** the repo is the source of truth; **applied by the hourly periphery auto-apply cron**, never by Komodo.
   See [Why not Komodo](#why-not-komodo).
 - **Host copy:** `/home/ubuntu/periphery/docker-compose.yml` on the VM (compose project `periphery`,
   container `komodo-periphery`).
@@ -49,7 +49,7 @@ cloud-init before the first start. Terminals are disabled.
 
 ## Applying a change
 
-The [periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md) cron does this hourly after a merge. These are the by-hand steps, the repair path when it reports a failure.
+The periphery auto-apply cron does this hourly after a merge. These are the by-hand steps, the repair path when it reports a failure.
 
 From a clone of this repo, after the change is merged to `main`:
 
@@ -70,6 +70,6 @@ The same pin as every periphery. Core and all four peripheries move together
 
 ## Related
 
-- [runner-vm](../runbooks/setup-operations/runner-vm.md) — the VM it runs in
+- runner-vm — the VM it runs in
 - [komodo](komodo.md) — Core, the server this agent answers to
 - [nas-periphery](nas-periphery.md), [a1-vps-periphery](a1-vps-periphery.md), [micro-vps-periphery](micro-vps-periphery.md)

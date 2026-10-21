@@ -71,14 +71,14 @@ Kept in the vault (`scripts/secrets.sh edit authentik`); `scripts/secrets.sh pus
   configures it, but two things here would break it: renaming the `server` container (the
   acquisition names `authentik-server-1`) and setting `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS`,
   which changes which `X-Forwarded-For` entry Authentik believes.
-- PostgreSQL is **Postgres 18** (`*-alpine`), pinned `tag@sha256:…` in the compose file so an unreviewed bump can't break the DB schema. Migrated 16→18 on 2026-07-02 (versioned datadir) — see [postgres-major-upgrade runbook](../runbooks/setup-operations/postgres-major-upgrade.md).
+- PostgreSQL is **Postgres 18** (`*-alpine`), pinned `tag@sha256:…` in the compose file so an unreviewed bump can't break the DB schema. Migrated 16→18 on 2026-07-02 (versioned datadir) — see postgres-major-upgrade runbook.
 - **`ak shell` inside `worker` or `server` can OOM-kill that container.** The shell is a second Django
   process (about 300 MB) in the same 1G cgroup, so a container above roughly 700 MiB is killed and
   restarts. Check `docker stats` first.
 - The worker runs **without** the Docker socket or root — only the embedded outpost is used (no
   Docker-type outpost needs host Docker access). If a Docker outpost is added later, harden via a
   socket proxy instead of remounting the raw socket — see
-  [authentik-socket-hardening runbook](../runbooks/setup-operations/authentik-socket-hardening.md).
+  authentik-socket-hardening runbook.
 
 ## Configuration in git (blueprints)
 
@@ -110,7 +110,7 @@ Everything else, and some of it is load-bearing:
   secrets stay DB state. `client_id` **is** in git; it is a public identifier, not a credential.
   The consequence: restoring from blueprints alone gives you providers whose secrets do not match
   what the consuming service holds. Real recovery is the Postgres dump
-  ([postgres-dump runbook](../runbooks/backup-restore/postgres-dump.md)); blueprints restore shape,
+  (postgres-dump runbook); blueprints restore shape,
   not credentials.
 - **Flows, stages, prompts, policies and property mappings.** All of them are still authentik's own
   defaults, applied by the 31 built-in blueprints shipped inside the image under `/blueprints/{default,system,migrations}`.
@@ -260,7 +260,7 @@ login also enrols one.
      'from authentik.blueprints.models import BlueprintInstance
    [print(b.status, b.path) for b in BlueprintInstance.objects.filter(path__startswith="nas/")]'
    ```
-5. Run the [edge access probe](../../.github/workflows/edge-access-policy.yml)
+5. Run the edge access probe
    (`gh workflow run edge-access-policy.yml`) — its Layer 2 job expects every public host to
    answer, so a provider change that stops `files` from booting (OIDC discovery is fatal at its
    startup) shows up there.
@@ -302,7 +302,7 @@ is the part a blueprint cannot do.
    immich ([doc](immich.md)), Mealie as `MEALIE_OIDC_CLIENT_ID`/`MEALIE_OIDC_CLIENT_SECRET`
    ([doc](mealie.md)), files as `FILES_OIDC_CLIENT_ID`/`FILES_OIDC_CLIENT_SECRET`
    ([doc](files.md)), Jellyfin's SSO plugin via `SSO-Auth.xml`
-   ([runbook](../runbooks/setup-operations/jellyfin-authentik-sso.md)). On a rebuilt instance the secrets are newly generated and **will not
+   (runbook). On a rebuilt instance the secrets are newly generated and **will not
    match** what those services already hold.
 7. **Hardening** — Flows & Stages: review the default password policy. MFA needs no step here:
    `mfa.yaml` makes every account enrol a second factor on its first login
@@ -327,7 +327,7 @@ is the part a blueprint cannot do.
 
 1. Stop the `authentik` stack in Komodo (**Stop**; never **Destroy**, which is a compose down). (SSO for `files` and `immich` will be down until it's back.)
 2. Restore `apps/authentik/{db,media,custom-templates,certs}` from a ZFS snapshot of `apps` or from Hetzner.
-3. **Preferred DB path:** instead of the raw data dir, load the logical dump into `authentik-postgresql-1` — see [postgres-dump runbook](../runbooks/backup-restore/postgres-dump.md).
+3. **Preferred DB path:** instead of the raw data dir, load the logical dump into `authentik-postgresql-1` — see postgres-dump runbook.
 4. Start the stack. The blueprints re-apply on boot and put the four providers and applications back
    into their git-declared shape — but **not their client secrets**, which only the dump carries.
 

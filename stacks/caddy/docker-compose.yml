@@ -41,7 +41,7 @@ services:
     # sends a short name Docker DNS lacks (crowdsec, while it is down) to Cloudflare, and
     # the bouncer kept that keep-alive connection after crowdsec came back (2026-09-25).
     dns_search: .
-    # This stack DEFINES all 18 proxy_* networks; every other stack consumes them as
+    # This stack DEFINES all 19 proxy_* networks; every other stack consumes them as
     # external. Adding one is docs/network.md -> Adding a New Stack.
     networks:
       - proxy_network
@@ -53,6 +53,7 @@ services:
       - proxy_kuma
       - proxy_mealie
       - proxy_observability
+      - proxy_pbs
       - proxy_arr
       - proxy_books
       - proxy_craft
@@ -60,8 +61,6 @@ services:
       - proxy_games
       - proxy_jellyfin
       - proxy_romm
-
-
 
   # Lives in this stack because the bouncer it serves is compiled into Caddy. See docs/services/caddy.md.
   crowdsec:
@@ -166,6 +165,8 @@ networks:
     name: proxy_mealie
   proxy_observability:
     name: proxy_observability
+  proxy_pbs:
+    name: proxy_pbs
   proxy_arr:
     name: proxy_arr
   proxy_books:
@@ -180,7 +181,3 @@ networks:
     name: proxy_jellyfin
   proxy_romm:
     name: proxy_romm
-
-
-
-

@@ -45,15 +45,15 @@ _(Anything unusual, quirks, upgrade warnings, etc.)_
 
 ### Restart / redeploy
 
-_(Komodo → Stacks → `<name>` → **Restart** (bounce) or **Deploy** (pull and recreate). Or push to `stacks/<name>/` → the runner deploys it through Komodo — see the [deploy-stacks runbook](../runbooks/setup-operations/deploy-stacks.md).)_
+_(Komodo → Stacks → `<name>` → **Restart** (bounce) or **Deploy** (pull and recreate). Or push to `stacks/<name>/` → the runner deploys it through Komodo — see the deploy-stacks runbook.)_
 
 ### Upgrade
 
-_(Every image is pinned `tag@sha256:digest`. Renovate opens the bump PR, [renovate-pr-review](../runbooks/setup-operations/renovate-pr-review.md) reviews it, and the 05:00–06:00 sweep merges it if cleared — no image is exempt; a red review leaves the PR open. Note breaking-change / migration warnings; rollback = revert the commit + redeploy.)_
+_(Every image is pinned `tag@sha256:digest`. Renovate opens the bump PR, renovate-pr-review reviews it, and the 05:00–06:00 sweep merges it if cleared — no image is exempt; a red review leaves the PR open. Note breaking-change / migration warnings; rollback = revert the commit + redeploy.)_
 
 ### Restore from backup
 
-_(Stop stack → restore which dataset(s) from local ZFS snapshot (fast) or Hetzner (offsite) → start. Postgres services: prefer the logical dump — see [postgres-dump runbook](../runbooks/backup-restore/postgres-dump.md). General restore steps: [backup runbook](../runbooks/backup-restore/backup.md).)_
+_(Stop stack → restore which dataset(s) from local ZFS snapshot (fast) or Hetzner (offsite) → start. Postgres services: prefer the logical dump — see postgres-dump runbook. General restore steps: backup runbook.)_
 
 ### Common failures
 

@@ -73,14 +73,14 @@ Jellyfin and the *arr suite, which it did as part of `mediaserver`.
 
 Pinned `tag@sha256:digest`. Renovate bumps for the Postgres and GameVault images both go through the review sweep. GameVault's Postgres migrated
 17→18 on 2026-07-02 — see the
-[postgres-major-upgrade runbook](../runbooks/setup-operations/postgres-major-upgrade.md).
+postgres-major-upgrade runbook.
 
 ### Restore from backup
 
 1. Stop the stack.
 2. Restore `apps/mediaserver/config/gamevault` from a ZFS snapshot or Hetzner.
 3. **Preferred DB path:** load the logical dump — see
-   [postgres-dump runbook](../runbooks/backup-restore/postgres-dump.md).
+   postgres-dump runbook.
 4. Start the stack.
 
 ### Common failures

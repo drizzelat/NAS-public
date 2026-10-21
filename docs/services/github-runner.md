@@ -8,10 +8,10 @@ needs the LAN:
 - [`deploy-stacks`](../../.github/workflows/deploy-stacks.yml) — on a push to `main`, send Komodo's
   `DeployStack` for each stack whose folder changed, so only that stack redeploys, creating a new one
   in Komodo first;
-- the nightly [`nas-health-check`](../runbooks/setup-operations/nas-health-check.md) and the
-  [`deploy-state-probe`](../runbooks/setup-operations/deploy-state-probe.md).
+- the nightly `nas-health-check` and the
+  `deploy-state-probe`.
 
-It runs in the [runner VM](../runbooks/setup-operations/runner-vm.md) on the NAS, on the LAN, so it can
+It runs in the runner VM on the NAS, on the LAN, so it can
 reach Komodo Core (a LAN-only vhost) **without exposing Komodo to the internet**, and so workflow code never runs on the NAS host
 itself.
 
@@ -49,7 +49,7 @@ git push main ──► GitHub ──► workflow .github/workflows/deploy-stack
 ```
 
 The Server comes from the Stack's entry in `komodo/resources.toml`, not the folder name. See the
-[deploy-stacks runbook](../runbooks/setup-operations/deploy-stacks.md), which also covers new and
+deploy-stacks runbook, which also covers new and
 removed stacks.
 
 ## Deploy path
@@ -115,7 +115,7 @@ Docker's `json-file` default never rotates. Enforced by
 ### Upgrade
 
 - Pinned `myoung34/github-runner:<agent-version>-ubuntu-noble@sha256:…`. Renovate opens the PR, the review sweep merges it, and `deploy-runner` deploys it between jobs within the hour.
-- **Do not go back to `latest`.** It carries no version string, so [renovate-pr-review](../runbooks/setup-operations/renovate-pr-review.md) has no release notes to read and judges a digest change blind. Note `latest` is also its own build stream here — no versioned tag shares its digest, so the two are not interchangeable.
+- **Do not go back to `latest`.** It carries no version string, so renovate-pr-review has no release notes to read and judges a digest change blind. Note `latest` is also its own build stream here — no versioned tag shares its digest, so the two are not interchangeable.
 - **The base is Ubuntu 24.04 (noble)** since 2026-09-23. It was focal (EOL April 2025), which carried 271 HIGH / 11 CRITICAL fixable CVEs in the image scan. Upstream installs the same packages on every variant, and the self-hosted jobs use only `jq`, `curl`, `git`, `ssh` (an ed25519 key, fine on OpenSSH 9.6) and coreutils. Changing the distro suffix is still a deliberate edit: Renovate keeps a pin on its suffix.
 - **If a bump goes wrong the runner does not come back on its own**, and no workflow can run to fix it. Check over SSH on the VM (`sudo docker ps -a --filter name=github-runner`), revert the pin, then **Deploy** the Stack from Komodo, which does not need the runner.
 
@@ -134,7 +134,7 @@ Docker's `json-file` default never rotates. Enforced by
   idle check. Re-run the job.
 - **`deploy-runner` fails with `still running a job after 3600s`** → a job ran for over an hour.
   The next hourly run tries again. A job that hangs keeps blocking it; cancel the job in GitHub.
-- **The runner VM is down** → see [runner-vm.md → Common failures](../runbooks/setup-operations/runner-vm.md#common-failures).
+- **The runner VM is down** → see runner-vm.md → Common failures.
 - **A runner bump ships broken** → no later run starts at all, so CI cannot fix itself. Revert the
   `image:` pin with a merge by hand, then **Deploy** the Stack from Komodo, which does not need the
   runner.

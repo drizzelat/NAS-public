@@ -78,9 +78,9 @@ flowchart LR
 ```
 
 - **Public web traffic never touches the home router.** It lands on the micro VPS, which forwards
-  raw TCP to Caddy on the NAS over Tailscale — [micro-vps-ingress](services/micro-vps-ingress.md).
+  raw TCP to Caddy on the NAS over Tailscale — micro-vps-ingress.
 - **LAN and tailnet clients skip the VPS entirely.** AdGuard resolves `*.example.com` to the NAS,
-  so they talk to Caddy directly — [network.md](network.md#dns--reverse-proxy).
+  so they talk to Caddy directly — network.md.
 - **The A1 serves no web app.** Its Caddy only fronts the secret WebTunnel path and redirects the NTP Pool's
   names — [a1-vps-webtunnel](services/a1-vps-webtunnel.md).
 - **Komodo Core on the NAS is the single control plane.** It deploys through a periphery agent on
@@ -142,8 +142,8 @@ flowchart TB
 
 - **Five names are public** — `auth`, `files`, `immich`, `jellyfin`, `mealie` — and every other name
   is LAN-only. The authoritative list is
-  [network.md → Access control](network.md#access-control-who-can-reach-each-subdomain), asserted
-  every 6 h by [`edge-access-policy.yml`](../.github/workflows/edge-access-policy.yml).
+  network.md → Access control, asserted
+  every 6 h by `edge-access-policy.yml`.
 - **Why `:8443`:** the VPS prepends a PROXY-protocol header so Caddy sees the real client address,
   and only the `:8443` listener accepts one, only from the VPS. LAN clients use plain `:443`, where a
   forged header just fails the TLS handshake —
@@ -154,7 +154,7 @@ flowchart TB
 - **Behind the public names:** `auth` goes to the Authentik outpost; `files`, `immich` and `mealie`
   go straight to the app, which runs its own OIDC login against Authentik; `immich` and `jellyfin`
   additionally answer `403` on their password endpoints at the public edge, so internet logins go
-  through SSO — [jellyfin-authentik-sso](runbooks/setup-operations/jellyfin-authentik-sso.md).
+  through SSO — jellyfin-authentik-sso.
   **No public name is behind an Authentik forward-auth proxy**, and none can be: it breaks the
   mobile/native clients and the anonymous share links. Who may log in is enforced by the
   `nas-users` application binding instead —
@@ -221,6 +221,7 @@ flowchart LR
   caddy --> craft
   craft -.->|"crawl, off by default"| nealfun
   caddy --> truenas
+  caddy -->|"pbs. and pve."| pbs
   immich -.->|"OIDC"| authentik
   files -.->|"OIDC"| authentik
   mealie -.->|"OIDC"| authentik
@@ -246,7 +247,7 @@ flowchart LR
 - **`media_net` is the one deliberate cross-stack network.** The *arr apps keep hostnames like
   `gluetun:8082` and `sonarr:8989` in their own config databases, so the stacks split out of the
   old `mediaserver` still have to resolve each other. `books` and `games` join it for consistency;
-  nothing depends on that — [network.md → Docker networks](network.md#docker-networks).
+  nothing depends on that — network.md → Docker networks.
 - **Authentik down means no SSO login** for `files`, `immich`, `mealie` and public Jellyfin,
   and `files` cannot even start, because its OIDC discovery is fatal at boot —
   [authentik](services/authentik.md).
@@ -304,7 +305,7 @@ flowchart LR
   and shares over SMB as `roms`. Books (Shelfmark) and games (GameVault) read their own folders
   under `media/`.
 - **None of the media is backed up** — it is re-acquirable. The apps' configuration, under
-  `apps/mediaserver/config`, is — [storage.md](storage.md#local-zfs-snapshots).
+  `apps/mediaserver/config`, is — storage.md.
 
 ## 5. From commit to running container
 
@@ -363,17 +364,17 @@ flowchart TB
 
 - **Renovate raises every image bump; nothing merges one blind.** Each stack PR gets an image-delta
   check and a Claude risk verdict (`renovate-review`), and the morning sweep merges a PR when
-  it is green (a no-op or `RISK: LOW`) and leaves a red one alone — [scheduled-tasks.md → Renovate](scheduled-tasks.md#renovate--dependency-update-prs-github-not-host).
+  it is green (a no-op or `RISK: LOW`) and leaves a red one alone — scheduled-tasks.md → Renovate.
 - **Self-built images** (`nas-caddy`, `nas-jellyfin`, the A1's Tor bridges) are built from their
   `stacks/<name>/Dockerfile` by GitHub-hosted workflows and pushed to ghcr.io. Only `main` pushes;
   a new build reaches a host when its compose pin moves in a pull request.
 - **`deploy-stacks` deploys only the stacks whose folder changed**, through Komodo. It creates a new
   owned stack first, checks the containers, and rolls a stack back if it comes up unhealthy. It never
-  tears one down — [deploy-stacks](runbooks/setup-operations/deploy-stacks.md). Komodo's hourly
+  tears one down — deploy-stacks. Komodo's hourly
   `reconcile-owned` Procedure deploys anything a lost run left behind.
 - **`komodo/resources.toml` picks the host**, one `server` per Stack.
 - **Some folders sit outside this path**:
-  - The four peripheries, applied by an hourly NAS cron over SSH ([periphery-auto-apply](runbooks/setup-operations/periphery-auto-apply.md)), because a control plane cannot redeploy the transport it deploys through.
+  - The four peripheries, applied by an hourly NAS cron over SSH (periphery-auto-apply), because a control plane cannot redeploy the transport it deploys through.
   - `komodo`, which Komodo's `deploy-komodo` Procedure deploys hourly, because Core cannot be
     deployed by a CI job that talks to Core.
   - `github-runner`, which Komodo's `deploy-runner` Procedure deploys between jobs, because no job
@@ -383,9 +384,9 @@ flowchart TB
     Authentik blueprints, the observability config and `files`' `config.yaml`. The `caddy` Stack's
     `post_deploy` reloads Caddy ([caddy.md](services/caddy.md)).
   - The cron scripts alone come from the NAS clone at `/mnt/apps/scripts/nas`, which fast-forwards
-    every 15 minutes ([nas-repo-autopull](runbooks/setup-operations/nas-repo-autopull.md)).
+    every 15 minutes (nas-repo-autopull).
 - **Secrets never pass through CI.** Per-stack env lives age-encrypted in `secrets.enc/` and reaches
-  Komodo's Variables from a workstation — [secret-sync](runbooks/setup-operations/secret-sync.md).
+  Komodo's Variables from a workstation — secret-sync.
 - **Pull-request jobs run on GitHub-hosted runners only.** The self-hosted runner in the NAS's VM takes
   just the jobs that need the LAN — deploys, the health check, the deploy-state probe — so a pull
   request never executes on the host.
@@ -438,16 +439,16 @@ flowchart LR
 - **Two layers of backup:** local ZFS snapshots for a quick restore, and a nightly encrypted push to
   a Hetzner Storage Box for losing the machine. The `apps` pool is a single NVMe with no redundancy,
   which is why all of it is both snapshotted every 4 hours and synced offsite —
-  [storage.md](storage.md), [backup](runbooks/backup-restore/backup.md).
+  storage.md, backup.
 - **Databases are dumped, not just snapshotted.** Every container labelled `nas.backup.dump=true` is
   discovered and dumped, on the NAS and on the A1, into a dataset the chain then carries offsite —
-  [postgres-dump](runbooks/backup-restore/postgres-dump.md).
+  postgres-dump.
 - **The nightly order is deliberate:** snapshots 01:00, A1 file sync 02:00, config email 02:15,
-  dumps 02:30, cloud sync 03:00 — [scheduled-tasks.md](scheduled-tasks.md).
+  dumps 02:30, cloud sync 03:00 — scheduled-tasks.md.
 - **Something outside the house notices when everything inside it is down.** Each host pings
   healthchecks.io every minute, the A1's Uptime Kuma probes the public URLs and receives the backup
   jobs' heartbeats, and a failed backup or health check sends an email —
-  [external-heartbeat](runbooks/setup-operations/external-heartbeat.md).
+  external-heartbeat.
 
 ## Keeping this current
 

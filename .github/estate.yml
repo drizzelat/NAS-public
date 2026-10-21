@@ -26,7 +26,9 @@ hosts:
     - komodo
     - kuma
     - nas
+    - pbs
     - prowlarr
+    - pve
     - qbittorrent
     - questarr
     - radarr
@@ -36,4 +38,9 @@ hosts:
     - shelfmark
     - sonarr
 
-
+# LAN-only names that ALSO carry a public DNS-only record pointing at a tailnet address (the pbs-guest
+# node, shared with one guest). They stay in lan_only above: the edge Caddy still blocks them from the
+# internet. Consumers: cloudflare/dns-records.json (a DNS-only A record), docs/services/pbs-guest.md.
+  tailnet_dns:
+    - pbs
+    - pve

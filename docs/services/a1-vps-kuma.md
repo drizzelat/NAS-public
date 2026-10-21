@@ -40,7 +40,7 @@ volume with no backup path at all, so losing the instance lost every monitor and
 setting. `/opt/kuma/data` is now mirrored to the NAS nightly by
 [`a1-file-backup.sh`](../../scripts/a1-file-backup.sh) into `/mnt/apps/a1-matrix/kuma`, which the
 03:00 cloud-sync chain carries offsite — see the
-[a1-matrix-backup runbook](../runbooks/backup-restore/a1-matrix-backup.md).
+a1-matrix-backup runbook.
 
 ## Environment variables
 
@@ -58,7 +58,7 @@ setting. `/opt/kuma/data` is now mirrored to the NAS nightly by
 - **`DAC_OVERRIDE` is no longer needed.** It existed only because Docker initialised the *named*
   volume with the image's non-root ownership; a root-owned host bind needs no such override.
 - Monitors and notification settings carried over from the VPS instance with the SQLite DB, so no
-  reconfiguration was needed. Monitor list: [kuma-monitors runbook](../runbooks/setup-operations/kuma-monitors.md), declared in [`kuma/monitors/a1.toml`](../../kuma/monitors/a1.toml) and diffed against the nightly mirror of this database by the deploy-state probe.
+  reconfiguration was needed. Monitor list: kuma-monitors runbook, declared in [`kuma/monitors/a1.toml`](../../kuma/monitors/a1.toml) and diffed against the nightly mirror of this database by the deploy-state probe.
 
 ### Dead-man's switch
 
@@ -68,7 +68,7 @@ file sync), so a job that stops running at all is itself an alert.
 The reverse direction — proving something here is alive when everything here is down — cannot be
 answered from inside the estate. That is now covered by **healthchecks.io**: all three hosts ping
 their own check every minute, and an alerter not operated here raises the alarm when they stop.
-See the [external-heartbeat runbook](../runbooks/setup-operations/external-heartbeat.md).
+See the external-heartbeat runbook.
 
 **Container logs** are capped at 10 MB × 3 files per container (`x-logging` in the compose file):
 Docker's `json-file` default never rotates. Enforced by

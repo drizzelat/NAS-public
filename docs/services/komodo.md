@@ -71,7 +71,7 @@ revoke, delete the key under **API Keys** at `/profile`, then remove both lines 
 ## Dependencies
 
 - `proxy_komodo`, defined in `stacks/caddy` like every other `proxy_*` network.
-- A periphery on each host, applied by the [periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md) cron as its own stack, never by Komodo:
+- A periphery on each host, applied by the periphery auto-apply cron as its own stack, never by Komodo:
   [nas-periphery](nas-periphery.md), [a1-vps-periphery](a1-vps-periphery.md),
   [micro-vps-periphery](micro-vps-periphery.md), [runner-vm-periphery](runner-vm-periphery.md).
 
@@ -116,7 +116,7 @@ and `auto_update` are off on every one. CI runs only the filtered syncs for a ne
 ([below](#ci-creates-new-stacks-through-a-filtered-sync)).
 
 Each Stack's env comes from Komodo Variables named `<STACK>__<KEY>`, written from the vault by
-`scripts/secrets.sh komodo-vars <stack>` ([secret-sync.md](../runbooks/setup-operations/secret-sync.md)).
+`scripts/secrets.sh komodo-vars <stack>` (secret-sync.md).
 
 ### How an owned stack deploys
 
@@ -124,7 +124,7 @@ Each Stack's env comes from Komodo Variables named `<STACK>__<KEY>`, written fro
   runner VM. `fire-webhooks.sh` sends `execute/DeployStack` for an owned stack, waits for it to go
   idle first ([a busy Stack drops a request](#a-busy-stack-drops-a-deploy)), and follows the update
   record to the end. `verify-healthy.sh` then judges health; an unhealthy stack is rolled back by a
-  revert PR that deploys like any other merge ([deploy-stacks runbook](../runbooks/setup-operations/deploy-stacks.md)).
+  revert PR that deploys like any other merge (deploy-stacks runbook).
 - **Four Stacks mount config from Komodo's clone and check it in `post_deploy`**
   ([rule](#config-mounts-come-from-komodos-clone)):
   - `caddy` compares the mounted Caddyfile with the clone's, then runs `caddy reload`.
@@ -135,14 +135,14 @@ Each Stack's env comes from Komodo Variables named `<STACK>__<KEY>`, written fro
   cron reloads Caddy.
 - **`github-runner` is not owned** ([rule](#github-runner-deploys-between-jobs)).
 - **CI removes nothing.** A removed folder gets a warning. The Stack is destroyed and deleted by hand
-  ([deploy-stacks.md → Removing a stack](../runbooks/setup-operations/deploy-stacks.md#removing-a-stack)).
+  (deploy-stacks.md → Removing a stack).
 - **A lost deploy is picked up within the hour.** The Procedure `reconcile-owned` runs
   `BatchDeployStackIfChanged` at :23 every hour, UTC, over the owned stacks **named one by one**.
   With nothing pending it recreates nothing. Never widen it to a wildcard: a Stack that was never
   deployed counts as changed, so `*` would deploy every declared Stack at once, in parallel, with no
   health gate. `scripts/komodo/check-owned.sh` (in `compose-validate`) fails a PR whose pattern
   differs from `komodo/owned-stacks`. Its deploys get no health gate; the
-  [deploy-state probe](../runbooks/setup-operations/deploy-state-probe.md) sees their result.
+  deploy-state probe sees their result.
 - **Dry run:** dispatch `deploy-stacks` with `komodo_dry_run: true`. Every Komodo read happens and
   the log says which create and `DeployStack` it would send.
 
@@ -190,10 +190,10 @@ Matching the `[[server]]` entries in [`komodo/resources.toml`](../../komodo/reso
 | `nas` | `https://192.168.1.111:8120` | |
 | `micro-vps` | `https://100.64.0.12:8120` | tailnet |
 | `a1-vps` | `https://100.64.0.13:8120` | tailnet |
-| `runner-vm` | `https://192.168.1.34:8120` | the [runner VM](../runbooks/setup-operations/runner-vm.md) on the NAS |
+| `runner-vm` | `https://192.168.1.34:8120` | the runner VM on the NAS |
 
 All four with `auto_prune: false`: Komodo's default is a daily image prune on every host, and image
-pruning is done by [docker-image-prune](../runbooks/setup-operations/docker-image-prune.md) instead.
+pruning is done by docker-image-prune instead.
 
 ### Restart / redeploy
 
@@ -206,7 +206,7 @@ running, only deploys stop.
 
 Renovate bumps both images by digest. Read the release notes for a Komodo **minor**: Core and every
 periphery move together, because a v2 minor can change the Core–periphery transport. Renovate groups
-Core and Periphery into one PR; a merge deploys Core (the hourly `deploy-komodo` Procedure), and the [periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md) cron applies the peripheries once Core runs the new pin. Mongo stays on the 8.0
+Core and Periphery into one PR; a merge deploys Core (the hourly `deploy-komodo` Procedure), and the periphery auto-apply cron applies the peripheries once Core runs the new pin. Mongo stays on the 8.0
 major line: `renovate.json` caps it to `8.0.x`. Minor lines (8.2, 8.3) cannot be skipped, so leaving
 8.0 means snapshotting `apps/komodo` and doing one binary upgrade plus an FCV bump per hop.
 
@@ -293,7 +293,7 @@ recreates nothing and writes no update record.
   after the one the run was for.
 
 `/mnt/apps/scripts/nas`, the cron clone, stays separate on purpose: host scripts must keep running
-while the control plane is down ([nas-repo-autopull](../runbooks/setup-operations/nas-repo-autopull.md)).
+while the control plane is down (nas-repo-autopull).
 
 ### CI creates new stacks through a filtered sync
 
@@ -307,7 +307,7 @@ run `secrets.sh komodo-vars` before merging.
 
 `DestroyStack` is `docker compose -p <project> down`: containers removed, and networks the stack
 defines survive only while another stack holds an endpoint. CI never calls it. Removing a stack is a
-hand job ([deploy-stacks.md → Removing a stack](../runbooks/setup-operations/deploy-stacks.md#removing-a-stack)).
+hand job (deploy-stacks.md → Removing a stack).
 Komodo also never passes `--remove-orphans`: a service deleted from a compose file keeps running
 until removed by hand.
 
@@ -315,11 +315,11 @@ until removed by hand.
 
 Each periphery is the transport its own Server deploys through; recreating it from Komodo drops the
 connection mid-command. So the four `*-periphery` stacks are repo-tracked and digest-pinned but
-applied by an hourly NAS cron over SSH ([periphery auto-apply](../runbooks/setup-operations/periphery-auto-apply.md)), and are absent from `owned-stacks` and `resources.toml`. Start one only with
+applied by an hourly NAS cron over SSH (periphery auto-apply), and are absent from `owned-stacks` and `resources.toml`. Start one only with
 `PERIPHERY_CORE_PUBLIC_KEYS` set: without it an inbound periphery is an unauthenticated Docker
 socket on `:8120`. The NAS periphery runs the host's compose plugin instead of the bundled one
 ([nas-periphery](nas-periphery.md)). An edit nobody applied shows in check 10 of the
-[deploy-state probe](../runbooks/setup-operations/deploy-state-probe.md#check-10-which-compose-computes-the-hash),
+deploy-state probe,
 which compares each container's compose config hash with its repo file.
 
 ### github-runner deploys between jobs

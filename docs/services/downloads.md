@@ -89,12 +89,12 @@ this list.
   **Working since 2026-09-14**, after the key was regenerated with NAT-PMP. Before that, every
   reconnect since at least 2026-09-08 logged `port forwarding ... connection refused - make sure you
   have +pmp`, and qBittorrent sat on its default `6881`, so no peer could connect in. Key rotation:
-  [kiwix-seeding](../runbooks/setup-operations/kiwix-seeding.md#1-make-port-forwarding-work).
+  kiwix-seeding.
 - **Kiwix seeding**: the `kiwix` category (`/data/torrents/kiwix`) belongs to
   [`scripts/kiwix-seed.sh`](../../scripts/kiwix-seed.sh), which adds the newest offline Wikipedia and
   Gutenberg ZIMs and removes what they supersede. Anything else put in that category is removed on
   its next run; hand-added community torrents go in a category of their own. The \*arr apps only
-  watch their own categories. Details: [kiwix-seeding](../runbooks/setup-operations/kiwix-seeding.md).
+  watch their own categories. Details: kiwix-seeding.
 - PUID/PGID **950** is `truenas_admin`'s uid/gid on this host; it must own `/mnt/data/mediaserver/data`.
 
 ### Port forwarding sync

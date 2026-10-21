@@ -77,7 +77,7 @@ now costs one container and means adding a service later is one config file, nev
 
 Set as Komodo Variables `OBSERVABILITY__<KEY>` (`scripts/secrets.sh push observability`); the plaintext lives in the gitignored
 `secrets/stack-env/observability.env` and the ciphertext in `secrets.enc/` — see the
-[secret-sync runbook](../runbooks/setup-operations/secret-sync.md).
+secret-sync runbook.
 
 | Variable | Description |
 | -------- | ----------- |
@@ -142,7 +142,7 @@ over the tailnet. Bind the exporter to that one address, never to `0.0.0.0` on a
 
 > **Not a shared `metrics_net`.** Joining the networks one at a time is more edits, but a single
 > flat metrics network re-creates the cross-stack exception `media_net` already is — see
-> [network.md](../network.md) → Adding a New Stack.
+> network.md → Adding a New Stack.
 
 ### Dashboards
 
@@ -157,7 +157,7 @@ vhost behind the proxy appears in them automatically.
 | CrowdSec — Security | `crowdsec-security` | `crowdsec:6060` | Bans in force, scenarios firing, parser health, bouncer polling |
 | Authentik — Identity | `authentik-identity` | `server:9300` | SSO request rate, latency, outpost connectivity, task backlog, DB load |
 | Tor — Bridges & Snowflake | `tor-traffic` | `100.64.0.13:9035` + `:9036` + `192.168.1.111:9999` | Traffic through the A1 [obfs4](a1-vps-tor-bridge.md) and [WebTunnel](a1-vps-webtunnel.md) bridges and the [NAS Snowflake proxy](snowflake.md); bridge egress month-to-date and projected against the 2 TiB their two caps add up to. UTC, to match Tor accounting and Oracle billing |
-| Community services | `community-services` | the Tor, Snowflake and Conduit targets above + `100.64.0.13:9037` (`ntp`) + `:9038` (`ntp-netstat`) + `gluetun:9022` (`qbittorrent`) | Everything run for other people on one page: status, users/clients, traffic per service, then a section each for the [bridges](a1-vps-tor-bridge.md), [Snowflake](snowflake.md), [Conduit](conduit.md), the [NTP Pool server](a1-vps-ntp.md) (queries, drops, offset, upstreams, bandwidth and data served) and [Kiwix seeding](../runbooks/setup-operations/kiwix-seeding.md) (upload, peers, incoming port, per-file table). Bridge accounting detail stays in `tor-traffic` |
+| Community services | `community-services` | the Tor, Snowflake and Conduit targets above + `100.64.0.13:9037` (`ntp`) + `:9038` (`ntp-netstat`) + `gluetun:9022` (`qbittorrent`) | Everything run for other people on one page: status, users/clients, traffic per service, then a section each for the [bridges](a1-vps-tor-bridge.md), [Snowflake](snowflake.md), [Conduit](conduit.md), the [NTP Pool server](a1-vps-ntp.md) (queries, drops, offset, upstreams, bandwidth and data served) and Kiwix seeding (upload, peers, incoming port, per-file table). Bridge accounting detail stays in `tor-traffic` |
 | Media stack | `media-stack` | `jellyfin-exporter:9594` (`jellyfin`) + `exportarr-*:9707` (`sonarr`, `radarr`, `prowlarr`, `bazarr`) + `gluetun:9023` (`sabnzbd`) + `gluetun:9022` (`qbittorrent`) + Caddy log | [Jellyfin](jellyfin.md), the [\*arr apps](arr.md) and the [download clients](downloads.md): status and headline numbers, then a section each for Jellyfin (now playing, sessions, watch time per user, play method, transcode reasons and detail, egress, library counts), the library (series/movies on disk, missing, below cutoff, size, quality), downloads (queues, throughput, torrent states, incomplete torrents, SABnzbd queue, Usenet provider usage), Prowlarr indexers (queries, grabs, failures, response time), Bazarr subtitles, and health (each app's health checks, free space, web UI requests and 5xx, exporter scrape time) |
 | Hosts | `hosts` | `node` job, all three hosts + the `host.prom` textfile | CPU, load, memory, pressure, network, disk I/O and fill, temperatures (CPU, NVMe, SATA disks) per host (`$host` selector: `nas`, `a1`, `micro`), then the NAS's CPU and memory per Compose stack (default) or per container (`Group by` toggle), closest-to-limit per container and OOM kills. It replaced the Beszel hub, retired 2026-10-03 |
 | Observability — Pipeline Health | `observability-health` | self-scrape | Is the telemetry itself working — the one that catches silent drops |
@@ -200,7 +200,7 @@ nobody can act on is noise, and the mail below quotes that link.
 its own API. The reason is the mail path: TrueNAS sends through the owner's Outlook account over
 **OAuth**, which Microsoft requires for personal accounts, and no container can use it — there is no
 SMTP username and password to give Alertmanager (see
-[email-setup.md](../runbooks/setup-operations/email-setup.md)). So the bridge is a host script:
+email-setup.md). So the bridge is a host script:
 
 ```text
 vmalert (rules, :8880 on loopback) ──▶ scripts/vmalert-mail.sh (TrueNAS cron, */15)
@@ -366,7 +366,7 @@ Prove it: `sudo docker stop vmalert`, run the bridge once by hand (exit 1, check
 The derived counters are why the two differ: raw request lines age out at 90d, but traffic volume
 and status trends stay queryable for a year at a tiny fraction of the disk.
 
-`apps` is a 250GB NVMe with **no redundancy** ([storage.md](../storage.md)). Logs are the only
+`apps` is a 250GB NVMe with **no redundancy** (storage.md). Logs are the only
 real growth risk here; metrics at this cardinality run on the order of a gigabyte a year. Revisit
 both numbers after a month of real figures rather than guessing now.
 
@@ -400,7 +400,7 @@ both numbers after a month of real figures rather than guessing now.
   in `/mnt/apps/crowdsec/config/config.yaml`, which is unreachable from another container. Set
   it to `0.0.0.0` and restart the `caddy` stack, or the `crowdsec` scrape job stays down. This was
   already written down as the prerequisite in the
-  [crowdsec-console runbook](../runbooks/setup-operations/crowdsec-console.md).
+  crowdsec-console runbook.
 - **Vector will not start until the mmdb files exist.** The enrichment tables are resolved at
   startup, and on a cold bring-up `geoipupdate` has not finished its first download yet. Vector
   crash-loops until it has, then comes up on its own — `restart: unless-stopped` is what makes

@@ -1,0 +1,49 @@
+// Example only. The deployed tailnet policy is private; this shows its structure, not its rules.
+// Applied from main by GitOps: docs/runbooks/setup-operations/tailscale-acl-gitops.md
+{
+	"tagOwners": {
+		"tag:vps-ingress": ["autogroup:admin"],
+		"tag:nas":         ["autogroup:admin"],
+	},
+
+	"acls": [
+		// The ingress VPS reaches only the edge Caddy on the NAS (100.64.0.11):
+		// 8443 = the PROXY-protocol listener for public sites, 80 = ACME and redirects.
+		{
+			"action": "accept",
+			"src":    ["tag:vps-ingress"],
+			"dst":    ["100.64.0.11:80,8443"],
+		},
+		// A guest the guest node (100.64.0.14) is shared with reaches only its ports.
+		// Never share the NAS node itself: the LAN-only matcher admits the whole tailnet range.
+		{
+			"action": "accept",
+			"src":    ["autogroup:shared"],
+			"dst":    ["100.64.0.14:443"],
+		},
+		// Your own devices keep full access, including the advertised LAN routes.
+		{
+			"action": "accept",
+			"src":    ["autogroup:member"],
+			"dst":    ["*:*"],
+		},
+	],
+
+	"ssh": [
+		{
+			"action": "check",
+			"src":    ["autogroup:member"],
+			"dst":    ["autogroup:self"],
+			"users":  ["autogroup:nonroot", "root"],
+		},
+	],
+
+	// Checked on every save: a change that breaks one of these is rejected before it applies.
+	"tests": [
+		{
+			"src":    "tag:vps-ingress",
+			"accept": ["100.64.0.11:8443", "100.64.0.11:80"],
+			"deny":   ["100.64.0.11:22", "100.64.0.14:443"],
+		},
+	],
+}

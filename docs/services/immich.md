@@ -50,11 +50,11 @@ Kept in the vault (`scripts/secrets.sh edit immich`); `scripts/secrets.sh push i
   [jellyfin](jellyfin.md) uses. `/api/oauth/*` is not matched, so the web **and** the mobile app
   still log in through Authentik, and anonymous `/share/` links are untouched. LAN/tailnet `:443`
   keeps native password login as break-glass. See [caddy.md](caddy.md) and
-  [network.md → Access control](../network.md#access-control-who-can-reach-each-subdomain).
+  network.md → Access control.
 - **Who may log in through OAuth is the Authentik `nas-users` binding** (since 2026-09-16) — see
   [authentik.md → Application access](authentik.md#application-access-the-login-allowlist).
 - Uses the custom `ghcr.io/immich-app/postgres` image (**Postgres 18** + pgvecto/VectorChord extension, bespoke `18-vectorchordX.Y.Z` tag — exact pin in the compose file) — do not swap for a plain Postgres image.
-- **No init containers.** The TrueNAS-import leftovers `pgvecto_upgrade` (a Postgres *major*-version upgrade helper) and `permissions` (a `root` volume-chown pass) were removed — both ran on every deploy, and an unattended data-mutating Postgres upgrade in the normal deploy path is a data-loss path. A Postgres major bump is now a deliberate manual step: [postgres-major-upgrade runbook](../runbooks/setup-operations/postgres-major-upgrade.md#immich-pgvecto--vectorchord).
+- **No init containers.** The TrueNAS-import leftovers `pgvecto_upgrade` (a Postgres *major*-version upgrade helper) and `permissions` (a `root` volume-chown pass) were removed — both ran on every deploy, and an unattended data-mutating Postgres upgrade in the normal deploy path is a data-loss path. A Postgres major bump is now a deliberate manual step: postgres-major-upgrade runbook.
 - **Immich's own schema migrations** still run automatically inside `immich-server` at startup — that is unrelated to the removed helper.
 - **Volume ownership is no longer fixed at boot.** The named volumes (`cli-temp-storage`, `ml-cache`, `redis-data`) are already `568:568` on disk. If they are ever recreated from scratch (disaster recovery, `docker volume rm`), Docker makes them `root:root` and the containers — which run as `568:568` — cannot write. Chown them by hand after any recreate; see Restore from backup below.
 - Hardware transcoding via Intel iGPU requires `/dev/dri` and group IDs 44 (video) and 107 (render) added to the container.
@@ -87,7 +87,7 @@ in **both German and English**, so it uses a language-flexible model.
   setting, so mixed German + English search works without toggling anything. (NLLB models give
   higher single-language recall but expect the query to match the language set in user settings —
   wrong fit for mixed search.)
-- **Why not a bigger model:** the NAS is an **N100 with no discrete GPU** ([hardware](../hardware.md)),
+- **Why not a bigger model:** the NAS is an **N100 with no discrete GPU** (hardware),
   so CLIP inference runs **CPU-only**. Large models (`ViT-SO400M-16-SigLIP2-384__webli` ~7G,
   `nllb-clip-large-siglip__mrl` ~4.2G) are both too heavy for the 4G ML memory cap **and** too slow
   per query on the N100 CPU — RAM is not the real ceiling, CPU is. `ViT-B-16-SigLIP2__webli` is
@@ -118,7 +118,7 @@ in **both German and English**, so it uses a language-flexible model.
 
 - Server/ML, the custom VectorChord Postgres and Valkey are all `tag@sha256:digest`-pinned (exact versions in the compose file). Renovate opens the PRs: every image goes through the review sweep, and a red review leaves the PR open.
 - **Read Immich release notes before every bump** — Immich ships frequent breaking DB migrations, applied by `immich-server` itself at startup.
-- **A Postgres major bump is not a deploy.** The `18-vectorchordX.Y.Z` image's *major* only moves by hand via the [postgres-major-upgrade runbook](../runbooks/setup-operations/postgres-major-upgrade.md#immich-pgvecto--vectorchord). Renovate only follows that image by digest (its tag updates are disabled in `renovate.json`), so it never crosses a major.
+- **A Postgres major bump is not a deploy.** The `18-vectorchordX.Y.Z` image's *major* only moves by hand via the postgres-major-upgrade runbook. Renovate only follows that image by digest (its tag updates are disabled in `renovate.json`), so it never crosses a major.
 - **Do not swap the custom Postgres image** for plain Postgres — the vector extension would be missing.
 
 ### Restore from backup
@@ -133,7 +133,7 @@ in **both German and English**, so it uses a language-flexible model.
    done
    ```
 
-4. **Preferred DB path:** load the logical dump into `immich-pgvecto-1` — and only into the **same pgvecto/VectorChord image** (the dump references the vector extension). See [postgres-dump runbook](../runbooks/backup-restore/postgres-dump.md). After a DB restore, run Immich's library/thumbnail jobs.
+4. **Preferred DB path:** load the logical dump into `immich-pgvecto-1` — and only into the **same pgvecto/VectorChord image** (the dump references the vector extension). See postgres-dump runbook. After a DB restore, run Immich's library/thumbnail jobs.
 5. Start the stack.
 
 ### Common failures

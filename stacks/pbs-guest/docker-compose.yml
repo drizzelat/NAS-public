@@ -1,0 +1,106 @@
+# A tailnet node that forwards only :443 (a TLS-terminating Caddy), :8006 (PVE UI) and :8007 (PBS) to the pbs stack; shared with a guest. Docs: docs/services/pbs-guest.md
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  tailscale:
+    image: tailscale/tailscale:v1.104.1@sha256:87c55d6be56ad85b3d8bceca5f87f73de288c609131460dd1be1874c250cc41d
+    container_name: pbs-guest
+    hostname: pbs-guest
+    restart: unless-stopped
+    logging: *default-logging
+    networks:
+      - proxy_pbs   # reaches `pbs` and `pbs-tunnel` by name, nothing else of the NAS
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}   # one-off key, only read on the first start
+      - TS_HOSTNAME=pbs-guest
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=true   # no tun device or NET_ADMIN; the forwards below are plain TCP
+      - TS_SERVE_CONFIG=/serve.json
+      - TS_EXTRA_ARGS=--accept-dns=false --accept-routes=false
+    configs:
+      - source: serve
+        target: /serve.json
+    volumes:
+      - /mnt/apps/pbs/guest:/var/lib/tailscale
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  caddy:
+    # Same custom build as the edge Caddy (Cloudflare DNS plugin). Serves only pbs. and pve. to the guest;
+    # the edge Caddy is never reachable from here. Docs: docs/services/pbs-guest.md
+    image: ghcr.io/drizzelat/nas-caddy:2.11.7@sha256:df95593d07768913b0b061bc0917a3f2baebe0305995f1ed0b8994cea7a435a1
+    container_name: pbs-guest-caddy
+    restart: unless-stopped
+    logging: *default-logging
+    networks:
+      - proxy_pbs
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:   # no read_only: Docker cannot create the Caddyfile mount point on a read-only rootfs
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    environment:
+      TZ: Europe/Berlin
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}   # DNS-01 for the wildcard; a Komodo Variable from the vault
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - /mnt/apps/pbs/guest-caddy:/data
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+configs:
+  serve:
+    content: |
+      {"TCP": {
+        "443": {"TCPForward": "pbs-guest-caddy:443"},
+        "8006": {"TCPForward": "pbs-tunnel:8006"},
+        "8007": {"TCPForward": "pbs:8007"}
+      }}
+
+  caddyfile:
+    content: |
+      *.example.com {
+        tls {
+          dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+        }
+        @pbs host pbs.example.com
+        handle @pbs {
+          reverse_proxy https://pbs:8007 {
+            transport http {
+              tls_insecure_skip_verify
+            }
+          }
+        }
+        @pve host pve.example.com
+        handle @pve {
+          reverse_proxy https://pbs-tunnel:8006 {
+            transport http {
+              tls_insecure_skip_verify
+            }
+          }
+        }
+        handle {
+          abort
+        }
+      }
+
+networks:
+  proxy_pbs:
+    external: true

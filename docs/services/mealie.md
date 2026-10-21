@@ -24,7 +24,7 @@ generates shopping lists. Mobile-friendly UI with a REST API.
 **Public** — exposed to the internet (VPS SNI allowlist + a Caddy vhost without the `lan_only` snippet) so friends can log in
 via Authentik without VPN access. No host port published — only reachable through the reverse
 proxy (no direct-IP bypass). See [authentik](authentik.md) for the OIDC provider setup and
-[network.md](../network.md) for the access-control model.
+network.md for the access-control model.
 
 Anonymous recipe sharing (the per-recipe **Share** button, or a public household + public
 recipes) is unaffected by this — Mealie's OIDC login only gates its own login page, it isn't a
@@ -195,7 +195,7 @@ curl "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" 
 
 1. Stop the `mealie` stack in Komodo (**Stop**; never **Destroy**, which is a compose down).
 2. Restore `apps/mealie/{data,db}` from a ZFS snapshot or from Hetzner.
-3. **Preferred DB path:** load the logical dump into `mealie-db` — see [postgres-dump runbook](../runbooks/backup-restore/postgres-dump.md).
+3. **Preferred DB path:** load the logical dump into `mealie-db` — see postgres-dump runbook.
 4. Start the stack.
 
 > Mealie also has a built-in backup feature (Admin → Site Administration → Backups) that

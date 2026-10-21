@@ -25,12 +25,11 @@ One file per service. File name matches the stack folder name under `stacks/`.
 | [Mealie](mealie.md) | `stacks/mealie/` | Recipe manager and meal planner (public via Authentik OIDC) |
 | [Observability](observability.md) | `stacks/observability/` | Vector + VictoriaLogs + VictoriaMetrics + Grafana — traffic and service analytics; replaced GoAccess |
 | [Proxmox Backup Server](pbs.md) | `stacks/pbs/` | PBS 4 as the backup target for a remote PVE host, which reaches it through an outbound SSH tunnel |
+| [PBS guest node](pbs-guest.md) | `stacks/pbs-guest/` | Tailscale node forwarding only the PVE UI and PBS ports, to be shared with one guest |
 | [RomM](romm.md) | `stacks/romm/` | Retro game library — browser emulation (EmulatorJS) + SMB share for GameCube/Wii/Switch |
 | [Runner VM periphery](runner-vm-periphery.md) | `stacks/runner-vm-periphery/` (applied over SSH, not by Komodo) | Komodo periphery inside the runner VM |
 | [Snowflake](snowflake.md) | `stacks/snowflake/` | Tor Snowflake proxy — outbound-only WebRTC relay for censored Tor users |
 | [Tailscale](tailscale.md) | `stacks/tailscale/` | Subnet router — remote LAN access, and the backhaul the public ingress rides |
-
-
 
 ## Off the NAS (Oracle Cloud)
 
@@ -44,6 +43,6 @@ One file per service. File name matches the stack folder name under `stacks/`.
 | [A1 WebTunnel bridge](a1-vps-webtunnel.md) | `stacks/a1-vps-webtunnel/` | Tor WebTunnel bridge plus the A1's Caddy (owns `:80`/`:443`), from a self-built arm64 image rebuilt on upstream fixes; egress capped at 1 TiB/month |
 | [VPS node-exporter](micro-vps-node-exporter.md) | `stacks/micro-vps-node-exporter/` | Host metrics of the micro VPS, scraped by the NAS over the tailnet |
 | [VPS periphery](micro-vps-periphery.md) | `stacks/micro-vps-periphery/` (applied over SSH, not by Komodo) | Komodo periphery on the micro VPS |
-| [VPS ingress](micro-vps-ingress.md) | `stacks/micro-vps-ingress/` | Public front door: nginx stream with an SNI allowlist and a Cloudflare-only gate, forwarding `:443` to Caddy `:8443` over Tailscale |
+| VPS ingress | `stacks/micro-vps-ingress/` | Public front door: nginx stream with an SNI allowlist and a Cloudflare-only gate, forwarding `:443` to Caddy `:8443` over Tailscale |
 
 > AI agents: when you add a service, add a row to this table and create the corresponding `<name>.md` file using [`_template.md`](_template.md).

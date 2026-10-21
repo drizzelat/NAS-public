@@ -30,7 +30,7 @@ A [WebTunnel bridge](a1-vps-webtunnel.md) runs next to it on the same host, and 
 - **Deploy:** Komodo Stack `a1-vps-tor-bridge` on Server `a1-vps`
   ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its folder deploys it
   through Komodo.
-- **Runs on:** the Ampere A1 ([host + SSH details](../runbooks/setup-operations/a1-provision.md)), next to the
+- **Runs on:** the Ampere A1 (host + SSH details), next to the
   [Kuma watchdog](a1-vps-kuma.md).
 
 ## Access
@@ -125,7 +125,7 @@ All torrc settings live in the compose `environment:` block.
   enumerate bridges, and `198.51.100.20` is public anyway, and the NTP Pool lists it.
 - **Oracle AUP.** Not confirmed either way for bridges. Tor operators report middle relays on
   Oracle's free tier without action. The worst case is losing the tenancy, which also holds the
-  ingress; see [a1-matrix-backup](../runbooks/backup-restore/a1-matrix-backup.md).
+  ingress; see a1-matrix-backup.
 
 **Container logs** are capped at 10 MB × 3 files per container (`x-logging` in the compose file):
 Docker's `json-file` default never rotates. Enforced by
@@ -179,7 +179,7 @@ authorities list as obsolete. Tor's apt repo already had 0.4.9.12.
 | Debian security fix, new Tor release | Every day at 03:40 local time, [`tor-bridge-image-trigger.sh`](../../scripts/tor-bridge-image-trigger.sh) dispatches the build workflow, which runs on a native arm64 runner. It dry-runs `apt-get upgrade` inside the published image. Any pending package means a rebuild, pushed under the **same tag** with a new digest |
 | New Go patch release, new `debian:trixie-slim` | Caught by the same run: the image's `nas.go-version` / `nas.base-digest` labels no longer match what a build would pull |
 | New lyrebird release, new Go minor (`golang:1.27`), new `thetorproject/obfs4-bridge` release | Renovate opens a PR on the `Dockerfile`, which is **automerged** (`renovate.json`). The merge triggers a build, which pushes a new tag or digest. Renovate reads lyrebird's tags over git: they are `lyrebird-X.Y.Z`, so the Go proxy lists none |
-| Any of the above, once pushed | Renovate's 04:15 run opens the compose PR → [renovate-pr-review](../runbooks/setup-operations/renovate-pr-review.md) → the 05:20 sweep merges it → `deploy-stacks` redeploys. Identity and accounting survive in `/opt/tor-bridge/data` |
+| Any of the above, once pushed | Renovate's 04:15 run opens the compose PR → renovate-pr-review → the 05:20 sweep merges it → `deploy-stacks` redeploys. Identity and accounting survive in `/opt/tor-bridge/data` |
 
 Before pushing, a build runs its checks the way the compose file runs the container (`--cap-drop ALL`,
 `no-new-privileges`):

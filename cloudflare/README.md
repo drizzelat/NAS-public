@@ -10,4 +10,4 @@ directory is a record, not a source of truth: nothing in this repo writes to Clo
 
 Both are written by [`.github/scripts/cloudflare-export.py`](../.github/scripts/cloudflare-export.py).
 Seeding them, the read-only token, and what to do when the daily run goes red:
-[cloudflare-config-drift.md](../docs/runbooks/setup-operations/cloudflare-config-drift.md).
+cloudflare-config-drift.md.

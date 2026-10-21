@@ -230,6 +230,7 @@ def check_estate(env, domain):
     cf = set(estate["hosts"]["public"]["cloudflare"])
     direct = set(estate["hosts"]["public"]["direct"])
     lan = set(estate["hosts"]["lan_only"])
+    tailnet = set(estate["hosts"].get("tailnet_dns", []))
     public = cf | direct
 
     def same(path, what, have, want):
@@ -256,12 +257,19 @@ def check_estate(env, domain):
     records = {r["name"]: r for r in json.loads(DNS_RECORDS.read_text()) if r.get("type") in ("A", "AAAA", "CNAME")}
     for name in sorted(public | lan):
         rec = records.get(f"{name}.{domain}")
-        if name in direct and not (rec and rec.get("proxied") is False):
+        if name in tailnet:
+            if not (rec and rec.get("proxied") is False and str(rec.get("content", "")).startswith("100.")):
+                finding("cloudflare/dns-records.json",
+                        f"{name} is a tailnet_dns host in .github/estate.yml but has no DNS-only record to a 100.x address")
+        elif name in direct and not (rec and rec.get("proxied") is False):
             finding("cloudflare/dns-records.json",
                     f"{name} is a direct (gray-cloud) host in .github/estate.yml but has no DNS-only record; the proxied wildcard would cover it")
         elif name not in direct and rec and rec.get("proxied") is not True:
             finding("cloudflare/dns-records.json",
                     f"{name} has a DNS-only record, which publishes the origin IP, but it is not a direct host in .github/estate.yml")
+
+    for name in sorted(tailnet - lan):
+        finding(".github/estate.yml", f"tailnet_dns host {name} is not in lan_only; it must stay blocked at the edge")
 
     access = section(NETWORK_DOC, r"Access control")
     for name in sorted(public | lan):

@@ -48,7 +48,7 @@ allowlist; Caddy's `lan_only` snippet aborts any other client). The exporter has
 ## Environment variables
 
 Set from the vault (`secrets.enc/stack-env/jellyfin.env.age`) as the Komodo Variables `JELLYFIN__<KEY>` (`scripts/secrets.sh push jellyfin` writes them and deploys) —
-see the [secret-sync runbook](../runbooks/setup-operations/secret-sync.md).
+see the secret-sync runbook.
 
 | Variable | Description |
 | --- | --- |
@@ -79,7 +79,7 @@ see the [secret-sync runbook](../runbooks/setup-operations/secret-sync.md).
   account must keep a strong local password even though SSO provisions it.
 - Off-LAN native apps log in via **Quick Connect**, approved from an SSO'd web session.
 - Jellyfin is **grey-cloud (DNS-only)** at Cloudflare.
-- Full design: [jellyfin-authentik-sso runbook](../runbooks/setup-operations/jellyfin-authentik-sso.md).
+- Full design: jellyfin-authentik-sso runbook.
 - **The exporter is `rebelcore/jellyfin-exporter`** with the `transcoding`, `tasks` and `storage`
   collectors on top of the defaults. `activity` stays off: it needs the Playback Reporting plugin.
   The scrape job drops the `ip_address`, `client_version` and `last_access` labels, so client IPs
@@ -176,7 +176,7 @@ These are server settings, not repo state: they live in `/config/encoding.xml` a
 
 **Deployed since 2026-09-22:** `stacks/jellyfin/docker-compose.yml` pins `ghcr.io/drizzelat/nas-jellyfin`.
 Rolling back and rebasing the patches are in the
-[jellyfin-abr-image runbook](../runbooks/setup-operations/jellyfin-abr-image.md).
+jellyfin-abr-image runbook.
 
 [`stacks/jellyfin/Dockerfile`](../../stacks/jellyfin/Dockerfile) takes the pinned
 `lscr.io/linuxserver/jellyfin` image and replaces two things. Both are rebuilt from the upstream
@@ -197,7 +197,7 @@ commit the stock files were built from:
   builds. `main` pushes `ghcr.io/drizzelat/nas-jellyfin:<linuxserver tag>` and prints the pin.
 - **The compose pin moves through a Renovate PR that the review always fails**: the agent prompt makes any
   `nas-jellyfin` bump `RISK: REVIEW`, so test the new tag on a scratch instance, then approve the PR and
-  re-run the review ([hand-merge route](../runbooks/setup-operations/renovate-pr-review.md#merging-a-held-pr-by-hand)).
+  re-run the review (hand-merge route).
   A Dockerfile bump only rebuilds the image.
 - **The package is public**, so the NAS pulls it without a registry credential. The image carries
   modified GPL code; its source is upstream plus the two patch files, which the public mirror
@@ -207,7 +207,7 @@ commit the stock files were built from:
   branch.
 - **They are not upstreamable as they stand** — no admin config, no cap on the extra transcode, no
   tests. What closing that gap would take, and the design questions it raises, are in the
-  [jellyfin-abr-upstream runbook](../runbooks/setup-operations/jellyfin-abr-upstream.md).
+  jellyfin-abr-upstream runbook.
 
 ## Operations
 
@@ -224,7 +224,7 @@ get while bundled with fourteen others.
 
 Once compose runs the patched image, a new Jellyfin release needs the patches rebased and tested
 before its `nas-jellyfin` bump is merged — see the
-[jellyfin-abr-image runbook](../runbooks/setup-operations/jellyfin-abr-image.md#a-new-jellyfin-release).
+jellyfin-abr-image runbook.
 
 ### Restore from backup
 

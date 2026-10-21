@@ -132,7 +132,7 @@ This takes two merges, because the compose pins a digest that only exists after 
    rules. Run `gh workflow run build-webtunnel-image.yml`; its summary prints the `image: …@sha256:…`
    line. Then GitHub → *Packages* → `webtunnel-bridge` → *Package settings* → *Change visibility* →
    **Public**. Create the trigger cron
-   ([renovate-trigger → Tor bridge image trigger](../runbooks/setup-operations/renovate-trigger.md#tor-bridge-image-trigger)).
+   (renovate-trigger → Tor bridge image trigger).
 3. **Host dir** on the A1: `sudo install -d -o 101 -g 101 -m 0700 /opt/tor-webtunnel/data`.
 4. **Env.** Run `scripts/secrets.sh edit a1-vps-webtunnel` to add `WEBTUNNEL_URL`, `WEBTUNNEL_DOMAIN`,
    `WEBTUNNEL_PATH` and `TOR_BRIDGE_CONTACT`.
@@ -163,7 +163,7 @@ No step waits for a human:
 | Debian security fix, new Tor release | Every day at 03:40 local time, [`tor-bridge-image-trigger.sh`](../../scripts/tor-bridge-image-trigger.sh) dispatches the build workflow, which runs on a native arm64 runner. The workflow dry-runs `apt-get upgrade` inside the published image. Any pending package means a rebuild, pushed under the **same tag** with a new digest |
 | New Go patch release, new `debian:trixie-slim` | Caught by the same run: the image's `nas.go-version` / `nas.base-digest` labels no longer match what a build would pull |
 | New WebTunnel release, new Go minor (`golang:1.27`) | Renovate opens a PR on the `Dockerfile`, which is **automerged** (`renovate.json`). The merge triggers a build, which pushes a new tag |
-| Any of the above, once pushed | Renovate's 04:15 run opens the compose PR → [renovate-pr-review](../runbooks/setup-operations/renovate-pr-review.md) (arm64 image delta + risk verdict) → the 05:20 sweep merges it → `deploy-stacks` redeploys. Identity and accounting survive in `/opt/tor-webtunnel/data` |
+| Any of the above, once pushed | Renovate's 04:15 run opens the compose PR → renovate-pr-review (arm64 image delta + risk verdict) → the 05:20 sweep merges it → `deploy-stacks` redeploys. Identity and accounting survive in `/opt/tor-webtunnel/data` |
 
 A Tor security release reaches the A1 by the next morning at the latest. The weekly
 [`image-cve-scan`](../../.github/workflows/image-cve-scan.yml) covers the pinned image like every other.

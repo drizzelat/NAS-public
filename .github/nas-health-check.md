@@ -126,7 +126,7 @@ times.
 freshness and integrity, cert expiry, the on-host repo clone and the boot-guard drop-in are
 yes/no, so they moved to
 [`.github/scripts/nas-deterministic-checks.sh`](scripts/nas-deterministic-checks.sh), which the
-[deploy-state probe](../docs/runbooks/setup-operations/deploy-state-probe.md) runs four times a
+deploy-state probe runs four times a
 day — sooner than nightly and at no token cost. Do not re-do them here: a finding of theirs turns
 that probe's run red on its own. What is left is what needs judgement.
 

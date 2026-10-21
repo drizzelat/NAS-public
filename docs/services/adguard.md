@@ -66,7 +66,7 @@ None.
 > IP (step 5) and Caddy proxies it. AdGuard has **no permanent host port** for its web UI (only `:53`
 > DNS is published), so to reach the wizard, **temporarily** add `30004:30004` to the stack's
 > `ports:`, then open `http://192.168.1.111:30004`. Remove that
-> mapping once the Caddy vhost exists. See the same note in [network.md](../network.md) → DNS / reverse proxy.
+> mapping once the Caddy vhost exists. See the same note in network.md → DNS / reverse proxy.
 
 After the stack is up, do this in the AdGuard web UI:
 
@@ -95,7 +95,7 @@ After the stack is up, do this in the AdGuard web UI:
 ### Restore from backup
 
 1. Stop the `adguard` stack in Komodo (**Stop**; never **Destroy**, which is a compose down).
-2. Restore `apps/adguard/config` (filters, DNS rewrites, clients, settings) — and optionally `apps/adguard/workdir` (stats/query log, regenerable) — from a local ZFS snapshot of `apps` (every 4h) or from Hetzner ([backup runbook](../runbooks/backup-restore/backup.md)).
+2. Restore `apps/adguard/config` (filters, DNS rewrites, clients, settings) — and optionally `apps/adguard/workdir` (stats/query log, regenerable) — from a local ZFS snapshot of `apps` (every 4h) or from Hetzner (backup runbook).
 3. Start the stack.
 
 ### Common failures

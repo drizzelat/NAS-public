@@ -86,8 +86,9 @@ jobs:
         run: python3 .github/scripts/compose-policy.py
 
       # The edge policy is one file, so this is what git alone does not give you: proof the
-      # running binary can parse it. docs/services/caddy.md
-      - name: Validate the Caddyfile against the pinned image
+      # running binary can parse it. The public mirror's stand-in is checked too, so the example it
+      # publishes is one that runs. docs/services/caddy.md
+      - name: Validate the Caddyfiles against the pinned image
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -97,11 +98,13 @@ jobs:
           echo "$GH_TOKEN" | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
           # Both must be set and the token must LOOK like one (40 chars of [A-Za-z0-9_-]):
           # the Cloudflare provider rejects an obvious placeholder before validating anything.
-          docker run --rm \
-            -e CLOUDFLARE_API_TOKEN=0123456789abcdefghijklmnopqrstuvwxyzABCD \
-            -e CROWDSEC_API_KEY=ci-placeholder \
-            -v "$PWD/stacks/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            "$img" caddy validate --config /etc/caddy/Caddyfile
+          for f in stacks/caddy/Caddyfile scripts/public-mirror/examples/stacks/caddy/Caddyfile; do
+            docker run --rm \
+              -e CLOUDFLARE_API_TOKEN=0123456789abcdefghijklmnopqrstuvwxyzABCD \
+              -e CROWDSEC_API_KEY=ci-placeholder \
+              -v "$PWD/$f:/etc/caddy/Caddyfile:ro" \
+              "$img" caddy validate --config /etc/caddy/Caddyfile
+          done
 
       # -S warning, not the default: the deploy scripts deliberately word-split some
       # list variables, which is style-level noise, not a defect.

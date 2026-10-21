@@ -12,7 +12,7 @@ services:
       nas.backup.db: romm
       nas.backup.dir: /mnt/apps/romm/dumps
       nas.backup.engine: mariadb
-    image: docker.io/library/mariadb:12.3@sha256:2bdff1534a7e569fecaf4b10b66ad0d410806e382d9db29ba305448addda97c4
+    image: docker.io/library/mariadb:12.3@sha256:99c125f103f5d081ebbc9ffe064e63daf7f688ac33a5f7f29af2d7260a96debf
     container_name: romm-db
     restart: unless-stopped
     logging: *default-logging

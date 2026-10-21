@@ -14,7 +14,7 @@ lives on the client:
 | NES/SNES/N64/GB/GBA/GBC/DS/Genesis/PSX | EmulatorJS **in the browser** (client CPU/WASM) |
 | GameCube / Wii / Switch | **native emulator on the client**, reading ROMs over the `roms` SMB share |
 
-Bring-up + ROM acquisition: [romm-emulation runbook](../runbooks/setup-operations/romm-emulation.md).
+Bring-up + ROM acquisition: romm-emulation runbook.
 
 ## Stack
 
@@ -53,7 +53,7 @@ the other `data` tenants. Raise with `zfs set quota=<n>G data/romm`.
 ## Environment variables
 
 Set via the encrypted vault (`secrets.enc/stack-env/romm.env.age`); `scripts/secrets.sh push romm` writes the Komodo Variables `ROMM__<KEY>` and deploys — see
-[secret-sync](../runbooks/setup-operations/secret-sync.md). Values are **not** in this repo in
+secret-sync. Values are **not** in this repo in
 the clear.
 
 | Variable | Description |
@@ -152,7 +152,7 @@ backup space on them.
 If the snapshotted datadir won't come up cleanly (a ZFS snapshot of a live DB is only
 crash-consistent), fall back to the **logical dump**: reload
 `/mnt/apps/romm/dumps/romm_<stamp>.sql.gz` per the
-[DB dump runbook](../runbooks/backup-restore/postgres-dump.md).
+DB dump runbook.
 
 > **`apps/romm/dumps` must stay a dataset.** The cloud-sync chain syncs leaf datasets only and
 > skips `apps/romm`, which has children. Until 2026-09-11 the dumps were a plain directory there and

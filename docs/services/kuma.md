@@ -49,12 +49,12 @@ Uptime Kuma is a self-hosted monitoring and status-page tool. It pings services 
 After the stack is up, do this in the Uptime Kuma web UI:
 
 1. **Create admin** — first visit to `https://kuma.example.com` shows the create-admin form. Set username + password.
-2. **Monitors** — add one per service: type (HTTP/TCP/Ping), URL or host, interval. Ping monitors need `NET_RAW` (already set). The list: [kuma-monitors runbook](../runbooks/setup-operations/kuma-monitors.md). Declare each in [`kuma/monitors/nas.toml`](../../kuma/monitors/nas.toml) too: the deploy-state probe fails on a monitor the file does not know.
+2. **Monitors** — add one per service: type (HTTP/TCP/Ping), URL or host, interval. Ping monitors need `NET_RAW` (already set). The list: kuma-monitors runbook. Declare each in [`kuma/monitors/nas.toml`](../../kuma/monitors/nas.toml) too: the deploy-state probe fails on a monitor the file does not know.
 3. **Status page (optional)** — create a public/LAN status page grouping the monitors.
 4. **Harden (optional)** — Settings → enable 2FA on the admin account.
 
 > This instance watches from inside the house. The outside view is the [A1 Uptime Kuma](a1-vps-kuma.md),
-> and a dead estate is caught by [healthchecks.io](../runbooks/setup-operations/external-heartbeat.md).
+> and a dead estate is caught by healthchecks.io.
 
 ## Operations
 

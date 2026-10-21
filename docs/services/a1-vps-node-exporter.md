@@ -13,7 +13,7 @@
 - **Deploy:** Komodo Stack `a1-vps-node-exporter` on Server `a1-vps`
   ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
-- **Runs on:** the Ampere A1 ([host + SSH details](../runbooks/setup-operations/a1-provision.md)).
+- **Runs on:** the Ampere A1 (host + SSH details).
 
 ## Access
 

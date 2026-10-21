@@ -70,7 +70,7 @@ file. To change one, add `KEY=value` to the Stack's `environment` in `komodo/res
 | `CRAFT_VIZ_MAX_NODES` | `6000` | Elements embedded in the page, shallowest first: the upper end of the "Show" slider. Raises page size (about 1.4 MB, gzip about a third) |
 | `CRAFT_VIZ_SHOW` | `2000` | Elements drawn when the page opens; the viewer changes it with the slider (kept in the URL as `#n=`) |
 | `CRAFT_VIZ_MAX_DEPTH` | `0` | Hide deeper elements, `0` = no limit |
-| `ANTHROPIC_API_KEY` | empty | Only for `craft-backend`; needs a vault entry and a Komodo Variable first ([secret-sync](../runbooks/setup-operations/secret-sync.md)) |
+| `ANTHROPIC_API_KEY` | empty | Only for `craft-backend`; needs a vault entry and a Komodo Variable first (secret-sync) |
 | `COMPOSE_PROFILES` | empty | `backend` starts `craft-backend` |
 
 ## Dependencies

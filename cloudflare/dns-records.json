@@ -36,6 +36,24 @@
   "type": "A"
  },
  {
+  "comment": "tailnet address of the pbs-guest node, reachable only by shared guests",
+  "content": "100.64.0.14",
+  "name": "pbs.example.com",
+  "proxied": false,
+  "settings": {},
+  "ttl": 1,
+  "type": "A"
+ },
+ {
+  "comment": "tailnet address of the pbs-guest node, reachable only by shared guests",
+  "content": "100.64.0.14",
+  "name": "pve.example.com",
+  "proxied": false,
+  "settings": {},
+  "ttl": 1,
+  "type": "A"
+ },
+ {
   "comment": null,
   "content": "198.51.100.10",
   "name": "example.com",

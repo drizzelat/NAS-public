@@ -8,7 +8,7 @@ teammate's home. PVE 9 pairs with PBS 4. The datastore holds deduplicated, compr
 the hosts' VM backups; the NAS only stores them, it never runs those VMs.
 
 It is not part of the NAS's own backup chain. It is a backup of someone else's machines, and the
-datastore itself is deliberately not carried offsite ([backup.md](../runbooks/backup-restore/backup.md)).
+datastore itself is deliberately not carried offsite (backup.md).
 
 ### How the PVE host reaches it
 
@@ -26,7 +26,7 @@ PVE host 127.0.0.1:8007  <--- ssh -R ---  tunnel container (NAS)  --->  pbs:8007
 - Nothing is exposed: no inbound port on the NAS, no listener on the VM network (the forward binds
   loopback on the PVE host only), no Tailscale node, no share, no ACL change, no auth key.
 - The key (`pbs-tunnel@nas`) is restricted on both hops: on the jumphost it may only open
-  `192.168.100.1:22`, and on the PVE host it may only listen on `127.0.0.1:8007` and has no shell.
+  `192.168.100.1:22`, and on the PVE host it may only listen on `127.0.0.1:8007`, open `127.0.0.1:8006` (the UI) and has no shell.
 - The tunnel is the only dependency on the other host. If it is down, PVE backups fail and nothing
   else happens; `autossh` retries on its own.
 
@@ -39,7 +39,7 @@ PVE host 127.0.0.1:8007  <--- ssh -R ---  tunnel container (NAS)  --->  pbs:8007
 - **Image:** `ayufan/proxmox-backup-server`, a community build of the Proxmox packages. **There is
   no official PBS image**, and the Docker Hub description calls it unmaintained, although tags
   followed PBS releases through 2026-05. Renovate bumps it like any other pin. The fallback is a
-  TrueNAS VM on the official ISO, like the [runner VM](../runbooks/setup-operations/runner-vm.md).
+  TrueNAS VM on the official ISO, like the runner VM.
 - **Tunnel:** `jnovack/autossh`, a small autossh wrapper. Last built 2025-05; it is only `ssh`, and
   hand-written `command:` plus `ssh` from any image would do if it goes stale.
 
@@ -47,13 +47,26 @@ PVE host 127.0.0.1:8007  <--- ssh -R ---  tunnel container (NAS)  --->  pbs:8007
 
 | | |
 |---|---|
-| URL | `https://192.168.1.111:8007` on the LAN (or over the tailnet through the subnet router). Self-signed certificate; PVE pins its SHA-256 fingerprint |
+| URL | `https://pbs.example.com` (PBS) and `https://pve.example.com` (the lecture PVE host's web UI), LAN and tailnet only. `https://192.168.1.111:8007` still works on the LAN |
 | Port | `8007/tcp` on the LAN IP; PVE uses `127.0.0.1:8007` on its own host, via the tunnel |
-| Auth | PBS users. `admin@pbs` (full admin, for you) and `pve@pbs` with the API token `pve` (backup-only, for PVE) |
+| Auth | PBS users. `admin@pbs` and `root@pbs` (both full admin; log in as `root` with the *Proxmox Backup authentication server* realm) and `guest@pbs` (full admin too, for the lecture teammate, see [pbs-guest](pbs-guest.md)) and `pve@pbs` with the API token `pve` (backup-only, for PVE). `pve.` is the PVE host's own login (`root@pam`). Passwords are in the gitignored `secrets/pbs-credentials.txt` |
 
-The image ships with **`admin@pbs` / `pbspbs`**. Change it before anything else
-([Setup](#setup)); until then it is reachable from the LAN and, through the tunnel, from the PVE
-host and the VMs on it only if they connect to that host's loopback (they cannot).
+Both names are `lan_only` Caddy vhosts like the other internal services (AdGuard's `*.example.com`
+rewrite already points them at the NAS; Caddy's wildcard certificate covers them). Caddy reaches PBS
+as `pbs:8007` and the PVE UI as `pbs-tunnel:8006` on the `proxy_pbs` network, both with the upstream's
+self-signed certificate accepted. The PVE UI comes back through the **same** SSH session as the
+backup tunnel: a second forward (`-L`) from the tunnel container, over the jumphost, to the PVE
+host's own `127.0.0.1:8006`. Nothing new is opened on the PVE host's network, and the key may only
+open that one port (`permitopen="127.0.0.1:8006"` next to the `permitlisten` for 8007).
+
+PVE's noVNC and shell consoles are websockets; Caddy passes them through. If the tunnel is down,
+`pve.` answers 502 and the backups fail too.
+
+**Do not share the `nas` tailnet node with another tailnet to give someone access** — share [`pbs-guest`](pbs-guest.md) instead, which forwards only these two services. The `lan_only`
+matcher admits all of `100.64.0.0/10`, so a guest's tailnet address would pass every internal vhost
+(Komodo, TrueNAS, the *arr apps), not just these two.
+
+The image ships with `admin@pbs` / `pbspbs`; it was changed after the first deploy. The CLI `user update --password` silently does nothing here, so change it in the UI (see the agent note).
 
 ## Volumes / data
 
@@ -110,7 +123,7 @@ Once, in this order.
 
    ```text
    jumphost  ~me/.ssh/authorized_keys : restrict,port-forwarding,permitopen="192.168.100.1:22" ssh-ed25519 AAAA… pbs-tunnel@nas
-   PVE host  /root/.ssh/authorized_keys: restrict,port-forwarding,permitlisten="127.0.0.1:8007",command="/bin/false" ssh-ed25519 AAAA… pbs-tunnel@nas
+   PVE host  /root/.ssh/authorized_keys: restrict,port-forwarding,permitlisten="127.0.0.1:8007",permitopen="127.0.0.1:8006",command="/bin/false" ssh-ed25519 AAAA… pbs-tunnel@nas
    ```
 
    `known_hosts` holds the ed25519 host keys of the jumphost's tailnet address and `192.168.100.1`
@@ -173,7 +186,7 @@ needs the jumphost reachable and nothing else.
 ## Schedules
 
 Backups are scheduled in two places, one per side. All times Europe/Berlin; the PVE host and the NAS
-share that zone. Both are also in [scheduled-tasks.md](../scheduled-tasks.md).
+share that zone. Both are also in scheduled-tasks.md.
 
 | When | What | Where it lives |
 |---|---|---|
@@ -201,12 +214,12 @@ snapshot tiers and the nightly Hetzner sync like every other `apps` leaf, with n
 ### Restart / redeploy
 
 Komodo → Stacks → `pbs` → **Restart** (bounce) or **Deploy** (pull and recreate). Or push to
-`stacks/pbs/` → the runner deploys it through Komodo — see the [deploy-stacks runbook](../runbooks/setup-operations/deploy-stacks.md).
+`stacks/pbs/` → the runner deploys it through Komodo — see the deploy-stacks runbook.
 Restarting `pbs` drops the tunnel's connection for a moment; `autossh` re-establishes it.
 
 ### Upgrade
 
-Every image is pinned `tag@sha256:digest`. Renovate opens the bump PR, [renovate-pr-review](../runbooks/setup-operations/renovate-pr-review.md)
+Every image is pinned `tag@sha256:digest`. Renovate opens the bump PR, renovate-pr-review
 reviews it, and the 05:00–06:00 sweep merges it if cleared. A PBS major bump (5.x) needs the PVE side
 checked first: PVE and PBS are released as a pair. Rollback = revert the commit + redeploy; the
 config in `apps/pbs/etc` is read forward-compatibly by the same major only, so restore a snapshot of
@@ -215,7 +228,7 @@ config in `apps/pbs/etc` is read forward-compatibly by the same major only, so r
 ### Restore from backup
 
 - **PBS config lost** (`apps/pbs/etc`): restore the dataset from a local ZFS snapshot or Hetzner
-  ([backup runbook](../runbooks/backup-restore/backup.md)). Without it, re-run Setup steps 4 and 5: the datastore directory on `data/pbs` can be re-added with
+  (backup runbook). Without it, re-run Setup steps 4 and 5: the datastore directory on `data/pbs` can be re-added with
   `proxmox-backup-manager datastore create main /backups/main --reuse-datastore true`, and the new
   certificate means a new fingerprint on the PVE storage entry.
 - **Datastore lost** (`data/pbs`): not backed up. Recreate the dataset and datastore; the next

@@ -137,7 +137,7 @@ is how the secret stays out of the committed `config.yaml`. Managed with
 
 1. Stop the `files` stack in Komodo (**Stop**; never **Destroy**, which is a compose down).
 2. Restore `apps/files` (SQLite DB: users, shares, index, settings) from a ZFS snapshot of `apps`
-   or from Hetzner. See the [backup runbook](../runbooks/backup-restore/backup.md).
+   or from Hetzner. See the backup runbook.
 3. Start the stack. The **served files** under `/mnt/data/smb_share` are restored by the
    `data/smb_share` snapshot/sync, not by this stack.
 

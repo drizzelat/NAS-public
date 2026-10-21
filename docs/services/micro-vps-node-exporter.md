@@ -13,7 +13,7 @@
 - **Deploy:** Komodo Stack `micro-vps-node-exporter` on Server `micro-vps`
   ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
-- **Runs on:** the Oracle micro VPS ingress host ([host + SSH details](micro-vps-ingress.md)).
+- **Runs on:** the Oracle micro VPS ingress host (host + SSH details).
 
 ## Access
 

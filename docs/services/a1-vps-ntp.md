@@ -330,7 +330,7 @@ Nothing to restore.
 - **Pool score falls while `chronyc -n sources` looks healthy** → inbound UDP 123 is blocked: the
   Security List rule.
 - **`chronyc -n sources` lists only `?` rows** → outbound UDP 123 or DNS for the upstream names is
-  failing on the A1 (MagicDNS must stay off there: `sudo tailscale set --accept-dns=false`, see [a1-provision](../runbooks/setup-operations/a1-provision.md)).
+  failing on the A1 (MagicDNS must stay off there: `sudo tailscale set --accept-dns=false`, see a1-provision).
 - **Upstream reachability drops for every source except `169.254.169.254`, and new connections to the
   A1 are slow** → a `123/udp` rule is stateful again and Oracle's connection tracking is full, see
   [Security List rules](#security-list-rules). Test with new flows from the NAS; a connect time
