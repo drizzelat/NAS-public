@@ -23,8 +23,8 @@ ZONE = os.environ.get("CLOUDFLARE_ZONE", "example.com")
 TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "")
 
 # Everything Cloudflare stamps on a record: identity and timestamps are not config.
-DROP = {"id", "created_on", "modified_on", "modified_by", "meta", "zone_id", "zone_name",
-        "proxiable", "locked", "tags", "ttl_locked", "version", "last_updated", "ref"}
+DROP = {"id", "created_on", "modified_on", "comment_modified_on", "tags_modified_on",
+        "modified_by", "meta", "zone_id", "zone_name", "proxiable", "locked", "tags", "ttl_locked", "version", "last_updated", "ref"}
 
 
 def get(path, allow_404=False):

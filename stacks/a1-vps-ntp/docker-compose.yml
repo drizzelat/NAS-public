@@ -41,7 +41,7 @@ services:
 
   # serverstats (packets served/dropped) is refused over UDP ("501 Not authorised"): socket only.
   chrony-exporter:
-    image: quay.io/superq/chrony-exporter:v0.14.0@sha256:74c7294e79dff4e6eaa48129a69a6da353a0d321f26bd315dcb682f6200c0fd1
+    image: quay.io/superq/chrony-exporter:v0.15.0@sha256:43483aa041e874b9e6ba28bbe48c77177afcc068e5271ec87e50d3e05dd49b60
     container_name: a1-ntp-exporter
     restart: unless-stopped
     logging: *default-logging
