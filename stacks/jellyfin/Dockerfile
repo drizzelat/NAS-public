@@ -22,7 +22,7 @@ RUN set -eu; release=$(cat /version/release) commit=$(cat /version/commit) assem
     built=$(pwsh -NoProfile -Command '[Reflection.AssemblyName]::GetAssemblyName("/out/Jellyfin.Api.dll").Version.ToString()'); \
     [ "$built" = "$assembly" ] || { echo "built Jellyfin.Api $built, the base image loads $assembly"; exit 1; }
 
-FROM node:22-bookworm@sha256:82693da96a4e38b8c0e2bf0c5df58fcb86d2d25e5a235c07748f09bfa38567c2 AS web
+FROM node:22-bookworm@sha256:63538dfe497cc29dfafdda25ada09b46db68a3f4cc205abf1f5d6bf0913f3384 AS web
 COPY --from=version /version /version
 COPY patches/jellyfin-web.patch /patches/
 RUN set -eu; git clone --quiet --depth 1 --branch "v$(cat /version/release)" https://github.com/jellyfin/jellyfin-web.git /src; cd /src; \

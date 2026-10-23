@@ -8,7 +8,7 @@ services:
   # Tails the Caddy access log, enriches it, and fans out: logs to VictoriaLogs,
   # derived counters to VictoriaMetrics. Adding a source = one file in vector/.
   vector:
-    image: timberio/vector:0.59.0-alpine@sha256:0e36bc2a290039e9b6a5e92f04bd2f133223506f72d09682c1df16c015172b7a
+    image: timberio/vector:0.60.0-alpine@sha256:1c6a6c4c5c9de08df357fa8adbe72e5a7abcea458b0bd82de0b14ac9b79d5b31
     container_name: vector
     restart: unless-stopped
     logging: *default-logging
@@ -59,7 +59,7 @@ services:
 
   # Also the scraper: -promscrape.config removes the need for a separate vmagent.
   victoriametrics:
-    image: victoriametrics/victoria-metrics:v1.154.0@sha256:4bd592341587d669b7f57d54bbb82bd21ac8675f4e24234b7703a7c0f85197d8
+    image: victoriametrics/victoria-metrics:v1.154.1@sha256:c7884f32920dd45a9d86542a717227e63af03e060e53bbf8031e6e6fd0e1e05d
     container_name: victoriametrics
     restart: unless-stopped
     logging: *default-logging
@@ -97,7 +97,7 @@ services:
   # Evaluates the alerting rules. -notifier.blackhole: there is no Alertmanager, because
   # the only working mail path here is the TrueNAS one. docs/services/observability.md#alerting
   vmalert:
-    image: victoriametrics/vmalert:v1.154.0@sha256:f11d77f9ff68dfd63c871d0e59ae7b479f9c3fd0e8a685fef690fb88b794d938
+    image: victoriametrics/vmalert:v1.154.1@sha256:aafb962b5a5713c71f0d697d629416f9cccf23aecb74f0ec5e829ddbf3f221f2
     container_name: vmalert
     restart: unless-stopped
     logging: *default-logging
