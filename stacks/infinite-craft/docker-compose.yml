@@ -7,7 +7,7 @@ x-logging: &default-logging   # json-file never rotates by default. docs/runbook
     max-file: "3"
 
 x-python: &python
-  image: python:3.15-slim@sha256:f11aa5dc9fad216f005cf34262f3f7dedc2369f03bbbd916589c24346519ee3b
+  image: python:3.15-slim@sha256:533b0b2f9b5d46fd097091cf826f27902f1d6c3bca714b6dc74551356aa97a51
   restart: unless-stopped
   logging: *default-logging
   user: "950:950"
