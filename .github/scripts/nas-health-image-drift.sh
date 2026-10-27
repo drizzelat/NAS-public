@@ -110,9 +110,11 @@ while IFS= read -r server; do
     fi
 
     drift=$((drift + 1))
-    since="$(git log -1 --format=%ad --date=short -S"$want" -- "stacks/$folder/docker-compose.yml")"
-    if [[ -n "$since" ]]; then
-      age="drifting since $since ($(( ($(date -u +%s) - $(date -u -d "$since" +%s)) / 86400 ))d)"
+    # First-parent: the day the pin reached main, not the Renovate commit's own (often days older) date.
+    merged="$(git log -1 -s --first-parent --diff-merges=first-parent --format=%ct -S"$want" -- "stacks/$folder/docker-compose.yml")"
+    if [[ -n "$merged" ]]; then
+      hours=$(( ($(date -u +%s) - merged) / 3600 ))
+      age="drifting since $(date -u -d "@$merged" +%F) ($( (( hours < 48 )) && echo "${hours}h" || echo "$((hours / 24))d"))"
     else
       age="pinned digest not found in git history"
     fi

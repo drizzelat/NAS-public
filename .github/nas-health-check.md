@@ -215,11 +215,15 @@ source the check names, then allow slack — **cadence + 2 h** for hourly/daily 
       not digest-pinned are skipped. It prints findings only, then a `SUMMARY` line:
       - `DRIFT` → FAIL, naming stack, image, pinned and running digest: a merge never
         redeployed, or someone changed a container outside Komodo. **Always report how long
-        each drift has existed** — the line carries `drifting since <YYYY-MM-DD> (<N>d)`
-        from `git log -1 --format=%ad --date=short -S'<pinned-digest>' -- stacks/<stack>/docker-compose.yml`,
-        the day the pin that is *not* running was merged. Without the age a stack stuck two
-        weeks reads exactly like a pin merged four hours ago.
-      - A drift older than ~1 day means the redeploy path failed, not a merge yet to
+        each drift has existed** — the line carries `drifting since <YYYY-MM-DD> (<N>h|<N>d)`,
+        counted from when the pin that is *not* running reached `main` (the merge, not the
+        Renovate commit's own date). Without the age a stack stuck two weeks reads exactly like a
+        pin merged four hours ago.
+      - `komodo` and the four `*-periphery` stacks are not deployed by `deploy-stacks`: hourly jobs
+        apply them, peripheries only once Core runs its pin. Their drift under 3 h is a merge in
+        flight: note it, no FAIL. Older, point at `/var/log/periphery-update.log` on the NAS and the
+        Komodo Procedure `deploy-komodo`, never at `deploy-stacks`.
+      - Any other drift older than ~1 day means the redeploy path failed, not a merge yet to
         deploy. Say so in *Action needed*, point at a dispatched deploy of that stack
         (`gh workflow run deploy-stacks.yml -f stacks=<stack>`); still drifting the next night is a second
         bug, not a slow deploy.
