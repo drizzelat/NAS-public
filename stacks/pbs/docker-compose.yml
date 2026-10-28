@@ -39,7 +39,7 @@ services:
     environment:
       - TZ=Europe/Berlin
     healthcheck:
-      test: ["CMD", "curl", "-fsk", "-o", "/dev/null", "https://localhost:8007/"]
+      test: ["CMD", "curl", "-fsk", "-m", "8", "-o", "/dev/null", "https://localhost:8007/"]   # -m: Docker never kills a timed-out check
       interval: 60s
       timeout: 10s
       retries: 3
