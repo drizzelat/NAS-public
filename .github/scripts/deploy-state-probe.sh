@@ -164,19 +164,29 @@ else
   fi
 fi
 
-# 5. Scripts installed outside the clone, which no pull updates.
-before=$fails
+# 5. The deployed host config. Nothing is installed outside the Nix store any more; the
+# pull-deploy (hosts/nas/deploy.nix, hourly at :40 after the :37 repo pull) records the main it
+# last applied, and it reads `none` until that timer is enabled after the soak.
+DEPLOY_GRACE_S=$((2 * 3600))
 if ! copies="$(probe host-copies 2>&1)"; then
-  fail "host copies: probe verb host-copies failed ($(grep -m1 refused <<<"$copies" || tr '\n' ' ' <<<"$copies" | head -c 160)); re-install scripts/nas-health-probe.sh on the NAS"
+  fail "host config: probe verb host-copies failed ($(grep -m1 refused <<<"$copies" || tr '\n' ' ' <<<"$copies" | head -c 160))"
 else
-  n=0
-  while read -r hash file; do
-    [[ -n "$file" ]] || continue
-    n=$((n + 1))
-    want="$(sha256sum "scripts/$file" | cut -d' ' -f1)"
-    [[ "$hash" == "$want" ]] || fail "host copies: /mnt/apps/scripts/$file differs from scripts/$file, re-install it by hand"
-  done <<<"$copies"
-  if [[ $fails -eq $before ]]; then pass "host copies: $n installed script(s) match the repo"; fi
+  deployed="$(sed -n 's/^deployed-rev //p' <<<"$copies")"
+  # Newest commit that changes what the host builds; empty if none touches these paths.
+  read -r host_sha host_ts < <(git log -1 --format='%H %ct' -- hosts flake.nix flake.lock secrets.enc/nixos) || true
+  if [[ -z "$deployed" ]]; then
+    fail "host config: host-copies reported no deployed-rev line"
+  elif [[ "$deployed" == none ]]; then
+    say "NOTE  host config: no deployed rev yet, the pull-deploy timer is not enabled"
+  elif ! git cat-file -e "$deployed^{commit}" 2>/dev/null; then
+    fail "host config: deployed rev ${deployed:0:8} is not in this repo's history"
+  elif [[ -z "${host_sha:-}" ]] || git merge-base --is-ancestor "$host_sha" "$deployed"; then
+    pass "host config: deployed rev ${deployed:0:8} includes the newest host commit ${host_sha:0:8}"
+  elif (( $(date +%s) - host_ts < DEPLOY_GRACE_S )); then
+    say "NOTE  host config: newest host commit ${host_sha:0:8} is under $((DEPLOY_GRACE_S / 3600)) h old, the pull-deploy has not run yet"
+  else
+    fail "host config: newest host commit ${host_sha:0:8} is not in deployed rev ${deployed:0:8}, the pull-deploy is stalled (or paused: /var/lib/nas-host-deploy/pause)"
+  fi
 fi
 
 # 6. The ResourceSync: nothing applies an edit to an existing [[...]] entry but a human, so

@@ -55,7 +55,7 @@ name = "Deploy owned stacks if changed"
 # Plain names only, exactly komodo/owned-stacks (scripts/komodo/check-owned.sh enforces both). Never a
 # wildcard or a regex: a Stack that was never deployed counts as changed, so "*" would adopt all 24.
 executions = [
-  { execution.type = "BatchDeployStackIfChanged", execution.params.pattern = "a1-vps-node-exporter, a1-vps-ntp, a1-vps-tor-bridge, a1-vps-webtunnel, a1-vps-kuma, micro-vps-node-exporter, micro-vps-ingress, mealie, romm, books, games, files, immich, arr, downloads, jellyfin, conduit, snowflake, observability, kuma, authentik, adguard, tailscale, pbs, pbs-guest, caddy, infinite-craft" },
+  { execution.type = "BatchDeployStackIfChanged", execution.params.pattern = "a1-vps-node-exporter, a1-vps-ntp, a1-vps-tor-bridge, a1-vps-webtunnel, a1-vps-kuma, micro-vps-node-exporter, micro-vps-ingress, mealie, romm, books, games, files, immich, arr, downloads, jellyfin, conduit, snowflake, observability, kuma, authentik, adguard, pbs, pbs-guest, caddy, infinite-craft" },
 ]
 
 # The runner's own deploy path: no CI job deploys the runner it runs on. Hourly, and the
@@ -489,21 +489,6 @@ project_name = "adguard"
 auto_pull = true
 destroy_before_deploy = false
 webhook_enabled = true
-
-[[stack]]
-name = "tailscale"
-[stack.config]
-server = "nas"
-linked_repo = "nas"
-run_directory = "stacks/tailscale"
-file_paths = ["docker-compose.yml"]
-project_name = "tailscale"
-auto_pull = true
-destroy_before_deploy = false
-webhook_enabled = true
-environment = """
-TS_AUTHKEY=[[TAILSCALE__TS_AUTHKEY]]
-"""
 
 [[stack]]
 name = "pbs"

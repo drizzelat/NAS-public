@@ -29,7 +29,6 @@ One file per service. File name matches the stack folder name under `stacks/`.
 | [RomM](romm.md) | `stacks/romm/` | Retro game library — browser emulation (EmulatorJS) + SMB share for GameCube/Wii/Switch |
 | [Runner VM periphery](runner-vm-periphery.md) | `stacks/runner-vm-periphery/` (applied over SSH, not by Komodo) | Komodo periphery inside the runner VM |
 | [Snowflake](snowflake.md) | `stacks/snowflake/` | Tor Snowflake proxy — outbound-only WebRTC relay for censored Tor users |
-| [Tailscale](tailscale.md) | `stacks/tailscale/` | Subnet router — remote LAN access, and the backhaul the public ingress rides |
 
 ## Off the NAS (Oracle Cloud)
 

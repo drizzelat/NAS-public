@@ -175,7 +175,6 @@ flowchart LR
     caddy["caddy<br>Caddy + CrowdSec"]
     authentik["authentik<br>SSO, OIDC provider"]
     adguard["adguard<br>LAN DNS + ad blocking"]
-    tailscale["tailscale<br>subnet router"]
   end
 
   subgraph personal["Personal data"]
@@ -210,7 +209,6 @@ flowchart LR
   oraclehosts(["node-exporter on the<br>A1 and the micro VPS"])
   nealfun(["neal.fun"])
 
-  tailscale -->|"remote devices"| caddy
   pbs ==>|"reverse SSH tunnel, via the jumphost"| pvehost
   adguard -.->|"names resolve to the NAS"| caddy
   caddy --> authentik

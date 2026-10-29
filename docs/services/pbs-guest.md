@@ -20,8 +20,8 @@ names three upstreams: its own Caddy and the two services.
 - **Compose file:** `stacks/pbs-guest/docker-compose.yml`
 - **Deploy:** Komodo Stack `pbs-guest` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
-- **Image:** `tailscale/tailscale`, userspace mode (no tun device, no `NET_ADMIN`), the same pin as
-  [tailscale](tailscale.md).
+- **Image:** `tailscale/tailscale`, userspace mode (no tun device, no `NET_ADMIN`), its own pin
+  (the NAS subnet router runs natively, [tailscale](../tailscale.md)).
 
 ## Access
 
@@ -100,7 +100,7 @@ Komodo → Stacks → `pbs-guest` → **Restart** or **Deploy**, or push to `sta
 
 ### Upgrade
 
-Every image is pinned `tag@sha256:digest`; Renovate bumps it with the [tailscale](tailscale.md) pin and
+Every image is pinned `tag@sha256:digest`; Renovate bumps it and
 the renovate-pr-review flow merges it. Rollback = revert + redeploy.
 
 ### Restore from backup

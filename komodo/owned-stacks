@@ -22,7 +22,6 @@ observability
 kuma
 authentik
 adguard
-tailscale
 pbs
 pbs-guest
 caddy

@@ -170,5 +170,5 @@ DB dump runbook.
 | No box art | Hasheous matches by **file hash** — a bad dump or re-zipped ROM won't match. Use RomM's manual match, or add IGDB. |
 | Browser player hangs on `SharedArrayBuffer` | Page isn't cross-origin-isolated. Check HTTPS, and that Caddy is neither **stripping nor duplicating** COOP/COEP (see Notes). |
 | Scan/metadata tasks queue but never run | Redis unreachable — after an upgrade that externalized it, add `valkey` + `REDIS_HOST`. |
-| Reachable on LAN, not over Tailscale | `100.64.0.0/10` missing from Caddy's `@lan` matcher, or the tailscale stack lost `--snat-subnet-routes=false` ([tailscale.md](tailscale.md)). |
+| Reachable on LAN, not over Tailscale | `100.64.0.0/10` missing from Caddy's `@lan` matcher, or tailscaled lost `--snat-subnet-routes=false` (tailscale.md). |
 | Permission denied on library | Dataset not owned `1000:1000` / ACLs missing (see Notes). |

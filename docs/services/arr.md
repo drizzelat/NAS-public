@@ -35,7 +35,9 @@ queue management. Split out of the old 15-service `mediaserver` stack.
 | Questarr | `https://questarr.example.com` | 5000 |
 
 All LAN-only — not in the VPS SNI allowlist, and Caddy's `lan_only` snippet aborts any other
-client. Unpackerr has no UI. The exporters have no route either: `victoriametrics` joins `proxy_arr`
+client. Unpackerr v1 has a web UI and API on :5656 that starts by default; `UN_WEBSERVER_LISTEN_ADDR=127.0.0.1:5656`
+keeps it inside the container, since an empty value does not turn it off (tested 2026-10-27 on v1.0.0). Its
+`/config` stays root-owned, so it runs on env only, as before, with no history file. The exporters have no route either: `victoriametrics` joins `proxy_arr`
 and scrapes `exportarr-<app>:9707` (jobs `sonarr`, `radarr`, `prowlarr`, `bazarr`).
 
 ## Volumes / data

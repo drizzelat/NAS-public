@@ -87,7 +87,7 @@ None. The tunnel's `SSH_*` settings are plain compose values; the secret is the 
 
 ## Dependencies
 
-- The [tailscale](tailscale.md) stack on the NAS, whose route to the jumphost's tailnet address the
+- The [tailscale](../tailscale.md) subnet router on the NAS, whose route to the jumphost's tailnet address the
   tunnel uses. (The jumphost is a node shared into your tailnet, which you can reach but which
   cannot reach you, hence the outbound tunnel.)
 - Nothing else on the NAS. A PBS outage costs the PVE host its backups and nothing else.

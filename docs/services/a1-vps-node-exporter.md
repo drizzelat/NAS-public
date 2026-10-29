@@ -23,7 +23,7 @@ No UI.
 | ---- | ---- | ------- |
 | `9100/tcp` | `100.64.0.13` (tailnet) | Prometheus metrics, scraped by the NAS `victoriametrics`. Host network; never the public IP. The tailnet ACL lets the NAS (a member device) reach it |
 
-The container needs the `tailscale` stack up first to bind the tailnet IP; after a reboot where it was not,
+The container needs `tailscaled` up first to bind the tailnet IP; after a reboot where it was not,
 `restart: unless-stopped` retries until the address exists.
 
 ## Volumes / data

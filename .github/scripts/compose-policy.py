@@ -41,7 +41,6 @@ SOCKET_ALLOWED = {
 
 # (stack, service) -> reason. Every service either complies or is named here with one.
 NNP_EXEMPT = {
-    ("tailscale", "tailscale"): "tailscaled rewrites iptables/routing (docs/services/tailscale.md)",
 }
 
 LIMIT_EXEMPT = {}

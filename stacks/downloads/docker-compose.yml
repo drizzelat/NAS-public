@@ -56,7 +56,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
   qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:5.3.0_v2.1.2-ls484@sha256:e887804fa9de4c60f5f0fb1f3a7e4febe40a8f69fe736f70c4e8589b1f868dab
+    image: lscr.io/linuxserver/qbittorrent:5.3.0_v2.1.2-ls485@sha256:75ecbb1c89ab7b0a21c4bde40b4820e4f1649d2d56d83b91913422155e8d2a5f
     container_name: qbittorrent
     security_opt:
       - no-new-privileges=true
@@ -81,7 +81,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
   sabnzbd:
-    image: lscr.io/linuxserver/sabnzbd:5.1.3-ls277@sha256:7a13af91cf296399e302d2fb6fc709d6e2ea15e3094f220684611fbe1dd43625
+    image: lscr.io/linuxserver/sabnzbd:5.1.3-ls278@sha256:3ac1c9ea03bafa2588dd8acdcb809857bae305e71d2d90e11d689c78076a9c01
     container_name: sabnzbd
     security_opt:
       - no-new-privileges=true
@@ -125,7 +125,7 @@ services:
   # Prometheus metrics for qBittorrent (Kiwix seeding panels), scraped as gluetun:9022 over proxy_downloads.
   # In gluetun's namespace so it logs in through "Bypass authentication for localhost": no password to store.
   qbittorrent-exporter:
-    image: ghcr.io/martabal/qbittorrent-exporter:v2.0.3@sha256:bc4fa09481634ee894ebfb4d47c8aa239a32a12567b043afa01fa42a3075d1a5
+    image: ghcr.io/martabal/qbittorrent-exporter:v2.0.4@sha256:9289fc5ad5cef7af6af5af5ab5ed7b8d609827490ba374df858905d66da7ec5f
     container_name: qbittorrent-exporter
     user: "65534:65534"
     read_only: true

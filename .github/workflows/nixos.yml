@@ -1,0 +1,63 @@
+name: nixos
+
+# PLT-1: evaluate and build the NAS host config (flake.nix, hosts/nas/) on every PR.
+# GitHub-hosted ONLY. No `paths:` filter (a path-filtered required check deadlocks
+# unrelated PRs); the first step skips the rest when nothing Nix-relevant changed.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nixos-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # One job: GitHub bills every job at least a full minute.
+  build:
+    runs-on: ubuntu-latest   # GitHub-hosted ONLY — it builds PR code; never self-hosted.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0   # base..head diff below.
+
+      - name: Anything Nix-relevant changed?
+        id: changed
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # hosts/nas reads these scripts at build time (health-probe.nix).
+          if git diff --quiet "$BASE" "$HEAD" -- flake.nix flake.lock hosts/ secrets.enc/nixos/ \
+              scripts/nas-health-probe.sh scripts/nas-health-smart.sh scripts/nas-hetzner-snapshots.sh \
+              .github/workflows/nixos.yml; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No Nix-relevant change; skipping." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        if: steps.changed.outputs.run == 'true'
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: nixfmt
+        if: steps.changed.outputs.run == 'true'
+        run: nix fmt -- --check $(git ls-files '*.nix')
+
+      - name: nix flake check (evaluation + the nas-pools VM test)
+        if: steps.changed.outputs.run == 'true'
+        run: nix flake check --print-build-logs
+
+      - name: Build nixosConfigurations.nas
+        if: steps.changed.outputs.run == 'true'
+        run: |
+          nix build --print-build-logs \
+            .#nixosConfigurations.nas.config.system.build.toplevel
+          nix path-info -Sh ./result >> "$GITHUB_STEP_SUMMARY"

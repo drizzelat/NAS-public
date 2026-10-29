@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The yes/no half of the nightly health check, with no model in the loop: snapshot
 # recency and retention, scrub age, dump freshness, cert expiry, auto-pull clone,
-# boot-guard drop-in, Storage Box snapshots.
+# docker boot guard, Storage Box snapshots.
 # Prints PASS/FAIL/WARN/SKIP lines; exits 1 on any FAIL.
 # Docs: docs/runbooks/setup-operations/deploy-state-probe.md
 set -euo pipefail
@@ -12,11 +12,11 @@ nas="${1:?usage: nas-deterministic-checks.sh <nas-lan-ip>}"
 
 # Cadences and retentions are the ones documented in docs/scheduled-tasks.md; a change
 # there is a change here. Hours unless the name says days.
-# One line per snapshot task tier: naming-schema prefix | datasets | cadence h | retention d.
+# One line per sanoid tier: tier | datasets | cadence h | retention d. Sanoid names its snapshots
+# autosnap_<date>_<time>_<tier>; the templates are in hosts/nas/storage.nix (services.sanoid).
 SNAP_TIERS=(
-  "auto|apps|4|3"
-  "auto|data/smb_share data/immich|24|14"
-  "daily|apps|24|14"
+  "hourly|apps|4|3"
+  "daily|apps data/smb_share data/immich|24|14"
   "weekly|apps data/smb_share data/immich|168|56"
   "monthly|apps data/smb_share data/immich|744|186"
 )
@@ -26,9 +26,18 @@ DUMP_CADENCE_H=24
 LEAKED_SNAP_D=2     # a cloud-sync temp snapshot older than this was left behind
 STORAGEBOX_MAX_H=36
 STORAGEBOX_MIN_COUNT=8
-TRAIN_BEHIND_MAX=1  # newer trains offered before the NAS counts as behind
 # Kept on purpose until a decision, never a leaked-snapshot warning (docs/roadmap.md).
-KEEP_SNAPSHOTS="apps/npm@pre-caddy-2026-09-06"
+# Shell patterns: `zfs snapshot -r` puts the same name on every child dataset.
+KEEP_SNAPSHOTS="apps/npm@pre-caddy-2026-09-06 *@pre-nixos"
+read -ra keep_patterns <<<"$KEEP_SNAPSHOTS"
+kept() {
+  local p
+  for p in "${keep_patterns[@]}"; do
+    # shellcheck disable=SC2053  # the unquoted right side is the pattern
+    [[ "$1" == $p ]] && return 0
+  done
+  return 1
+}
 
 fails=0
 report=""
@@ -62,13 +71,17 @@ else
     [[ "$name" != boot-pool/* ]] || continue
     ds="${name%@*}"
     snap="${name#*@}"
-    tier="${snap%%-*}"
-    if [[ "$tier" =~ ^(auto|daily|weekly|monthly)$ && "$snap" == "$tier"-[0-9]* ]]; then
+    if [[ "$snap" =~ ^autosnap_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}:[0-9]{2}:[0-9]{2}_(hourly|daily|weekly|monthly)$ ]]; then
+      tier="${BASH_REMATCH[1]}"
       k="$ds|$tier"
       [[ -z "${newest[$k]:-}" || $created -gt ${newest[$k]} ]] && newest["$k"]=$created
       [[ -z "${oldest[$k]:-}" || $created -lt ${oldest[$k]} ]] && oldest["$k"]=$created
+    elif [[ "$snap" =~ ^(auto|daily|weekly|monthly)-[0-9] ]]; then
+      # TrueNAS-schema snapshots from before the cutover: sanoid does not know them, so
+      # truenas-snapshot-expiry (hosts/nas/storage.nix) prunes them and alerts on failure.
+      :
     elif [[ "$snap" != cloud_sync-* ]] || (( (now - created) / 86400 >= LEAKED_SNAP_D )); then
-      [[ " $KEEP_SNAPSHOTS " == *" $name "* ]] || \
+      kept "$name" || \
         { (( (now - created) / 86400 >= LEAKED_SNAP_D )) && leaked+="$name "; }
     fi
   done <<<"$snaps"
@@ -82,13 +95,13 @@ else
       ntier=$((ntier + 1))
       k="$ds|$tier"
       if [[ -z "${newest[$k]:-}" ]]; then
-        fail "snapshot recency: $ds has no $tier-* snapshot at all"
+        fail "snapshot recency: $ds has no $tier snapshot at all"
         continue
       fi
       age="$(hours_since "${newest[$k]}")"
-      (( age <= cad + SLACK_H )) || fail "snapshot recency: newest $tier-* on $ds is ${age}h old, cadence ${cad}h + ${SLACK_H}h slack"
+      (( age <= cad + SLACK_H )) || fail "snapshot recency: newest $tier snapshot on $ds is ${age}h old, cadence ${cad}h + ${SLACK_H}h slack"
       oage=$(( (now - oldest[$k]) / 86400 ))
-      (( oage <= ret + 1 )) || fail "snapshot retention: oldest $tier-* on $ds is ${oage}d old, retention ${ret}d + 1d — pruning stopped"
+      (( oage <= ret + 1 )) || fail "snapshot retention: oldest $tier snapshot on $ds is ${oage}d old, retention ${ret}d + 1d — pruning stopped"
     done
   done
   [[ -z "$leaked" ]] || warn "leaked snapshots older than ${LEAKED_SNAP_D}d: $leaked"
@@ -219,17 +232,18 @@ else
   fi
 fi
 
-# --- 6. Docker boot-guard drop-in ---------------------------------------------------
+# --- 6. Docker boot guard -----------------------------------------------------------
+# Declared in hosts/nas/docker.nix: dockerd waits for nas-pools.target and refuses an empty
+# /mnt/apps/docker. The verb prints Requires=/After= and the unit's assert line.
 if ! live="$(probe boot-guard)"; then
-  fail "boot guard: boot-guard verb failed (drop-in missing?)"
-elif [[ "$live" == *'$'* ]]; then
-  fail "boot guard: the live drop-in contains a bare \$ — systemd expands it in unit files"
-elif ! want="$(sh scripts/docker-boot-guard.sh --print-dropin)"; then
-  fail "boot guard: could not render the drop-in from scripts/docker-boot-guard.sh"
-elif [[ "$live" != "$want" ]]; then
-  fail "boot guard: the live drop-in differs from what scripts/docker-boot-guard.sh generates — re-run it on the NAS (it only regenerates at boot)"
+  fail "boot guard: boot-guard verb failed"
+elif ! grep -qx 'AssertPathIsMountPoint=/mnt/apps/docker' <<<"$live"; then
+  fail "boot guard: docker.service does not assert /mnt/apps/docker is a mount point — dockerd could start on an empty directory"
+elif ! grep -Eq '^Requires=(.* )?nas-pools\.target( |$)' <<<"$live" ||
+     ! grep -Eq '^After=(.* )?nas-pools\.target( |$)' <<<"$live"; then
+  fail "boot guard: docker.service is not ordered after and bound to nas-pools.target"
 else
-  pass "boot guard: the live drop-in matches the generator"
+  pass "boot guard: docker.service requires nas-pools.target and asserts /mnt/apps/docker"
 fi
 
 # --- 7. Certificate expiry ----------------------------------------------------------
@@ -288,33 +302,6 @@ else
     (( count >= STORAGEBOX_MIN_COUNT )) || fail "storage box: only $count snapshots kept, expected at least $STORAGEBOX_MIN_COUNT"
     if [[ $fails -eq $before ]]; then
       pass "storage box: $count snapshots, newest ${age}h old"
-    fi
-  fi
-fi
-
-# --- 9. TrueNAS update train ---------------------------------------------------------
-# The HasUpdate alert only watches the selected train, so a new train raises nothing.
-# Warn-only: switching trains is a major upgrade planned by hand (os-updates.md).
-if ! trains="$(probe trains 2>&1)"; then
-  warn "train: trains verb failed — re-install scripts/nas-health-probe.sh and grant update.get_trains ($(tr '\n' ' ' <<<"$trains" | head -c 120))"
-else
-  selected="$(awk -F'\t' '$1 == "selected" { print $2 }' <<<"$trains")"
-  declare -A train_ver=()
-  while IFS=$'\t' read -r kind name desc; do
-    [[ "$kind" == train && "$desc" =~ ([0-9]{2})\.([0-9]{2}) ]] || continue
-    train_ver["$name"]="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
-  done <<<"$trains"
-  if [[ -z "${train_ver[$selected]:-}" ]]; then
-    warn "train: selected '$selected' has no release number in the offered trains, behind-ness unchecked"
-  else
-    newer=0
-    for name in "${!train_ver[@]}"; do
-      (( 10#${train_ver[$name]} > 10#${train_ver[$selected]} )) && newer=$((newer + 1))
-    done
-    if (( newer > TRAIN_BEHIND_MAX )); then
-      warn "train: $selected is $newer releases behind the newest offered train"
-    else
-      pass "train: $selected, $newer newer train(s) offered"
     fi
   fi
 fi
