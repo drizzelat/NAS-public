@@ -373,20 +373,13 @@ that comes up with an empty user table would otherwise be claimable from the int
 
 ### Upstreams that need `tls_insecure_skip_verify`
 
-Caddy verifies upstream certificates by default. Two upstreams serve a self-signed
-cert and would `502` without `transport http { tls_insecure_skip_verify }`:
-`nas` (`https://192.168.1.111:444`), and the Authentik outpost (`https://authentik-server-1:9443`).
+Caddy verifies upstream certificates by default. Upstreams with a self-signed cert (`pbs`, the
+Authentik outpost at `https://authentik-server-1:9443`) would `502` without
+`transport http { tls_insecure_skip_verify }`. The snippet also sets `header_up Host {host}`: Caddy
+sends the **upstream** address as `Host` when the upstream is written as a URL.
 
-### The TrueNAS UI needs the original `Host`
-
-The same snippet also sets `header_up Host {host}`. Caddy sends the **upstream** address as the
-`Host` header when the upstream is written as a URL, and TrueNAS's own nginx builds its
-`/` → `/ui/` redirect straight from it (`rewrite ^.* $scheme://$http_host/ui/ redirect;`) — so
-`https://nas.example.com/` bounced the browser to `https://192.168.1.111:444/ui/`, the raw IP
-on TrueNAS's self-signed certificate, and every visit ended on a certificate warning.
-
-The plain `lan_only` snippet is untouched — no upstream behind it redirects by
-host.
+`nas.example.com` has no vhost since the NixOS cutover: the TrueNAS UI on `:444` is gone. The name
+still resolves to the host through AdGuard's wildcard, and HTTPS to it hits the wildcard's `abort`.
 
 ### `files` is proxied straight to the app
 
@@ -409,6 +402,45 @@ probe rather than reading as a deny. The VPS SNI allowlist keeps it off the inte
 
 `lan_only_status` is defined with no user. It is the shape for "the name must stay listed but the
 backend is gone" (a `503` placeholder), kept so it is not re-derived next time.
+
+### Secrets in the logs
+
+Caddy's JSON access log records every request header and the full URI. Caddy itself redacts only
+`Cookie`, `Set-Cookie`, `Authorization` and `Proxy-Authorization`. Everything else is logged as sent,
+and so is the error log and `reverse_proxy` warnings on stderr, which carry the same `request` object.
+
+Until 2026-10-29 that put working credentials in `access.log`, its rotated `.gz` files, the
+container's stderr log, and every ZFS snapshot and offsite backup of `apps/caddy`:
+
+| Where it was sent | Secret |
+| --- | --- |
+| `X-Api-Key` + `X-Api-Secret` to `komodo` | Komodo API keys `github-actions deploy-stacks` and `github-actions probe-read`, from the runner VM |
+| `?apikey=` to `sabnzbd` | SABnzbd's API key, from a phone client |
+| `?api_key=` to `jellyfin` (`/socket`) | Jellyfin web-client session tokens |
+| `X-Api-Key`, `?apikey=`, `?access_token=` to two LAN-only apps | their API keys, sent by their own web UIs (named in the private agent notes) |
+| `X-Map-Tiles-Token` to `ha` | Home Assistant's map tile token, until 2026-10-30 |
+
+The Caddyfile now filters them twice, with the same list: in the `edge_log` snippet (the access log)
+and in the global `log default` (stderr). The global block must come first in a Caddyfile, so it
+cannot import a snippet, and the list is written out in both places. Header values become `REDACTED`,
+and so do the query values (Caddy re-sorts the query when it filters). VictoriaLogs never held the
+headers: Vector keeps only User-Agent and Referer and redacts the query with its own, broader regex
+([observability.md](observability.md)).
+
+**A new app that sends a key in another header or query parameter leaks again.** Check its traffic
+once it is live, and add the name to both lists:
+
+```sh
+sudo grep -ohE '"[A-Z][A-Za-z0-9-]*":\["[^R"][^"]*"' /mnt/apps/caddy/logs/access.log | cut -d'"' -f2 | sort | uniq -c | grep -iE 'key|token|secret|auth|pass|sig'
+```
+
+It lists header names carrying an unredacted value. Not credentials: `X-Authentik-Id` (a user id),
+`Sec-Websocket-Key` (a handshake nonce) and `Www-Authenticate` (a response challenge).
+
+Old files were not scrubbed, because snapshots and backups keep copies anyway. Rotation is the fix
+for what already leaked. On 2026-10-30 both Komodo keys, SABnzbd's key and the two LAN-only apps' keys
+were replaced, and the four Jellyfin devices whose tokens were in the logs were deleted. A logged
+value in old files is dead once its secret has changed.
 
 ## Image
 
@@ -549,7 +581,7 @@ the runner deploy it through Komodo.
 
 ### Common failures
 
-- **`502` on `nas`** → the upstream serves a self-signed certificate and its site
+- **`502` on `pbs`** → the upstream serves a self-signed certificate and its site
   block lost `tls_insecure_skip_verify`.
 - **A LAN client is refused (connection closed, curl 52)** → it is not in the `@lan` matcher.
   Check the source address actually seen; hairpinned Docker traffic arrives as a bridge gateway,

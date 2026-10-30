@@ -1,4 +1,4 @@
-# Komodo ResourceSync `komodo-resources`: Servers, the Repo, the Procedures and all 30 Stacks. Applied
+# Komodo ResourceSync `komodo-resources`: Servers, the Repo, the Procedures and all 31 Stacks. Applied
 # by hand after reading the pending diff (docs/services/komodo.md). Entry rules and absences: docs/services/komodo.md → Rules.
 
 [[server]]
@@ -55,7 +55,7 @@ name = "Deploy owned stacks if changed"
 # Plain names only, exactly komodo/owned-stacks (scripts/komodo/check-owned.sh enforces both). Never a
 # wildcard or a regex: a Stack that was never deployed counts as changed, so "*" would adopt all 24.
 executions = [
-  { execution.type = "BatchDeployStackIfChanged", execution.params.pattern = "a1-vps-node-exporter, a1-vps-ntp, a1-vps-tor-bridge, a1-vps-webtunnel, a1-vps-kuma, micro-vps-node-exporter, micro-vps-ingress, mealie, romm, books, games, files, immich, arr, downloads, jellyfin, conduit, snowflake, observability, kuma, authentik, adguard, pbs, pbs-guest, caddy, infinite-craft" },
+  { execution.type = "BatchDeployStackIfChanged", execution.params.pattern = "a1-vps-node-exporter, a1-vps-ntp, a1-vps-tor-bridge, a1-vps-webtunnel, a1-vps-kuma, micro-vps-node-exporter, micro-vps-ingress, mealie, romm, books, games, files, immich, arr, downloads, jellyfin, conduit, snowflake, observability, kuma, authentik, adguard, pbs, pbs-guest, caddy, infinite-craft, homeassistant, syncthing" },
 ]
 
 # The runner's own deploy path: no CI job deploys the runner it runs on. Hourly, and the
@@ -314,6 +314,18 @@ webhook_enabled = true
 post_deploy.command = "sh ../../scripts/komodo/mount-matches.sh craft-worker /app app"
 
 [[stack]]
+name = "syncthing"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/syncthing"
+file_paths = ["docker-compose.yml"]
+project_name = "syncthing"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+
+[[stack]]
 name = "files"
 [stack.config]
 server = "nas"
@@ -416,6 +428,18 @@ linked_repo = "nas"
 run_directory = "stacks/snowflake"
 file_paths = ["docker-compose.yml"]
 project_name = "snowflake"
+auto_pull = true
+destroy_before_deploy = false
+webhook_enabled = true
+
+[[stack]]
+name = "homeassistant"
+[stack.config]
+server = "nas"
+linked_repo = "nas"
+run_directory = "stacks/homeassistant"
+file_paths = ["docker-compose.yml"]
+project_name = "homeassistant"
 auto_pull = true
 destroy_before_deploy = false
 webhook_enabled = true

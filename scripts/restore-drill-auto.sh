@@ -1,8 +1,8 @@
 #!/bin/sh
 # Monthly proof that the OFFSITE copy restores, in two parts, touching nothing in production:
-#  1. pull apps/kuma back from Hetzner into a scratch path, decrypt it, integrity-check the
+#  1. restore apps/kuma from the restic repository into a scratch path, integrity-check the
 #     SQLite DB, compare the file count with the live dataset;
-#  2. pull one database's dumps back the same way (one per month, in rotation), load the newest
+#  2. restore one database's dumps the same way (one per month, in rotation), load the newest
 #     into a throwaway container of the live image, and compare it with the live database.
 # Docs: docs/runbooks/backup-restore/restore-drill.md
 
@@ -12,11 +12,8 @@ LOG=/var/log/restore-drill-auto.log
 LOCK=/var/run/restore-drill-auto.lock
 SCRATCH=/mnt/apps/restore-drill
 DATASET=apps/kuma
-REMOTE_FOLDER=/backup/apps/kuma
 DB=kuma.db
-POLL=15
-# The PULL task this script drives. Created once by hand; see the runbook.
-TASK_MARKER="restore-drill PULL"
+RESTIC=/run/current-system/sw/bin/restic-storagebox   # the NixOS wrapper with the repo and password
 PUSH_URL_FILE=/root/.config/restore-drill-kuma-push.url
 
 # Part 2. Same discovery as pg-dump-backup.sh: the nas.backup.* labels, on these Docker endpoints.
@@ -67,34 +64,18 @@ cleanup() {
   esac
 }
 
-# pull <remote folder> <local dir>: re-point the PULL task and run it. The credential and the
-# crypt password/salt stay in the middleware: this never reads them.
+# pull <live dir> <local dir>: restore that dir from the newest backup. Restic stores it under the
+# dataset's `restic` snapshot path, so map one to the other.
 pull() {
-  payload="$(FOLDER="$1" DEST="$2" python3 -c '
-import os, json
-print(json.dumps({"path": os.environ["DEST"], "attributes": {"folder": os.environ["FOLDER"]}}))
-')"
-  midclt call cloudsync.update "$TASK_ID" "$payload" >/dev/null 2>&1 \
-    || fatal "cloudsync.update rejected $1 -> $2"
-  mkdir -p "$2" || fatal "cannot create $2"
-
-  jid="$(midclt call cloudsync.sync "$TASK_ID" 2>/dev/null)"
-  [ -n "$jid" ] || fatal "could not start the PULL job for $1"
-
-  while :; do
-    state="$(midclt call core.get_jobs "[[\"id\",\"=\",$jid]]" '{"select":["state"]}' \
-      | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d[0]["state"] if d else "GONE")')"
-    case "$state" in
-      SUCCESS) break ;;
-      FAILED|ABORTED)
-        reason="$(midclt call core.get_jobs "[[\"id\",\"=\",$jid]]" '{"select":["error"]}' \
-          | python3 -c 'import sys,json;d=json.load(sys.stdin);print((d[0].get("error") or "").replace(chr(10)," ")[:300] if d else "")')"
-        fatal "PULL job for $1 $state: $reason"
-        ;;
-      GONE) fatal "PULL job $jid for $1 vanished" ;;
-      *) sleep "$POLL" ;;
-    esac
-  done
+  mp="$(findmnt -n -o TARGET -T "$1")" || fatal "cannot find the dataset mount of $1"
+  src="$mp/.zfs/snapshot/restic${1#"$mp"}"
+  tmp="$SCRATCH/.restic"
+  mkdir -p "$SCRATCH" || fatal "cannot create $SCRATCH"
+  out="$("$RESTIC" restore latest --tag zfs --include "$src" --target "$tmp" 2>&1)" \
+    || fatal "restic restore of $src failed: $(printf '%s' "$out" | tail -1 | cut -c1-300)"
+  [ -d "$tmp$src" ] || fatal "restic restored nothing for $src"
+  mv "$tmp$src" "$2" || fatal "cannot move the restored $src to $2"
+  rm -rf "$tmp"
 }
 
 # sql <endpoint> <container> <engine> <user> <db> <password|""> <query> -> one value per row.
@@ -120,16 +101,16 @@ restore_db() {
   host="$1" hep="$2" live_ct="$3" user="$4" db="$5" dir="$6" engine="$7" image="$8"
   tag="$host/$db"
   case "$dir" in
-    /mnt/*) remote="/backup/${dir#/mnt/}" ;;
+    /mnt/*) ;;
     *) fatal "$tag: dump dir $dir is not under /mnt, so it has no offsite copy" ;;
   esac
   dest="$SCRATCH/db-$host-$db"
-  log "db    $tag: pulling $remote"
-  pull "$remote" "$dest"
+  log "db    $tag: restoring $dir"
+  pull "$dir" "$dest"
 
   # Dated names sort in time order; the prefix match is exact up to the underscore before the date.
   dump="$(find "$dest" -maxdepth 1 -type f -name "${db}_20*.sql.gz" | sort | tail -1)"
-  [ -n "$dump" ] || fatal "$tag: no ${db}_*.sql.gz in the restored copy of $remote"
+  [ -n "$dump" ] || fatal "$tag: no ${db}_*.sql.gz in the restored copy of $dir"
   stamp="$(basename "$dump" .sql.gz)"; stamp="${stamp#"${db}"_}"   # YYYY-MM-DD_HH-MM
   when="$(date -d "$(echo "$stamp" | sed 's/_/ /; s/-\([0-9][0-9]\)$/:\1/')" +%s 2>/dev/null)" \
     || fatal "$tag: cannot read a date from $(basename "$dump")"
@@ -212,12 +193,6 @@ restore_db() {
   rm -rf "$dest" "$SCRATCH/load.err"
 }
 
-# First Sunday only: the cron fires every Sunday because cron ORs day-of-month with
-# day-of-week. RESTORE_DRILL_FORCE=1 runs it any day, for a hand test.
-if [ "${RESTORE_DRILL_FORCE:-0}" != "1" ] && [ "$(date +%-d)" -gt 7 ]; then
-  exit 0
-fi
-
 exec 9>"$LOCK" 2>/dev/null || { err "FATAL: cannot open lock $LOCK"; exit 1; }
 if command -v flock >/dev/null 2>&1; then
   flock -n 9 || { err "FATAL: another drill run holds the lock; aborting"; exit 1; }
@@ -225,30 +200,18 @@ fi
 
 command -v sqlite3 >/dev/null 2>&1 || fatal "sqlite3 is not installed on this host"
 
-log "drill start ($DATASET from $REMOTE_FOLDER)"
-
-TASK_ID="$(midclt call cloudsync.query '[["direction","=","PULL"]]' \
-  '{"select":["id","description"]}' 2>/dev/null \
-  | MARKER="$TASK_MARKER" python3 -c '
-import os, sys, json
-marker = os.environ["MARKER"]
-hits = [t for t in json.load(sys.stdin) if marker in (t.get("description") or "")]
-if len(hits) != 1:
-    sys.exit(2)
-print(hits[0]["id"])
-' 2>/dev/null)" \
-  || fatal "no single PULL task whose description contains \"$TASK_MARKER\" — create it once (see the runbook)"
+log "drill start ($DATASET from restic)"
 
 cleanup
-pull "$REMOTE_FOLDER" "$SCRATCH"
+pull "/mnt/$DATASET" "$SCRATCH/kuma"
 
-[ -f "$SCRATCH/$DB" ] || fatal "$DB is not in the restored copy of $REMOTE_FOLDER"
+[ -f "$SCRATCH/kuma/$DB" ] || fatal "$DB is not in the restored copy of /mnt/$DATASET"
 
-# A wrong crypt salt restores garbage that still looks like files, so the DB has to open.
-check="$(sqlite3 "$SCRATCH/$DB" 'PRAGMA integrity_check;' 2>&1)"
+# A damaged restore can still look like files, so the DB has to open.
+check="$(sqlite3 "$SCRATCH/kuma/$DB" 'PRAGMA integrity_check;' 2>&1)"
 [ "$check" = "ok" ] || fatal "PRAGMA integrity_check on the restored $DB says: $check"
 
-restored="$(find "$SCRATCH" -type f | wc -l)"
+restored="$(find "$SCRATCH/kuma" -type f | wc -l)"
 live="$(find "/mnt/$DATASET" -type f | wc -l)"
 [ "$restored" -gt 0 ] || fatal "the restored copy holds no files at all"
 # The live dataset moves while the backup is a snapshot, so this is a sanity band, not equality.

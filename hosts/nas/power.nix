@@ -1,8 +1,10 @@
 # HW-2: NUT for the planned USB HID UPS (docs/roadmap.md → UPS). Shutdown after 5 min on
 # battery, deliberately not at "low battery": stopping ~55 containers and exporting the
 # pools needs headroom. LOWBATT still shuts down at once (upsmon's own safety net).
+# Off until secrets.enc/nixos/upsmon-password.age exists: without a UPS the NUT units only fail.
 {
   config,
+  lib,
   pkgs,
   nasNotify,
   ...
@@ -39,7 +41,7 @@ let
     AT COMMBAD * EXECUTE commbad
   '';
 in
-{
+lib.mkIf (config.age.secrets ? upsmon-password) {
   power.ups = {
     enable = true;
     mode = "standalone";

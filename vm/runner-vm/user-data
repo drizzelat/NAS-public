@@ -62,4 +62,5 @@ runcmd:
   - DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
   - systemctl enable --now docker qemu-guest-agent
   - systemctl daemon-reload
+  - systemctl enable docker-image-prune.timer
   - install -d -m 0755 /home/ubuntu/periphery /home/ubuntu/github-runner

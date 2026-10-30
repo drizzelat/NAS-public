@@ -43,7 +43,7 @@ flowchart LR
 
   subgraph home["Home — FritzBox, CGNAT, no inbound ports"]
     lan(["LAN devices"])
-    subgraph nas["NAS — TrueNAS on an Intel N100"]
+    subgraph nas["NAS — NixOS on an Intel N100"]
       adguard["AdGuard<br>LAN DNS"]
       caddy["Caddy<br>edge proxy + CrowdSec"]
       authentik["Authentik<br>SSO"]
@@ -180,6 +180,7 @@ flowchart LR
   subgraph personal["Personal data"]
     immich["immich<br>photos"]
     files["files<br>the SMB share in a browser"]
+    syncthing["syncthing<br>the SMB share, synced to devices<br>:22000 on the LAN"]
     mealie["mealie<br>recipes"]
   end
 
@@ -199,9 +200,10 @@ flowchart LR
 
   romm["romm<br>retro games + SMB share"]
   craft["infinite-craft<br>recipe crawler + graph page"]
-  truenas["TrueNAS web UI<br>the host, not a stack"]
+  truenas["NAS host<br>not a stack; the nas vhost lost<br>its TrueNAS UI backend"]
   runner["github-runner<br>no web UI"]
   snowflake["snowflake<br>Tor proxy, host network"]
+  ha["homeassistant<br>smart home, host network"]
   pbs["pbs<br>Proxmox Backup Server<br>+ outbound SSH tunnel"]
   pvehost(["Remote Proxmox VE host<br>via its jumphost VM"])
   proton(["ProtonVPN"])
@@ -219,6 +221,7 @@ flowchart LR
   caddy --> craft
   craft -.->|"crawl, off by default"| nealfun
   caddy --> truenas
+  caddy -->|"host :8123"| ha
   caddy -->|"pbs. and pve."| pbs
   immich -.->|"OIDC"| authentik
   files -.->|"OIDC"| authentik
@@ -251,7 +254,7 @@ flowchart LR
   [authentik](services/authentik.md).
 - **VictoriaMetrics joins a scraped stack's `proxy_*` network, never its internal one**, so the
   metrics store never shares a network with a database — [observability](services/observability.md).
-- `snowflake` and `node-exporter` run on the host network, outside the `proxy_*` model.
+- `snowflake`, `node-exporter` and `homeassistant` run on the host network, outside the `proxy_*` model. Caddy reaches Home Assistant at the host's `:8123` — [homeassistant](services/homeassistant.md).
 - `pbs` runs PBS plus an `autossh` container that dials out to the PVE host through its jumphost: nothing connects in, and the PVE host sees PBS on its own loopback — [pbs](services/pbs.md).
 
 ## 4. The media pipeline
@@ -330,7 +333,7 @@ flowchart TB
     end
     komodo["Komodo Core<br>Stacks from komodo/resources.toml"]
     clone[("repo clone<br>/mnt/apps/scripts/nas")]
-    cron["TrueNAS cron"]
+    cron["NAS systemd timers"]
     nasstacks["NAS stacks<br>via nas-periphery"]
   end
 
@@ -396,11 +399,10 @@ flowchart LR
   subgraph nashost["NAS"]
     apps[("apps pool<br>1 NVMe, no redundancy<br>config + databases")]
     data[("data pool<br>2 × 4 TB HDD mirror<br>photos · documents · SMB · media")]
-    snaps["ZFS snapshots<br>apps every 4 h, data daily"]
+    snaps["sanoid snapshots<br>apps every 4 h, data daily"]
     dumps["DB dumps 02:30<br>containers labelled nas.backup.dump"]
     a1sync["A1 file sync 02:00<br>rsync, read-only keys"]
-    chain["Cloud Sync chain 03:00<br>encrypted, one dataset at a time"]
-    cfgmail["TrueNAS config backup 02:15"]
+    chain["restic 03:00<br>from a ZFS snapshot, encrypted"]
     health["health check 06:30<br>on the self-hosted runner"]
   end
 
@@ -419,10 +421,9 @@ flowchart LR
   dumps -->|"into apps datasets"| apps
   kumaext -->|"monitor database"| a1sync
   a1sync -->|"apps/a1-matrix"| apps
-  apps -->|"every leaf dataset"| chain
+  apps -->|"every dataset but docker"| chain
   data -->|"immich · smb_share<br>(not media, not ROMs)"| chain
   chain --> hetzner
-  cfgmail --> mail
   chain -.->|"on failure"| mail
   dumps -.->|"on failure"| mail
   health -.->|"red run"| mail
@@ -435,14 +436,14 @@ flowchart LR
 ```
 
 - **Two layers of backup:** local ZFS snapshots for a quick restore, and a nightly encrypted push to
-  a Hetzner Storage Box for losing the machine. The `apps` pool is a single NVMe with no redundancy,
-  which is why all of it is both snapshotted every 4 hours and synced offsite —
+  a Hetzner Storage Box (restic) for losing the machine. The `apps` pool is a single NVMe with no redundancy,
+  which is why all of it is both snapshotted every 4 hours and backed up offsite —
   storage.md, backup.
 - **Databases are dumped, not just snapshotted.** Every container labelled `nas.backup.dump=true` is
-  discovered and dumped, on the NAS and on the A1, into a dataset the chain then carries offsite —
+  discovered and dumped, on the NAS and on the A1, into a dataset restic then carries offsite —
   postgres-dump.
-- **The nightly order is deliberate:** snapshots 01:00, A1 file sync 02:00, config email 02:15,
-  dumps 02:30, cloud sync 03:00 — scheduled-tasks.md.
+- **The nightly order is deliberate:** snapshots 00:00 UTC, A1 file sync 02:00,
+  dumps 02:30, restic 03:00 — scheduled-tasks.md.
 - **Something outside the house notices when everything inside it is down.** Each host pings
   healthchecks.io every minute, the A1's Uptime Kuma probes the public URLs and receives the backup
   jobs' heartbeats, and a failed backup or health check sends an email —

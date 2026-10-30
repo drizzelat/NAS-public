@@ -66,6 +66,7 @@ is how the secret stays out of the committed `config.yaml`. Managed with
 
 ## Notes
 
+- Serves the same tree as [Syncthing](syncthing.md) and SMB, so all three run as 568.
 - Runs as UID/GID **568** (TrueNAS apps user) to match `/mnt/data/smb_share`. The image's own user
   is 1000, so every writable path is a bind mount owned by 568 — the image's `WORKDIR` is not.
 - **Who may log in is the Authentik application binding**, not a claim in `config.yaml` — same

@@ -243,14 +243,13 @@ toml_stack_refs() {  # toml_stack_refs <stack> -> the Variable names its [[stack
 }
 
 # komodo_plan <stack> <env-json> <variables-json> -> "ACTION NAME IS_SECRET" lines, never a value.
-# Values enter jq on file descriptors, not argv, and only ever get compared.
+# Values enter jq on stdin, not argv, and only ever get compared.
 komodo_plan() {
   local pfx refs
   pfx="$(komodo_prefix "$1")"; refs="$(toml_stack_refs "$1")"
-  jq -rn --arg pfx "$pfx" --arg refs "$refs" --arg plain "$KOMODO_NON_SECRET" \
-    --slurpfile env <(printf '%s' "$2") --slurpfile have <(printf '%s' "$3") '
-    ($env[0] | map({key: ($pfx + .name), value: .value}) | from_entries) as $want
-    | ($have[0] | map({key: .name, value: .}) | from_entries) as $cur
+  printf '%s\n%s\n' "$2" "$3" | jq -rn --arg pfx "$pfx" --arg refs "$refs" --arg plain "$KOMODO_NON_SECRET" '
+    (input | map({key: ($pfx + .name), value: .value}) | from_entries) as $want
+    | (input | map({key: .name, value: .}) | from_entries) as $cur
     | ($refs | split("\n") | map(select(. != ""))) as $r
     | ($plain | split(" ")) as $p
     | ( $r[] as $n
@@ -364,6 +363,70 @@ cmd_komodo_vars() {
   return $fail
 }
 
+# The CI service users, their key's name and the repo secrets holding it. docs/services/komodo.md
+ci_key_target() {  # ci_key_target <deploy|read> -> "user key-name secret-prefix"
+  case "$1" in
+    deploy) echo "deploy-stacks|github-actions deploy-stacks|KOMODO_DEPLOY_API" ;;
+    read)   echo "probe-read|github-actions probe-read|KOMODO_READ_API" ;;
+    *) return 1 ;;
+  esac
+}
+
+cmd_rotate_ci_key() {  # mint a new key, store it in the repo secrets, verify it, delete the old ones
+  local dry=false
+  [ "${1:-}" = "--dry-run" ] && { dry=true; shift; }
+  [ $# -ge 1 ] || die "usage: secrets.sh rotate-ci-key [--dry-run] deploy|read..."
+  command -v jq >/dev/null 2>&1 || die "need jq"
+  command -v gh >/dev/null 2>&1 || die "need gh (authenticated with repo scope)"
+  local repo which user name prefix uid old busy new nk ns k
+  repo="$(gh repo view --json nameWithOwner -q .nameWithOwner)" || die "gh cannot see this repo"
+  for which in "$@"; do ci_key_target "$which" >/dev/null || die "unknown key '$which' (deploy or read)"; done
+  # A run holding the old key fails once it is deleted. ubuntu-slim jobs never use these keys.
+  busy="$(gh run list --repo "$repo" --limit 30 --json workflowName,status \
+    -q '[.[] | select(.status != "completed") | select(.workflowName | test("deploy-stacks|deploy-state-probe|nas-health-check"))] | length')"
+  [ "$busy" = 0 ] || die "$busy deploy-stacks/deploy-state-probe/nas-health-check run(s) in flight; retry when they finish"
+  find_age
+  ensure_local_key
+  load_komodo_conf
+  for which in "$@"; do
+    IFS='|' read -r user name prefix < <(ci_key_target "$which")
+    uid="$(kapi read/FindUser "$(jq -nc --arg u "$user" '{user:$u}')" | jq -r '._id."$oid" // ._id // .id // empty')" \
+      || die "cannot find Komodo user $user"
+    [ -n "$uid" ] || die "Komodo user $user has no id"
+    old="$(kapi read/ListApiKeysForServiceUser "$(jq -nc --arg u "$uid" '{user:$u}')" | jq -r '.[].key')" \
+      || die "cannot list API keys of $user"
+    if [ "$dry" = true ]; then
+      echo "dry run: $which → user $user has $(printf '%s' "$old" | grep -c . || true) key(s); would mint '$name', set ${prefix}_KEY/_SECRET in $repo, verify, delete the old ones"
+      continue
+    fi
+    # Key and secret live in shell variables only: never echoed, never in argv (gh reads stdin).
+    new="$(kapi write/CreateApiKeyForServiceUser "$(jq -nc --arg u "$uid" --arg n "$name" '{user_id:$u,name:$n,expires:0}')")" \
+      || die "$which: creating the new key failed; nothing changed"
+    nk="$(printf '%s' "$new" | jq -r '.key')"; ns="$(printf '%s' "$new" | jq -r '.secret')"; new=""
+    [ -n "$nk" ] && [ -n "$ns" ] && [ "$nk" != null ] || die "$which: Komodo returned no key/secret"
+    if ! ( KOMODO_API_KEY="$nk" KOMODO_API_SECRET="$ns" kapi read/GetVersion >/dev/null ); then
+      kapi write/DeleteApiKeyForServiceUser "$(jq -nc --arg k "$nk" '{key:$k}')" >/dev/null || true
+      die "$which: the new key does not authenticate; deleted it again, nothing else changed"
+    fi
+    if ! printf '%s' "$nk" | gh secret set "${prefix}_KEY" --repo "$repo"; then
+      kapi write/DeleteApiKeyForServiceUser "$(jq -nc --arg k "$nk" '{key:$k}')" >/dev/null || true
+      die "$which: storing ${prefix}_KEY failed; deleted the new key again, nothing else changed"
+    fi
+    # _KEY already holds the new value, so a failure here leaves CI with a mismatched pair.
+    if ! printf '%s' "$ns" | gh secret set "${prefix}_SECRET" --repo "$repo" \
+      && ! printf '%s' "$ns" | gh secret set "${prefix}_SECRET" --repo "$repo"; then
+      kapi write/DeleteApiKeyForServiceUser "$(jq -nc --arg k "$nk" '{key:$k}')" >/dev/null || true
+      die "$which: storing ${prefix}_SECRET failed twice after ${prefix}_KEY was replaced, so CI's pair is broken now. Re-run 'secrets.sh rotate-ci-key $which' to fix it; the old key still exists"
+    fi
+    nk=""; ns=""
+    for k in $old; do
+      kapi write/DeleteApiKeyForServiceUser "$(jq -nc --arg k "$k" '{key:$k}')" >/dev/null \
+        || c_ylw "$which: could not delete one old key of $user; delete it in Komodo by hand"
+    done
+    c_grn "$which: new key stored in ${prefix}_KEY/_SECRET, $(printf '%s' "$old" | grep -c . || true) old key(s) deleted"
+  done
+}
+
 cmd_push() {
   [ $# -ge 1 ] || die "usage: secrets.sh push <stack>... | --all   (see docs/runbooks/setup-operations/secret-sync.md)"
   command -v jq >/dev/null 2>&1 || die "need jq"
@@ -471,6 +534,7 @@ case "${1:-}" in
   push)   shift; cmd_push "$@" ;;
   komodo-vars) shift; cmd_komodo_vars "$@" ;;
   fingerprint) shift; cmd_fingerprint "$@" ;;
+  rotate-ci-key) shift; cmd_rotate_ci_key "$@" ;;
   status) cmd_status ;;
   *) cat >&2 <<EOF
 secrets.sh — encrypted secret sync (age, one passphrase). See docs/runbooks/setup-operations/secret-sync.md
@@ -485,6 +549,9 @@ secrets.sh — encrypted secret sync (age, one passphrase). See docs/runbooks/se
                                write the [[STACK__KEY]] Variables komodo/resources.toml references
   scripts/secrets.sh fingerprint <s>…|--all
                                rewrite the committed vault fingerprints from the ciphertext
+  scripts/secrets.sh rotate-ci-key [--dry-run] deploy|read…
+                               replace a CI Komodo API key: mint, store in repo secrets, verify,
+                               delete the old ones (values never printed)
   scripts/secrets.sh status    show plaintext/ciphertext drift
 EOF
      exit 2 ;;

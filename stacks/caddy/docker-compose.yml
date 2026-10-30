@@ -61,6 +61,7 @@ services:
       - proxy_games
       - proxy_jellyfin
       - proxy_romm
+      - proxy_syncthing
 
   # Lives in this stack because the bouncer it serves is compiled into Caddy. See docs/services/caddy.md.
   crowdsec:
@@ -181,3 +182,5 @@ networks:
     name: proxy_jellyfin
   proxy_romm:
     name: proxy_romm
+  proxy_syncthing:
+    name: proxy_syncthing

@@ -1,0 +1,41 @@
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  syncthing:
+    image: syncthing/syncthing:2.1.7@sha256:2b71da7c0d0a91a6ae5285ad079226fecc0a365d08b27720e1f7037b018f7546
+    container_name: syncthing
+    hostname: nas-syncthing   # the device name other devices see
+    restart: unless-stopped
+    logging: *default-logging
+    # Matches /mnt/data/smb_share ownership; started as non-root the entrypoint skips its chown.
+    user: 568:568
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+    networks:
+      - default
+      - proxy_syncthing
+    ports:
+      - "22000:22000/tcp"   # sync; devices dial tcp://192.168.1.111:22000 (no discovery)
+      - "22000:22000/udp"   # sync over QUIC
+    volumes:
+      - /mnt/apps/syncthing:/var/syncthing
+      - /mnt/data/smb_share:/srv/smb_share
+    environment:
+      TZ: Europe/Berlin
+      STNODEFAULTFOLDER: "1"
+      STGUIADDRESS: 0.0.0.0:8384   # a non-loopback address also turns off the GUI's Host check, needed behind Caddy
+
+networks:
+  proxy_syncthing:
+    external: true

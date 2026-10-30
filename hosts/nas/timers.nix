@@ -92,11 +92,10 @@ let
       at = "*-*-* 12:00:00";
     };
     restore-drill = {
-      # 22 (Sun 05:00 on TrueNAS). Unscheduled: it pulls through TrueNAS Cloud Sync task 44,
-      # which does not exist here. Start it by hand only; the BAK-1 restic drill replaces it.
-      description = "Monthly automated restore drill (TrueNAS Cloud Sync based)";
+      # 22; restores from restic, after the 03:00 backup
+      description = "Monthly automated restore drill";
       script = "${clone}/restore-drill-auto.sh";
-      at = null;
+      at = "Sun *-*-01..07 05:00:00";
     };
     vmalert-mail = {
       # 23

@@ -6,7 +6,7 @@ x-logging: &default-logging   # json-file never rotates by default. docs/runbook
 
 services:
   github-runner:
-    image: myoung34/github-runner:2.338.1-ubuntu-noble@sha256:36782fe0e5994b301652408c32113a3562fabb1f0ead865ccc196d3e870f9109
+    image: myoung34/github-runner:2.338.2-ubuntu-noble@sha256:23e3a4a1da30de5b462ad0ae13d901288e803a688075c3b9b5bb79b7148c07fa
     container_name: github-runner
     restart: unless-stopped
     logging: *default-logging
@@ -42,4 +42,23 @@ services:
       # GITHUB_RUNNER__APP_ID / __APP_PRIVATE_KEY (scripts/secrets.sh komodo-vars github-runner).
       # Never set ACCESS_TOKEN alongside: the entrypoint refuses both at once.
       - APP_ID=${APP_ID}
-      - APP_PRIVATE_KEY=${APP_PRIVATE_KEY}
+    # The key is a Compose secret, not an environment entry: `compose config`, which Komodo logs on every
+    # deploy, folds long values at their spaces, so the key escaped Komodo's redaction and sat in the
+    # deploy log in clear. A secret shows there by name only. mode 0400 root keeps it from job code
+    # (uid 1001); Compose warns that mode is Swarm-only but honours it, and the default is 0444.
+    secrets:
+      - source: app_private_key
+        uid: "0"
+        gid: "0"
+        mode: 0400
+    # The image's own ENTRYPOINT and CMD, with the key loaded first: the entrypoint expects it in the env.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - 'APP_PRIVATE_KEY=$$(cat /run/secrets/app_private_key) && export APP_PRIVATE_KEY && exec /entrypoint.sh "$$@"'
+      - entrypoint
+    command: ["./bin/Runner.Listener", "run", "--startuptype", "service"]
+
+secrets:
+  app_private_key:
+    environment: APP_PRIVATE_KEY

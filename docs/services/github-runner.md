@@ -30,7 +30,7 @@ itself.
 | Var          | Purpose                                                          |
 | ------------ | --------------------------------------------------------------- |
 | `APP_ID` | ID of the GitHub App `drizzelat-nas-runner`, which mints the registration tokens. Installed on `drizzelat/NAS` only; permissions **Administration: write** and metadata read, nothing else |
-| `APP_PRIVATE_KEY` | That App's private key as **one line**, newlines written as a literal `\n` (Komodo's `environment` block is line-based). The entrypoint restores them. The only copy is in the vault |
+| `APP_PRIVATE_KEY` | That App's private key as **one line**, newlines written as a literal `\n` (Komodo's `environment` block is line-based). The entrypoint restores them. Reaches the container as a Compose secret (`/run/secrets/app_private_key`, 0400 root), never as a compose `environment` entry: Komodo logs `compose config` on every deploy, which folds long values at spaces, so redaction missed the key. The only copy is in the vault |
 
 ## Ports
 

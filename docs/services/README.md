@@ -16,6 +16,7 @@ One file per service. File name matches the stack folder name under `stacks/`.
 | [Files](files.md) | `stacks/files/` | FileBrowser Quantum — web UI for NAS files with Authentik OIDC, share links and upload links |
 | [Games](games.md) | `stacks/games/` | GameVault and its own Postgres |
 | [GitHub Actions Runner](github-runner.md) | `stacks/github-runner/` | Self-hosted runner: stack deploys through Komodo, nightly health check, deploy-state probe |
+| [Home Assistant](homeassistant.md) | `stacks/homeassistant/` | Smart-home hub on the host network for device discovery, LAN-only |
 | [Immich](immich.md) | `stacks/immich/` | Self-hosted photo and video backup and gallery with ML features |
 | [Infinite Craft](infinite-craft.md) | `stacks/infinite-craft/` | Recipe crawler and interactive graph page for neal.fun's Infinite Craft, LAN-only; crawl off by default |
 | [Jellyfin (+ Seerr)](jellyfin.md) | `stacks/jellyfin/` | Media player (public, Authentik SSO) and its request UI (LAN-only) |
@@ -29,6 +30,7 @@ One file per service. File name matches the stack folder name under `stacks/`.
 | [RomM](romm.md) | `stacks/romm/` | Retro game library — browser emulation (EmulatorJS) + SMB share for GameCube/Wii/Switch |
 | [Runner VM periphery](runner-vm-periphery.md) | `stacks/runner-vm-periphery/` (applied over SSH, not by Komodo) | Komodo periphery inside the runner VM |
 | [Snowflake](snowflake.md) | `stacks/snowflake/` | Tor Snowflake proxy — outbound-only WebRTC relay for censored Tor users |
+| [Syncthing](syncthing.md) | `stacks/syncthing/` | Syncs the `smb_share` folders with each person's devices, beside SMB |
 
 ## Off the NAS (Oracle Cloud)
 

@@ -21,7 +21,9 @@ let
         <boot dev='hd'/>
       </os>
       <features><acpi/><apic/></features>
-      <cpu mode='host-passthrough' check='none' migratable='off'>
+      <!-- migratable='on': 'off' also passes bits QEMU has no name for, like CET (shstk/ibt),
+           whose state QEMU then doesn't manage; after a reset every guest binary segfaulted. -->
+      <cpu mode='host-passthrough' check='none' migratable='on'>
         <topology sockets='1' dies='1' cores='2' threads='1'/>
       </cpu>
       <clock offset='utc'/>

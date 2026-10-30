@@ -96,7 +96,8 @@ case "$verb" in
     echo "=== NTPSynchronized ==="
     timedatectl show -p NTPSynchronized --value
     echo "=== booted ==="
-    uptime -s
+    # Not `uptime -s`: coreutils' uptime, first on PATH, has no -s.
+    date -d "@$(awk '/^btime /{print $2}' /proc/stat)" '+%F %T'
     ;;
 
   alerts)

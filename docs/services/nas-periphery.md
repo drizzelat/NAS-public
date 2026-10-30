@@ -59,7 +59,7 @@ unauthenticated Docker socket on `:8120`. Terminals are disabled (`PERIPHERY_DIS
 | `/var/run/docker.sock` | `/var/run/docker.sock` | The Docker API it drives |
 | `/proc` | `/proc` | Host process and memory stats |
 | `/mnt/apps/komodo` | `/mnt/apps/komodo` | Periphery root: repo clones, stack dirs, its key pair, Core's public key. Same path inside and out |
-| `/usr/libexec/docker/cli-plugins/docker-compose` (ro) | same | The host's compose 2.32.3 instead of the image's 5.5.0, which fails on TrueNAS's IPv6 gateway format. Moves with TrueNAS updates |
+| `/usr/libexec/docker/cli-plugins/docker-compose` (ro) | same | The host's compose instead of the image's. Under TrueNAS the image's 5.5.0 failed on its IPv6 gateway format; on NixOS [`docker.nix`](../../hosts/nas/docker.nix) links a static (`CGO_ENABLED=0`) build of nixpkgs' compose there, since the store binary needs `/nix/store` |
 
 ## AppArmor
 

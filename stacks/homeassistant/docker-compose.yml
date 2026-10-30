@@ -1,0 +1,29 @@
+# Home Assistant: smart-home hub, LAN-only at ha.example.com. Docs: docs/services/homeassistant.md
+x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:2026.10.4@sha256:23f4dfbb69ce76315dbc4de7915504f1c2dcecd7ca2648113a493a385972e133
+    container_name: homeassistant
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: host   # mDNS/SSDP device discovery; Caddy reaches :8123 on the host IP
+    volumes:
+      - /mnt/apps/homeassistant:/config   # proxy trust is in .storage/http, not YAML; see docs
+    security_opt:
+      - no-new-privileges=true
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8123/manifest.json').status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G

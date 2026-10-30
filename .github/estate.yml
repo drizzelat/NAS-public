@@ -23,9 +23,9 @@ hosts:
     - craft
     - games
     - grafana
+    - ha
     - komodo
     - kuma
-    - nas
     - pbs
     - prowlarr
     - pve
@@ -37,6 +37,7 @@ hosts:
     - seerr
     - shelfmark
     - sonarr
+    - syncthing
 
 # LAN-only names that ALSO carry a public DNS-only record pointing at a tailnet address (the pbs-guest
 # node, shared with one guest). They stay in lan_only above: the edge Caddy still blocks them from the

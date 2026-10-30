@@ -106,6 +106,12 @@ parent = "Services"
 url = "https://files.example.com"
 
 [[monitor]]
+name = "Home Assistant"
+type = "http"
+parent = "Services"
+url = "https://ha.example.com/manifest.json"
+
+[[monitor]]
 name = "Caddy wildcard cert (*.example.com)"
 type = "http"
 parent = "Infra"

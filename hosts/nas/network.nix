@@ -72,13 +72,18 @@
       9998 # conduit metrics, host network
       9999 # snowflake metrics, host network
     ];
+    allowedUDPPorts = [
+      5353 # mDNS for Home Assistant discovery, host network
+    ];
     # TrueNAS runs no host firewall and the tailnet ACL already decides who gets in.
     trustedInterfaces = [ "tailscale0" ];
     checkReversePath = "loose"; # subnet router: tailscaled policy-routes by fwmark
     # Containers reach host-network services and exporters over their bridge.
+    # SSDP devices answer Home Assistant's multicast M-SEARCH from :1900, which conntrack can't match.
     extraInputRules = ''
       iifname "docker0" accept
       iifname "br-*" accept
+      ip saddr 192.168.1.0/24 udp sport 1900 accept
     '';
   };
 

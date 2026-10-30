@@ -162,9 +162,9 @@ Public DNS sends the name to Cloudflare, which answers 525.
 Inspect shows a container's environment, so `verify-healthy.sh` pipes it straight into `jq`. The
 sync grant means a commit on `main` can make CI apply any `[[stack]]` entry it adds. That is the
 trust level a compose change on `main` already has. Its API key `github-actions deploy-stacks` is
-only in the repo secrets `KOMODO_DEPLOY_API_KEY` / `KOMODO_DEPLOY_API_SECRET`. To rotate it, mint a
-new key for the user as admin (`write/CreateApiKeyForServiceUser`), pipe it into `gh secret set`,
-then delete the old one.
+only in the repo secrets `KOMODO_DEPLOY_API_KEY` / `KOMODO_DEPLOY_API_SECRET`. To rotate it:
+`scripts/secrets.sh rotate-ci-key deploy`
+(secret-sync runbook).
 
 **Read:** the service user `probe-read` has **Read on Servers and Stacks, plus Inspect on Servers**,
 and Read on the one ResourceSync `komodo-resources`, for the probe's pending-changes check. Nothing
@@ -176,7 +176,7 @@ else.
 - **What Inspect costs:** it also shows every container's environment, secrets included. Treat the
   key as a secret reader.
 - **Where the key lives:** the API key `github-actions probe-read` is only in the repo secrets
-  `KOMODO_READ_API_KEY` / `KOMODO_READ_API_SECRET`. Rotate it like the deploy key.
+  `KOMODO_READ_API_KEY` / `KOMODO_READ_API_SECRET`. Rotate it with `scripts/secrets.sh rotate-ci-key read`.
 - **What it cannot do:** it cannot deploy. An `execute/*` it sends still returns HTTP 200 and writes
   a failed update record, `User does not have required permissions`, so a refusal shows only in the
   record.

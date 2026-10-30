@@ -5,6 +5,9 @@
 
 KOMODO_OWNED_FILE="${KOMODO_OWNED_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/komodo/owned-stacks}"
 
+# jq.exe ends lines with CRLF; the CR survives $(...) and lands inside ids and keys. -b stops that.
+case "${OSTYPE:-}" in msys*|cygwin*) jq() { command jq -b "$@"; } ;; esac
+
 komodo_err() {  # GitHub annotation in Actions, plain text elsewhere
   if [ "${GITHUB_ACTIONS:-}" = true ]; then echo "::error::$*"; else echo "error: $*" >&2; fi
 }
@@ -19,18 +22,22 @@ is_komodo_owned() {  # is_komodo_owned <stack>
 }
 
 # kapi <read|write|execute>/<Type> [json] -> response body on stdout.
-# The body goes in on stdin and the credentials as a header file, so neither reaches argv.
+# The credentials go in on stdin and the body as a file, so neither reaches argv. The status comes
+# from the dumped headers: Git Bash's curl fails every HTTPS call that uses -w, and cannot read <(...).
 kapi() {
-  local path="$1" body="${2:-"{}"}" out code resolve=()
+  local path="$1" body="${2:-"{}"}" req out hdr code=000 resolve=()
   if [ -z "${KOMODO_URL:-}" ] || [ -z "${KOMODO_API_KEY:-}" ] || [ -z "${KOMODO_API_SECRET:-}" ]; then
     komodo_err "KOMODO_URL, KOMODO_API_KEY and KOMODO_API_SECRET must all be set"; return 2
   fi
   [ -z "${KOMODO_RESOLVE:-}" ] || resolve=(--resolve "$KOMODO_RESOLVE")
-  out=$(mktemp)
-  code=$(printf '%s' "$body" | curl -sS --max-time 60 "${resolve[@]}" -o "$out" -w '%{http_code}' \
-    -X POST -H 'Content-Type: application/json' \
-    -H @<(printf 'X-Api-Key: %s\nX-Api-Secret: %s\n' "$KOMODO_API_KEY" "$KOMODO_API_SECRET") \
-    --data-binary @- "$KOMODO_URL/$path") || code=000
+  req=$(mktemp); out=$(mktemp); hdr=$(mktemp)
+  printf '%s' "$body" > "$req"
+  if printf 'X-Api-Key: %s\nX-Api-Secret: %s\n' "$KOMODO_API_KEY" "$KOMODO_API_SECRET" \
+    | curl -sS --max-time 60 "${resolve[@]}" -o "$out" -D "$hdr" \
+      -X POST -H 'Content-Type: application/json' -H @- --data-binary @"$req" "$KOMODO_URL/$path"; then
+    code=$(sed -n 's/^HTTP\/[^ ]* \([0-9]*\).*/\1/p' "$hdr" | tail -1)
+  fi
+  rm -f "$req" "$hdr"
   if [ "$code" != 200 ]; then
     # Komodo errors are {"error": ..., "trace": [...]}. Print the message only, never the request.
     komodo_err "komodo $path: HTTP $code: $(jq -r '.error // empty' "$out" 2>/dev/null | head -c 300)"

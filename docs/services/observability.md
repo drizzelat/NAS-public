@@ -197,15 +197,15 @@ against the metrics store every minute. **Every rule carries a `runbook:` annota
 nobody can act on is noise, and the mail below quotes that link.
 
 **There is no Alertmanager.** vmalert runs with `-notifier.blackhole` and holds the alert state in
-its own API. The reason is the mail path: TrueNAS sends through the owner's Outlook account over
-**OAuth**, which Microsoft requires for personal accounts, and no container can use it — there is no
-SMTP username and password to give Alertmanager (see
-email-setup.md). So the bridge is a host script:
+its own API. The reason was the mail path under TrueNAS: it sent through the owner's Outlook account
+over **OAuth**, which no container can use. Since the NixOS cutover (2026-10-29) the script's
+`midclt call mail.send` lands in a shim ([`alerting.nix`](../../hosts/nas/alerting.nix)) that hands
+the message to `nas-notify`, which posts it to an **ntfy** topic. The bridge is still a host script:
 
 ```text
-vmalert (rules, :8880 on loopback) ──▶ scripts/vmalert-mail.sh (TrueNAS cron, */15)
-                                          ├── midclt call mail.send  ──▶ the same inbox
-                                          │                              everything else on this host alerts to
+vmalert (rules, :8880 on loopback) ──▶ scripts/vmalert-mail.sh (systemd timer, */15)
+                                          ├── midclt call mail.send  ──▶ nas-notify ──▶ ntfy, like
+                                          │                              everything else on this host
                                           └── Watchdog seen? ping ──▶ healthchecks.io (mails from outside)
 ```
 
@@ -216,8 +216,8 @@ and once when it clears. No file, no mail — a fresh host is silent, not broken
 **The bridge watches itself through `Watchdog`,** a rule that always fires and is never mailed. Each
 run pings the healthchecks.io check `NAS vmalert watchdog` when `Watchdog` is firing. It pings
 `/fail` when vmalert answers without it, and pings `/fail` and exits 1 when vmalert does not answer.
-If vmalert, the bridge or its cron job stops, healthchecks.io mails from outside, without the
-TrueNAS mail path. The ping URL lives in `/root/.config/vmalert-watchdog.url` (`600 root:root`),
+If vmalert, the bridge or its timer stops, healthchecks.io mails from outside, without the
+host's alert path. The ping URL lives in `/root/.config/vmalert-watchdog.url` (`600 root:root`),
 never the repo. Without that file the bridge still mails and only logs the missing URL.
 
 vmalert re-reads the rule files every minute (`-configCheckInterval`), so a merged rule is live once
@@ -268,7 +268,7 @@ one scrape job, `node`, with a `host` label (`nas`, `a1`, `micro`) that the [Hos
   below) and leave out `hwmon`, `vmstat` and `pressure`: the VMs have no sensors, and the `OomKill` and
   `MemoryPressure` rules stay NAS-only.
 - **[`scripts/host-metrics.sh`](../../scripts/host-metrics.sh)** runs on the NAS as root from a
-  TrueNAS cron job every 5 minutes, because the rest needs `zfs`, `docker` and `smartctl`, none of
+  systemd timer every 5 minutes, because the rest needs `zfs`, `docker` and `smartctl`, none of
   which a container may have. On each Oracle host it runs as `host-metrics.sh containers` from
   `/etc/cron.d/host-metrics` (set up below),
   out of Komodo's clone, and writes only the Docker and container-cgroup series. It writes `/mnt/apps/observability/textfile/host.prom` through a
