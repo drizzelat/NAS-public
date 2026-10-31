@@ -11,7 +11,7 @@ RUN xcaddy build \
       --replace golang.org/x/crypto=golang.org/x/crypto@v0.58.0 \
       --replace golang.org/x/net=golang.org/x/net@v0.62.0 \
       --replace golang.org/x/text=golang.org/x/text@v0.43.0 \
-      --replace google.golang.org/grpc=google.golang.org/grpc@v1.84.0
+      --replace google.golang.org/grpc=google.golang.org/grpc@v1.85.0
 
 FROM caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
 # Upstream rebuilds this base only with its Alpine base, so repo fixes lag; take them at build time.
