@@ -42,6 +42,7 @@ services:
       - VPN_PORT_FORWARDING=on
       - VPN_PORT_FORWARDING_PROVIDER=protonvpn
       - PORT_FORWARD_ONLY=on   # P2P servers only: the others refuse NAT-PMP
+      - SERVER_COUNTRIES=Netherlands,Germany   # unset picks any P2P server worldwide; see docs/services/downloads.md
       - VPN_PORT_FORWARDING_UP_COMMAND=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10 11 12; do wget -qO- --post-data "json={\"listen_port\":{{PORTS}}}" http://127.0.0.1:8082/api/v2/app/setPreferences && exit 0; sleep 10; done; exit 1'
     volumes:
       - /mnt/apps/mediaserver/config/gluetun:/gluetun

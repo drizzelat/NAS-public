@@ -139,8 +139,8 @@ networks:
   crowdsec_socket:
     name: crowdsec_socket
     internal: true
-  # The only proxy_* network with a pinned subnet, because AdGuard is static at
-  # 172.16.25.3; ip_range confines dynamic allocation to the top half.
+  # Pinned because AdGuard is static at 172.16.25.3; ip_range confines dynamic
+  # allocation to the top half.
   proxy_adguard:
     name: proxy_adguard
     enable_ipv6: true
@@ -178,8 +178,15 @@ networks:
     name: proxy_downloads
   proxy_games:
     name: proxy_games
+  # Pinned to match Jellyfin's KnownProxies (docs/network.md). An ipam change leaves caddy
+  # stopped unless other stacks' containers are detached from this network first.
   proxy_jellyfin:
     name: proxy_jellyfin
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.16.6.0/24
+        - subnet: fdd0:0:0:7::/64
   proxy_romm:
     name: proxy_romm
   proxy_syncthing:

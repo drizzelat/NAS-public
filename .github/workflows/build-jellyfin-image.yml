@@ -54,7 +54,9 @@ jobs:
           [ "$stock" != "$ours" ] || { echo "::error::$dll is still the stock one"; exit 1; }
           docker run --rm --entrypoint grep "$IMAGE:$TAG" -rqF '[hlsFloorLevel]' /usr/share/jellyfin/web \
             || { echo "::error::the web client in the image is not the patched one"; exit 1; }
-          echo "patched Jellyfin.Api.dll and web client present"
+          docker run --rm --entrypoint test "$IMAGE:$TAG" -s /etc/OpenCL/vendors/intel.icd \
+            || { echo "::error::the Intel OpenCL runtime is not in the image"; exit 1; }
+          echo "patched Jellyfin.Api.dll, web client and Intel OpenCL runtime present"
 
       # Only main pushes: the tag is what Renovate watches, so a branch build would come back as a digest PR.
       - name: Push

@@ -34,3 +34,5 @@ FROM base
 COPY --from=server /out/Jellyfin.Api.dll /usr/lib/jellyfin/bin/Jellyfin.Api.dll
 RUN rm -rf /usr/share/jellyfin/web
 COPY --from=web /src/dist/ /usr/share/jellyfin/web/
+# OpenCL tone mapping for Dolby Vision profile 5 and HLG: docs/services/jellyfin.md → Transcoding and bitrate.
+RUN set -eu; apt-get update; apt-get install -y --no-install-recommends intel-opencl-icd; rm -rf /var/lib/apt/lists/*

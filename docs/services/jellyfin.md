@@ -95,12 +95,13 @@ These are server settings, not repo state: they live in `/config/encoding.xml` a
 
 - **Intel QSV on the N100 iGPU.** Hardware decode is on for H.264, HEVC, MPEG-2, VC-1, VP8, VP9 and
   AV1, including 10-bit HEVC and VP9. Output is always H.264, because HEVC and AV1 *encoding* are off.
-- **HDR tone mapping uses Intel VPP** (`EnableVppTonemapping`, ffmpeg `tonemap_vaapi`). It covers
-  HDR10, HDR10+ and Dolby Vision with an HDR10 base layer, which is every HDR file in the library
-  as of 2026-09-21. HLG and Dolby Vision profile 5 are *not* tone-mapped.
-- **OpenCL tone mapping (`EnableTonemapping`) must stay off.** The linuxserver image ships no
-  OpenCL runtime (`ffmpeg -init_hw_device opencl@va` fails with `-1001`), so enabling it would
-  break HDR transcodes.
+- **HDR tone mapping uses Intel VPP where it can** (`EnableVppTonemapping`, ffmpeg `tonemap_vaapi`). It
+  covers HDR10, HDR10+ and Dolby Vision with an HDR10 base layer.
+- **OpenCL tone mapping (`EnableTonemapping`, ffmpeg `tonemap_opencl`) covers the rest**: HLG and Dolby
+  Vision profile 5. Profile 5 has no HDR10 layer, so without a tone map its colours turn purple and green.
+  Tested at 31 fps (1.3x realtime) for 4K on the N100, so a profile 5 stream has little headroom.
+- **`EnableTonemapping` needs the OpenCL runtime the image adds.** The stock linuxserver image has none
+  (`ffmpeg -init_hw_device opencl@va` fails with `-1001`), and enabling it there breaks HDR transcodes.
 - **Remote bitrate cap is 32 Mbps** (`RemoteClientBitrateLimit`, about 80 % of the 40 Mbit/s home
   upload). The cap is per stream, so two remote streams can still fill the uplink. It applies only
   to clients Jellyfin classes as remote. Public-edge clients are classed as remote because their
@@ -187,6 +188,8 @@ commit the stock files were built from:
 | `/usr/lib/jellyfin/bin/Jellyfin.Api.dll` | `jellyfin` + [`patches/jellyfin.patch`](../../stacks/jellyfin/patches/jellyfin.patch) |
 | `/usr/share/jellyfin/web/` | `jellyfin-web` + [`patches/jellyfin-web.patch`](../../stacks/jellyfin/patches/jellyfin-web.patch) |
 
+It also adds Ubuntu's `intel-opencl-icd`, the Intel OpenCL runtime the stock image lacks.
+
 - **The base image decides what gets built.** The Dockerfile reads the release, the commit and the
   assembly version out of the stock assemblies. The build fails if the release tag is not that
   commit, or if the new DLL's assembly version differs. A mismatched DLL stops the server with
@@ -241,8 +244,10 @@ jellyfin-abr-image runbook.
   software encodes.
 - **HDR film looks washed out or grey when transcoded** → the tone mapping is not running. Check
   that `EnableVppTonemapping` is on and that the transcode log (`/config/log/FFmpeg.Transcode-*.log`)
-  contains `tonemap_vaapi`. HLG and Dolby Vision profile 5 are outside VPP's coverage (see
+  contains `tonemap_vaapi`, or `tonemap_opencl` for HLG and Dolby Vision profile 5 (see
   [Transcoding and bitrate](#transcoding-and-bitrate)).
+- **Purple and green picture when transcoded** → a Dolby Vision profile 5 file with no tone map. Check
+  that `EnableTonemapping` is on and that `docker exec jellyfin ls /etc/OpenCL/vendors` lists `intel.icd`.
 - **Remote playback buffers although quality is set to *Auto*** → Auto is measured only once,
   when playback starts. Set a fixed quality below 25 Mbps on that device (see
   [Transcoding and bitrate](#transcoding-and-bitrate)).

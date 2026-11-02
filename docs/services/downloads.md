@@ -162,6 +162,11 @@ qbittorrent tag is ignored for ordering.
 
 - **Clients have no internet or won't start** → gluetun is unhealthy. Check its logs, `WG_KEY`,
   and ProtonVPN status.
+- **SABnzbd well below its speed limit, nothing else busy** → check the exit with
+  `sudo docker exec gluetun wget -qO- http://127.0.0.1:8000/v1/publicip/ip`. `SERVER_COUNTRIES` keeps it
+  in the Netherlands or Germany, next to Eweka. Without it, gluetun picks any P2P server: on 2026-10-29
+  it landed in Brisbane (626 ms to `news.eweka.nl`), and SABnzbd stayed near 8 MiB/s under its 10.8 MiB/s
+  limit (`bandwidth_max` 12M at `bandwidth_perc` 90).
 - **Torrents connectable but no incoming peers** → one of the three port-forwarding prerequisites above.
 - **gluetun logs `port forwarding ... connection refused - make sure you have +pmp`** → the WireGuard
   key was generated without NAT-PMP, or gluetun picked a non-P2P server. Regenerate the key with

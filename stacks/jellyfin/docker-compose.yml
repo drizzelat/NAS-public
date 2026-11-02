@@ -8,7 +8,7 @@ x-logging: &default-logging   # json-file never rotates by default. docs/runbook
 
 services:
   jellyfin:
-    image: ghcr.io/drizzelat/nas-jellyfin:10.11.11ubu2404-ls38@sha256:8471c946ad5e3fac1cd189093c47236bf60193496ecda90ead26c00d319d4d08
+    image: ghcr.io/drizzelat/nas-jellyfin:10.11.11ubu2404-ls38@sha256:3784cc96c65c6122a398564580247fc32c3d602b6dbd1cdf7952de5cfa883ab0
     container_name: jellyfin
     security_opt:
       - no-new-privileges=true
@@ -56,7 +56,7 @@ services:
     logging: *default-logging
   # Prometheus metrics for the Media stack dashboard, scraped as jellyfin-exporter:9594 over proxy_jellyfin.
   jellyfin-exporter:
-    image: rebelcore/jellyfin-exporter:v1.5.3@sha256:f7b44157e7217a9aabad51df7927b6d89229da53f18305f836c142dff0aa79e1
+    image: rebelcore/jellyfin-exporter:v1.6.0@sha256:d1985ef9ad50b8924e74ee1dd12accd64936a65150375a8e190c2293b6e2678c
     container_name: jellyfin-exporter
     command:
       - --collector.transcoding
