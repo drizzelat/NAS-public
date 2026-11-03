@@ -27,6 +27,15 @@
   "type": "TXT"
  },
  {
+  "comment": "tailnet address of the pbs-guest node, reachable only by shared guests",
+  "content": "100.64.0.14",
+  "name": "hedgedoc.example.com",
+  "proxied": false,
+  "settings": {},
+  "ttl": 1,
+  "type": "A"
+ },
+ {
   "comment": null,
   "content": "198.51.100.10",
   "name": "jellyfin.example.com",
@@ -80,6 +89,15 @@
   "settings": {},
   "ttl": 1,
   "type": "TXT"
+ },
+ {
+  "comment": "tailnet address of the pbs-guest node, reachable only by shared guests",
+  "content": "100.64.0.14",
+  "name": "wildcam.example.com",
+  "proxied": false,
+  "settings": {},
+  "ttl": 1,
+  "type": "A"
  },
  {
   "comment": null,

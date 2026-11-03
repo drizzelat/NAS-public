@@ -26,7 +26,8 @@ PVE host 127.0.0.1:8007  <--- ssh -R ---  tunnel container (NAS)  --->  pbs:8007
 - Nothing is exposed: no inbound port on the NAS, no listener on the VM network (the forward binds
   loopback on the PVE host only), no Tailscale node, no share, no ACL change, no auth key.
 - The key (`pbs-tunnel@nas`) is restricted on both hops: on the jumphost it may only open
-  `192.168.100.1:22`, and on the PVE host it may only listen on `127.0.0.1:8007`, open `127.0.0.1:8006` (the UI) and has no shell.
+  `192.168.100.1:22`, and on the PVE host it may only listen on `127.0.0.1:8007`, open `127.0.0.1:8006` (the UI)
+  `192.168.100.30:443` (the HedgeDoc VM) and `192.168.100.110:443` (the wildcam Traefik VM), and has no shell.
 - The tunnel is the only dependency on the other host. If it is down, PVE backups fail and nothing
   else happens; `autossh` retries on its own.
 
@@ -47,7 +48,7 @@ PVE host 127.0.0.1:8007  <--- ssh -R ---  tunnel container (NAS)  --->  pbs:8007
 
 | | |
 |---|---|
-| URL | `https://pbs.example.com` (PBS) and `https://pve.example.com` (the lecture PVE host's web UI), LAN and tailnet only. `https://192.168.1.111:8007` still works on the LAN |
+| URL | `https://pbs.example.com` (PBS), `https://pve.example.com` (the lecture PVE host's web UI), `https://hedgedoc.example.com` (the lecture HedgeDoc VM) and `https://wildcam.example.com` (the lecture app, through its Traefik VM), LAN and tailnet only. `https://192.168.1.111:8007` still works on the LAN |
 | Port | `8007/tcp` on the LAN IP; PVE uses `127.0.0.1:8007` on its own host, via the tunnel |
 | Auth | PBS users. `admin@pbs` and `root@pbs` (both full admin; log in as `root` with the *Proxmox Backup authentication server* realm) and `guest@pbs` (full admin too, for the lecture teammate, see [pbs-guest](pbs-guest.md)) and `pve@pbs` with the API token `pve` (backup-only, for PVE). `pve.` is the PVE host's own login (`root@pam`). Passwords are in the gitignored `secrets/pbs-credentials.txt` |
 
@@ -60,11 +61,26 @@ host's own `127.0.0.1:8006`. Nothing new is opened on the PVE host's network, an
 open that one port (`permitopen="127.0.0.1:8006"` next to the `permitlisten` for 8007).
 
 PVE's noVNC and shell consoles are websockets; Caddy passes them through. If the tunnel is down,
-`pve.` answers 502 and the backups fail too.
+`pve.`, `hedgedoc.` and `wildcam.` answer 502 and the backups fail too.
 
-**Do not share the `nas` tailnet node with another tailnet to give someone access** — share [`pbs-guest`](pbs-guest.md) instead, which forwards only these two services. The `lan_only`
+`hedgedoc.` is a third forward in the same session: `-L` to the nginx in front of HedgeDoc on its VM,
+`192.168.100.30:443` on the PVE host's VM bridge, which the PVE host opens on the tunnel's behalf
+(`permitopen="192.168.100.30:443"`). Caddy reaches it as `https://pbs-tunnel:3443`, accepting nginx's
+certificate, and passes `Host: hedgedoc.example.com`, so an nginx `server_name` that names only
+another host does not match it. HedgeDoc builds
+its links and its websocket URL from its own `CMD_DOMAIN`, so the VM needs
+`CMD_DOMAIN=hedgedoc.example.com`, `CMD_PROTOCOL_USESSL=true` and `CMD_URL_ADDPORT=false`; without
+them the page loads but realtime editing does not connect. A missing `permitopen` does not break the
+tunnel: the backups and `pve.` keep working, only `hedgedoc.` answers 502.
+
+`wildcam.` is a fourth forward of the same kind: `-L 4443` to the Traefik load balancer of the lecture
+app, `192.168.100.110:443` (`permitopen="192.168.100.110:443"`), reached as `https://pbs-tunnel:4443`
+with Traefik's self-signed certificate accepted. Traefik's routers match any host, so the forwarded
+`Host: wildcam.example.com` needs nothing on the VM.
+
+**Do not share the `nas` tailnet node with another tailnet to give someone access** — share [`pbs-guest`](pbs-guest.md) instead, which forwards only these services. The `lan_only`
 matcher admits all of `100.64.0.0/10`, so a guest's tailnet address would pass every internal vhost
-(Komodo, TrueNAS, the *arr apps), not just these two.
+(Komodo, TrueNAS, the *arr apps), not just these four.
 
 The image ships with `admin@pbs` / `pbspbs`; it was changed after the first deploy. The CLI `user update --password` silently does nothing here, so change it in the UI (see the agent note).
 
@@ -123,7 +139,7 @@ Once, in this order.
 
    ```text
    jumphost  ~me/.ssh/authorized_keys : restrict,port-forwarding,permitopen="192.168.100.1:22" ssh-ed25519 AAAA… pbs-tunnel@nas
-   PVE host  /root/.ssh/authorized_keys: restrict,port-forwarding,permitlisten="127.0.0.1:8007",permitopen="127.0.0.1:8006",command="/bin/false" ssh-ed25519 AAAA… pbs-tunnel@nas
+   PVE host  /root/.ssh/authorized_keys: restrict,port-forwarding,permitlisten="127.0.0.1:8007",permitopen="127.0.0.1:8006",permitopen="192.168.100.30:443",permitopen="192.168.100.110:443",command="/bin/false" ssh-ed25519 AAAA… pbs-tunnel@nas
    ```
 
    `known_hosts` holds the ed25519 host keys of the jumphost's tailnet address and `192.168.100.1`

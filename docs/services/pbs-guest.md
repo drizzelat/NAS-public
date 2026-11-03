@@ -4,10 +4,11 @@
 
 A small Tailscale node, `pbs-guest`, that reaches the [pbs](pbs.md) stack and is meant to be **shared
 with one outside person** (the lecture teammate, whose own tailnet the PVE host's `jumphost` is in).
-It exposes three TCP ports: `:443` is a dedicated Caddy that serves `pbs.example.com` and
-`pve.example.com` with a real certificate, and `:8006` (the lecture PVE host's web UI) and `:8007`
-(Proxmox Backup Server) are raw forwards for use without the names. It exists so a guest can reach
-those two things and nothing else of the NAS.
+It exposes three TCP ports: `:443` is a dedicated Caddy that serves `pbs.example.com`,
+`pve.example.com`, `hedgedoc.example.com` (the lecture HedgeDoc VM) and `wildcam.example.com`
+(the lecture app behind its Traefik VM) with a real certificate, and
+`:8006` (the lecture PVE host's web UI) and `:8007` (Proxmox Backup Server) are raw forwards for use
+without the names. It exists so a guest can reach those things and nothing else of the NAS.
 
 Why a node of its own, and not the NAS or Caddy: Caddy's `lan_only` rule admits all of
 `100.64.0.0/10`, so a guest on the tailnet who could reach the edge Caddy would pass every internal vhost. PBS itself is fully open to the guest (admin); the node keeps everything else of the NAS out of reach.
@@ -27,13 +28,13 @@ names three upstreams: its own Caddy and the two services.
 
 | | |
 |---|---|
-| URL | `https://pbs.example.com` and `https://pve.example.com` from the guest's tailnet (public DNS-only records point both at the node's tailnet address, so nothing is needed on the guest's machine). Without the names: `https://<pbs-guest tailnet IP>:8007` and `:8006`, with a certificate warning |
+| URL | `https://pbs.example.com`, `https://pve.example.com`, `https://hedgedoc.example.com` and `https://wildcam.example.com` from the guest's tailnet (public DNS-only records point all four at the node's tailnet address, so nothing is needed on the guest's machine). Without the names: `https://<pbs-guest tailnet IP>:8007` and `:8006`, with a certificate warning; HedgeDoc and wildcam have no raw port |
 | Port | `443/tcp` (the guest Caddy), `8006/tcp`, `8007/tcp` on the `pbs-guest` tailnet node only. No LAN port |
-| Auth | PVE: the PVE host's own logins. PBS: `guest@pbs`, a full admin (`Admin` on `/`), because the server is used for the lecture only and both partners need all of it |
+| Auth | PVE: the PVE host's own logins. HedgeDoc: its own accounts. wildcam: none (the Traefik dashboard has basic auth). PBS: `guest@pbs`, a full admin (`Admin` on `/`), because the server is used for the lecture only and both partners need all of it |
 
 The tailnet ACL ([`tailscale/policy.hujson`](../../tailscale/policy.hujson)) lets `autogroup:shared`
 reach the node on those two ports only. Tailscale rules match node and port, not domain names; the name-level
-limit is the guest Caddy, which serves exactly two hostnames and `abort`s everything else.
+limit is the guest Caddy, which serves exactly four hostnames and `abort`s everything else.
 
 ## Volumes / data
 
@@ -52,7 +53,7 @@ limit is the guest Caddy, which serves exactly two hostnames and `abort`s everyt
 ## Dependencies
 
 - The [pbs](pbs.md) stack, for the `proxy_pbs` network and the two upstreams (`pbs`, `pbs-tunnel`).
-  If the tunnel is down, `:8006` fails and the PVE host's backups fail too.
+  If the tunnel is down, `:8006`, `hedgedoc.` and `wildcam.` fail and the PVE host's backups fail too.
 - The Tailscale control plane, for the node to come up, and Let's Encrypt plus the Cloudflare API, for the guest Caddy's certificate.
 
 ## Notes
@@ -61,13 +62,13 @@ limit is the guest Caddy, which serves exactly two hostnames and `abort`s everyt
   with; the rule names this node's address, but never share `nas` for the same reason as above.
 - The serve config and the guest Caddyfile are inline in the compose file (`configs:`), so there is no host file to keep in sync.
 - **The guest Caddy has its own wildcard certificate** (`*.example.com`, DNS-01), separate from the edge Caddy's, so
-  the two names stay out of Certificate Transparency like the other internal hosts. The names themselves are public in DNS.
-- **Public DNS.** `pbs.` and `pve.` have DNS-only A records (Cloudflare, tracked in `cloudflare/dns-records.json`
+  the names stay out of Certificate Transparency like the other internal hosts. The names themselves are public in DNS.
+- **Public DNS.** `pbs.`, `pve.`, `hedgedoc.` and `wildcam.` have DNS-only A records (Cloudflare, tracked in `cloudflare/dns-records.json`
   and `tailnet_dns` in [`.github/estate.yml`](../../.github/estate.yml)) pointing at the node's `100.x` address. Anyone can
   resolve that address; only a guest the node is shared with can reach it. On **your** network AdGuard still answers
-  those two names with the NAS, so you are unaffected. Some home routers drop DNS answers in `100.64.0.0/10`
+  those names with the NAS, so you are unaffected. Some home routers drop DNS answers in `100.64.0.0/10`
   (DNS-rebinding protection); if the guest gets no address, a hosts-file entry on their machine does the same job.
-- If the node is ever re-created its `100.x` address changes: update the two DNS records, the ACL rule and `cloudflare/dns-records.json`.
+- If the node is ever re-created its `100.x` address changes: update the four DNS records, the ACL rule and `cloudflare/dns-records.json`.
 - Revoking access: stop sharing the node in the Tailscale console (Machines → `pbs-guest` → Share),
   or delete the ACL rule.
 
@@ -88,7 +89,7 @@ limit is the guest Caddy, which serves exactly two hostnames and `abort`s everyt
    { "action": "accept", "src": ["autogroup:shared"], "dst": ["<pbs-guest tailnet IP>:443,8006,8007"] },
    ```
 
-   and two Cloudflare DNS-only A records, `pbs` and `pve`, to that address (also in `cloudflare/dns-records.json`).
+   and four Cloudflare DNS-only A records, `pbs`, `pve`, `hedgedoc` and `wildcam`, to that address (also in `cloudflare/dns-records.json`).
 
 4. Share the node: Machines → `pbs-guest` → Share → the guest's Tailscale account (an invite link).
    They accept it in their console.

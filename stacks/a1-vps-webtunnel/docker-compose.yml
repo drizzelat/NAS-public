@@ -9,7 +9,7 @@ x-logging: &default-logging   # json-file never rotates by default. docs/runbook
 
 services:
   webtunnel-bridge:
-    image: ghcr.io/drizzelat/webtunnel-bridge:0.0.7@sha256:c7eb36aa74d762b889d5c0e016c34c29d586a6ce839252c4665b5d690db731e6
+    image: ghcr.io/drizzelat/webtunnel-bridge:0.0.7@sha256:19b456ce0576af1d55618bb441a6c65f0f7c8a8d7ff4bc6d87ce115fcbcca6ae
     container_name: a1-webtunnel
     restart: unless-stopped
     logging: *default-logging
@@ -44,7 +44,7 @@ services:
           memory: 512M
 
   caddy:
-    image: caddy:2-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
+    image: caddy:2-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
     container_name: a1-caddy
     restart: unless-stopped
     logging: *default-logging

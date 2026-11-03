@@ -24,6 +24,7 @@ hosts:
     - games
     - grafana
     - ha
+    - hedgedoc
     - komodo
     - kuma
     - pbs
@@ -38,10 +39,13 @@ hosts:
     - shelfmark
     - sonarr
     - syncthing
+    - wildcam
 
 # LAN-only names that ALSO carry a public DNS-only record pointing at a tailnet address (the pbs-guest
 # node, shared with one guest). They stay in lan_only above: the edge Caddy still blocks them from the
 # internet. Consumers: cloudflare/dns-records.json (a DNS-only A record), docs/services/pbs-guest.md.
   tailnet_dns:
+    - hedgedoc
     - pbs
     - pve
+    - wildcam

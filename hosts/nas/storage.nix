@@ -80,6 +80,12 @@ in
   # Same hostid as TrueNAS, so the pools import without -f in either direction.
   networking.hostId = "34ea58c7";
 
+  # ARC is uncapped by default (c_max ~ all RAM) and crowds the containers; 10 GiB.
+  boot.kernelParams = [ "zfs.zfs_arc_max=${toString (10 * 1024 * 1024 * 1024)}" ];
+
+  # Safety net for spikes; swappiness stays at 1 (network.nix), so it is rarely touched.
+  zramSwap.enable = true;
+
   systemd.services.zfs-import-altroot = {
     description = "Import ZFS pools apps and data under altroot /mnt";
     after = [

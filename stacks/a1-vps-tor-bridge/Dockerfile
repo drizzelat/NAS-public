@@ -25,7 +25,7 @@ RUN apt-get update \
 
 # start-tor.sh and get-bridge-line, from the Tor image release they ship in: their repo is on the
 # same bot-walled GitLab. Architecture-independent shell scripts, so the runner's own arch is fine.
-FROM --platform=$BUILDPLATFORM thetorproject/obfs4-bridge:v0.25 AS upstream
+FROM --platform=$BUILDPLATFORM thetorproject/obfs4-bridge:0.26 AS upstream
 
 FROM debian:trixie-slim
 COPY --from=keyring /tor-archive-keyring.gpg /usr/share/keyrings/deb.torproject.org-keyring.gpg

@@ -222,7 +222,7 @@ flowchart LR
   craft -.->|"crawl, off by default"| nealfun
   caddy --> truenas
   caddy -->|"host :8123"| ha
-  caddy -->|"pbs. and pve."| pbs
+  caddy -->|"pbs., pve., hedgedoc. and wildcam."| pbs
   immich -.->|"OIDC"| authentik
   files -.->|"OIDC"| authentik
   mealie -.->|"OIDC"| authentik
@@ -255,7 +255,7 @@ flowchart LR
 - **VictoriaMetrics joins a scraped stack's `proxy_*` network, never its internal one**, so the
   metrics store never shares a network with a database — [observability](services/observability.md).
 - `snowflake`, `node-exporter` and `homeassistant` run on the host network, outside the `proxy_*` model. Caddy reaches Home Assistant at the host's `:8123` — [homeassistant](services/homeassistant.md).
-- `pbs` runs PBS plus an `autossh` container that dials out to the PVE host through its jumphost: nothing connects in, and the PVE host sees PBS on its own loopback — [pbs](services/pbs.md).
+- `pbs` runs PBS plus an `autossh` container that dials out to the PVE host through its jumphost: nothing connects in, and the PVE host sees PBS on its own loopback. The same session brings the PVE UI and the lecture HedgeDoc VM back for Caddy — [pbs](services/pbs.md).
 
 ## 4. The media pipeline
 

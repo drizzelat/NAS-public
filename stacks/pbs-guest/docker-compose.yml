@@ -7,7 +7,7 @@ x-logging: &default-logging   # json-file never rotates by default. docs/runbook
 
 services:
   tailscale:
-    image: tailscale/tailscale:v1.104.2@sha256:b11583ad2e93e4671128538c88cf11f460444a5d7e449311dd1933a400ab849d
+    image: tailscale/tailscale:v1.104.4@sha256:ed6480b33c6eb67c9cbd203ed42b9fb57e361986725b6856def71b7a3d9e276c
     container_name: pbs-guest
     hostname: pbs-guest
     restart: unless-stopped
@@ -37,9 +37,9 @@ services:
           memory: 256M
 
   caddy:
-    # Same custom build as the edge Caddy (Cloudflare DNS plugin). Serves only pbs. and pve. to the guest;
+    # Same custom build as the edge Caddy (Cloudflare DNS plugin). Serves only pbs., pve., hedgedoc. and wildcam. to the guest;
     # the edge Caddy is never reachable from here. Docs: docs/services/pbs-guest.md
-    image: ghcr.io/drizzelat/nas-caddy:2.11.7@sha256:53ec3e09d78e356be3e3644dfb8b9bdc93f0ef0d9906178912c0f1ca2befd5b4
+    image: ghcr.io/drizzelat/nas-caddy:2.11.7@sha256:beb227b82045679cba62d7c84a439bbced18abe29a533a25747567c35cdd9df4
     container_name: pbs-guest-caddy
     restart: unless-stopped
     logging: *default-logging
@@ -91,6 +91,22 @@ configs:
         @pve host pve.example.com
         handle @pve {
           reverse_proxy https://pbs-tunnel:8006 {
+            transport http {
+              tls_insecure_skip_verify
+            }
+          }
+        }
+        @hedgedoc host hedgedoc.example.com
+        handle @hedgedoc {
+          reverse_proxy https://pbs-tunnel:3443 {
+            transport http {
+              tls_insecure_skip_verify
+            }
+          }
+        }
+        @wildcam host wildcam.example.com
+        handle @wildcam {
+          reverse_proxy https://pbs-tunnel:4443 {
             transport http {
               tls_insecure_skip_verify
             }
