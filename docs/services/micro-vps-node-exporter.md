@@ -55,7 +55,7 @@ None.
   `MemoryPressure` rules cover the NAS only.
 - On start the exporter logs one `ERROR … Failed to open directory, disabling udev device properties` for
   `/run/udev/data`. It is harmless: the udev directory is not mounted, so disk metrics carry no model or serial labels.
-- The box has 954 MiB of RAM; the exporter is capped at 64 MiB.
+- The box has 952 MiB of RAM; the exporter is capped at 64 MiB.
 
 ## Operations
 

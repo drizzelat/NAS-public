@@ -108,7 +108,7 @@ Docker's `json-file` default never rotates. Enforced by
 
 - Komodo → Stacks → `github-runner` → **Deploy** (or **Restart**). Deploy waits for a running job
   first; Restart does not. `APP_ID` and `APP_PRIVATE_KEY` come from the Komodo Variables `GITHUB_RUNNER__APP_ID` and `GITHUB_RUNNER__APP_PRIVATE_KEY`.
-- **A new PAT:** `scripts/secrets.sh edit github-runner`, then `scripts/secrets.sh komodo-vars
+- **New App credentials:** `scripts/secrets.sh edit github-runner`, then `scripts/secrets.sh komodo-vars
   github-runner`, then **Deploy**. `secrets.sh push` refuses this stack, because it is not owned.
 - **Sooner than `:53`:** Komodo → Procedures → `deploy-runner` → **Run**.
 

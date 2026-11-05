@@ -78,6 +78,6 @@ After the stack is up, do this in the Uptime Kuma web UI:
 ### Common failures
 
 - **All ping monitors fail** → needs the `NET_RAW` capability for ICMP.
-- **`getaddrinfo EAI_AGAIN <name>`** → Kuma can't resolve DNS. Ensure `dns:` points at AdGuard's `proxy_adguard` container IP (`172.16.25.3`), **not** the host LAN IP `192.168.1.111` — host-IP DNS goes through Docker UDP hairpin NAT and silently times out. Verify: `docker exec uptime-kuma node -e 'require("dns").resolve4("adguard.example.com",console.log)'`.
+- **`getaddrinfo EAI_AGAIN <name>`** → Kuma can't resolve DNS. Ensure `dns:` points at AdGuard's `proxy_adguard` container IP (`172.16.25.3`), **not** the host LAN IP `192.168.1.111` — host-IP DNS goes through Docker UDP hairpin NAT and silently times out. Verify: `sudo docker exec uptime-kuma node -e 'require("dns").resolve4("adguard.example.com",console.log)'`.
 - **Container OOM / throttled** with many monitors → resource limits are 0.5 CPU / 512 MB; raise them in compose.
 - **Kuma is the in-house watchdog** — if it's down you lose internal alerting. The A1 Kuma and healthchecks.io are the layers that notice.

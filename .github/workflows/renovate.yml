@@ -5,7 +5,7 @@ name: renovate
 
 # No `schedule:`. GitHub's cron has been running 2.5-5.5 h late and mostly dropping
 # events since 2026-08-27, so the hourly pass was paying for a trigger that no longer
-# lands in the window it existed for. The TrueNAS host cron dispatches this once a day at
+# lands in the window it existed for. The NAS systemd timer dispatches this once a day at
 # 04:15 local time (scripts/renovate-trigger.sh) and is the trigger of record.
 # Renovate merges at most ONE PR per run.
 on:

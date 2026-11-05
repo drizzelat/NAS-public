@@ -12,7 +12,7 @@ Two more keep the edge probe and the offsite backup from silently missing a serv
   * the hostnames in `.github/estate.yml` match every list that copies them: the Caddyfile, the SNI
     allowlist, the edge probe's host lists, the Cloudflare records and network.md. A host in the
     Caddyfile that estate.yml lacks is a vhost the probe never asserts,
-  * every `/mnt/data/*` bind mount is under `DATA_INCLUDE` in cloudsync-chain.sh,
+  * every `/mnt/data/*` bind mount is under a restic `roots` entry in hosts/nas/backup.nix,
     or listed as deliberately unbacked in the backup runbook's "NOT backed up" table.
 
 Agent notes (`docs/agent-notes/`) are held to the same standard: every note has frontmatter, is
@@ -44,7 +44,7 @@ NETWORK_DOC = ROOT / "docs" / "network.md"
 STORAGE_DOC = ROOT / "docs" / "storage.md"
 CADDYFILE = STACKS / "caddy" / "Caddyfile"
 EDGE_WORKFLOW = ROOT / ".github" / "workflows" / "edge-access-policy.yml"
-CLOUDSYNC_CHAIN = ROOT / "scripts" / "cloudsync-chain.sh"
+BACKUP_NIX = ROOT / "hosts" / "nas" / "backup.nix"
 BACKUP_DOC = ROOT / "docs" / "runbooks" / "backup-restore" / "backup.md"
 ESTATE = ROOT / ".github" / "estate.yml"
 NGINX_CONF = STACKS / "micro-vps-ingress" / "nginx" / "nginx.conf"
@@ -277,12 +277,12 @@ def check_estate(env, domain):
             finding("docs/network.md", f"the Access control section never names `{name}`, a host in .github/estate.yml")
 
 
-def data_include(path):
-    m = re.search(r"^DATA_INCLUDE\s*=\s*\(([^)]*)\)", path.read_text(), re.M)
+def restic_roots(path):
+    m = re.search(r"^\s*roots\s*=\s*\[([^\]]*)\]", path.read_text(), re.M)
     if not m:
-        print(f"{path.name}: no DATA_INCLUDE tuple — has it been renamed?", file=sys.stderr)
+        print(f"{path.name}: no `roots` list — has it been renamed?", file=sys.stderr)
         sys.exit(2)
-    return set(re.findall(r"[\"']([^\"']+)[\"']", m.group(1)))
+    return set(re.findall(r'"([^"]+)"', m.group(1)))
 
 
 def unbacked_datasets(body):
@@ -355,7 +355,7 @@ def main():
 
     documented_ports = table_column(section(NETWORK_DOC, r"Exposed ports"))
     documented_paths = table_column(section(STORAGE_DOC, r"Shares / bind mounts"))
-    backup_covered = data_include(CLOUDSYNC_CHAIN) | unbacked_datasets(
+    backup_covered = restic_roots(BACKUP_NIX) | unbacked_datasets(
         section(BACKUP_DOC, r"What is intentionally NOT backed up"))
 
     env = workflow_env(EDGE_WORKFLOW)
@@ -396,7 +396,7 @@ def main():
             # A documented ancestor covers its children. Pool roots do NOT count — they are in
             # the table only as whole-pool views.
             ancestors = {path} | {
-                str(p) for p in Path(path).parents if len(p.parts) > 3  # /mnt/<pool>/<x>
+                p.as_posix() for p in Path(path).parents if len(p.parts) > 3  # /mnt/<pool>/<x>
             }
             if not (ancestors & documented_paths):
                 finding(
@@ -408,8 +408,8 @@ def main():
                 if not under(dataset, backup_covered):
                     finding(
                         f"stacks/{name}/docker-compose.yml",
-                        f"bind-mounts {path}, which is neither under DATA_INCLUDE in "
-                        f"scripts/cloudsync-chain.sh nor in the NOT-backed-up table in "
+                        f"bind-mounts {path}, which is neither under a restic root in "
+                        f"hosts/nas/backup.nix nor in the NOT-backed-up table in "
                         f"docs/runbooks/backup-restore/backup.md",
                     )
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hourly on the NAS (TrueNAS cron, root): push each periphery's compose file from the repo clone to its
+# Hourly on the NAS (systemd timer nas-periphery-update, hosts/nas/timers.nix, root): push each periphery's compose file from the repo clone to its
 # host and let scripts/periphery-apply.sh recreate it. Docs: docs/runbooks/setup-operations/periphery-auto-apply.md
 
 set -uo pipefail

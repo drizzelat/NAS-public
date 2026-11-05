@@ -1,6 +1,6 @@
 #!/bin/sh
-# Drive ONE template Cloud Sync task across every backed-up leaf dataset, SERIALLY
-# (the box caps connections). Keep the lists below in sync with docs/runbooks/backup-restore/backup.md.
+# TrueNAS rollback only: NixOS does not run this (restic in hosts/nas/backup.nix replaced it).
+# Drives ONE template Cloud Sync task across every backed-up leaf dataset, SERIALLY (the box caps connections).
 
 set -u
 

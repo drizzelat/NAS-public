@@ -139,12 +139,6 @@ parent = "Schedules"
 interval = 93600
 
 [[monitor]]
-name = "config-email"
-type = "push"
-parent = "Schedules"
-interval = 93600
-
-[[monitor]]
 name = "a1-file-backup"
 type = "push"
 parent = "Schedules"

@@ -77,7 +77,7 @@ None. All settings are flags in the compose `command:`.
 
 ## Operations
 
-> Restart/redeploy go through **Komodo** (Stack `snowflake`). Over SSH, `truenas_admin` is not in the `docker` group but has passwordless sudo, so `sudo -n docker …` works for inspection.
+> Restart/redeploy go through **Komodo** (Stack `snowflake`). Over SSH, `truenas_admin` is in the `docker` group and has passwordless sudo, so `docker …` (or `sudo -n docker …`) works for inspection.
 
 ### Restart / redeploy
 

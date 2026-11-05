@@ -1,6 +1,6 @@
 #!/bin/sh
-# Email a TrueNAS config backup as a MIME attachment via mail.send's /_upload job
-# endpoint (the WebSocket caps at 64 kB). Docs: docs/runbooks/backup-restore/truenas-config-backup.md
+# TrueNAS only, no timer on NixOS: mail the config DB via mail.send's /_upload endpoint
+# (the WebSocket caps at 64 kB). Docs: docs/runbooks/backup-restore/truenas-config-backup.md
 
 set -eu
 

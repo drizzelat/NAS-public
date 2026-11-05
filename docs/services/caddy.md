@@ -270,9 +270,8 @@ sudo -n docker logs --since 2m authentik-server-1 | grep -E '"(login_failed|inva
 `client_ip` in that line must be the visitor's address. If it is a Cloudflare one, the `header_up`
 is not in effect and every ban this raises will hit a PoP.
 
-> **`fail2ban` is not the alternative to this, and was not added.** The NAS has no public SSH, the
-> TrueNAS host cannot keep installed packages across an update, and CrowdSec already holds the
-> HTTP half at the edge.
+> **`fail2ban` is not the alternative to this, and was not added.** The NAS has no public SSH and
+> CrowdSec already holds the HTTP half at the edge.
 
 > **`LePresidente/jellyfin` was considered and deliberately left out.** Its parser fires only on
 > `Authentication request for "x" has been denied (IP: y)`, and the public `:8443` block already
@@ -488,9 +487,7 @@ is `main`-only now, so a `nas-caddy` digest PR is reviewed and swept like any ot
 
 - The 18 `proxy_*` Docker networks: `proxy_network` (CrowdSec, and the `victoriametrics` scrape)
   plus one per proxied stack. This stack **defines** them; every other stack consumes them as
-  `external: true`. Adding one is network.md → Adding a New Stack. They still
-  carry the `npm` compose project label from before Caddy, so every `caddy` deploy logs a harmless
-  `network … was not created for project "caddy"` warning.
+  `external: true`. Adding one is network.md → Adding a New Stack.
 - The [observability stack](observability.md) also reads `/mnt/apps/caddy/logs/access.log` — a
   second reader alongside CrowdSec, which is not a conflict — and puts `victoriametrics` on
   `proxy_network` to scrape `crowdsec:6060`.
@@ -518,8 +515,8 @@ is `main`-only now, so a `nas-caddy` digest PR is reviewed and swept like any ot
 
 ## Operations
 
-> Restart/redeploy go through **Komodo** (Stack `caddy`). Over SSH, `truenas_admin` is not in the `docker` group but has passwordless
-> sudo, so `sudo -n docker …` works for inspection.
+> Restart/redeploy go through **Komodo** (Stack `caddy`). Over SSH, `truenas_admin` is in the `docker` group, so
+> `docker …` (or `sudo -n docker …`) works for inspection.
 
 ### Restart / redeploy
 

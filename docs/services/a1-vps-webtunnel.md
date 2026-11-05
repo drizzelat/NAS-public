@@ -13,7 +13,7 @@ obfs4 bridge it is **unlisted and never an exit**: it talks only to its users an
 | Option | Why not |
 | ------ | ------- |
 | Tor's image, `thetorproject/webtunnel-bridge` | **amd64 only**, and the A1 is arm64. This repo builds the same thing for arm64 and keeps it patched by itself — see [Image and security updates](#image-and-security-updates) |
-| The AMD micro, where Tor's image would run | Same reason as for obfs4: 954 MiB RAM, a 50 Mbps cap, and it is the only public ingress |
+| The AMD micro, where Tor's image would run | Same reason as for obfs4: 952 MiB RAM, a 50 Mbps cap, and it is the only public ingress |
 | A `example.com` subdomain | The URL is part of every bridge line, and censors collect bridge lines. A separate domain used for nothing else keeps your name out of those lists |
 | A port of its own instead of `:443` | WebTunnel's cover is looking like a normal website, which means `:443`, and the A1's `:443` belongs to this stack's Caddy |
 
@@ -37,7 +37,7 @@ second transport, not a second address.
 
 ## Access
 
-No host port is public.
+No port of the bridge itself is public; only the stack's Caddy is.
 
 | Port | Bind | Purpose |
 | ---- | ---- | ------- |
@@ -131,8 +131,8 @@ This takes two merges, because the compose pins a digest that only exists after 
 2. **Image.** Merge the `Dockerfile`, the workflow, the trigger script (then `webtunnel-build-trigger.sh`, now `scripts/tor-bridge-image-trigger.sh`) and the Renovate
    rules. Run `gh workflow run build-webtunnel-image.yml`; its summary prints the `image: …@sha256:…`
    line. Then GitHub → *Packages* → `webtunnel-bridge` → *Package settings* → *Change visibility* →
-   **Public**. Create the trigger cron
-   (renovate-trigger → Tor bridge image trigger).
+   **Public**. The daily trigger is the NAS timer `nas-tor-bridge-image-trigger` (`hosts/nas/timers.nix`,
+   renovate-trigger → Tor bridge image trigger).
 3. **Host dir** on the A1: `sudo install -d -o 101 -g 101 -m 0700 /opt/tor-webtunnel/data`.
 4. **Env.** Run `scripts/secrets.sh edit a1-vps-webtunnel` to add `WEBTUNNEL_URL`, `WEBTUNNEL_DOMAIN`,
    `WEBTUNNEL_PATH` and `TOR_BRIDGE_CONTACT`.
@@ -160,7 +160,7 @@ No step waits for a human:
 
 | Upstream change | How it reaches the A1 |
 | --------------- | --------------------- |
-| Debian security fix, new Tor release | Every day at 03:40 local time, [`tor-bridge-image-trigger.sh`](../../scripts/tor-bridge-image-trigger.sh) dispatches the build workflow, which runs on a native arm64 runner. The workflow dry-runs `apt-get upgrade` inside the published image. Any pending package means a rebuild, pushed under the **same tag** with a new digest |
+| Debian security fix, new Tor release | Every day at 03:40 local time, the NAS timer `nas-tor-bridge-image-trigger` runs [`tor-bridge-image-trigger.sh`](../../scripts/tor-bridge-image-trigger.sh), which dispatches the build workflow, which runs on a native arm64 runner. The workflow dry-runs `apt-get upgrade` inside the published image. Any pending package means a rebuild, pushed under the **same tag** with a new digest |
 | New Go patch release, new `debian:trixie-slim` | Caught by the same run: the image's `nas.go-version` / `nas.base-digest` labels no longer match what a build would pull |
 | New WebTunnel release, new Go minor (`golang:1.27`) | Renovate opens a PR on the `Dockerfile`, which is **automerged** (`renovate.json`). The merge triggers a build, which pushes a new tag |
 | Any of the above, once pushed | Renovate's 04:15 run opens the compose PR → renovate-pr-review (arm64 image delta + risk verdict) → the 05:20 sweep merges it → `deploy-stacks` redeploys. Identity and accounting survive in `/opt/tor-webtunnel/data` |

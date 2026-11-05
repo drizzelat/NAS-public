@@ -105,6 +105,12 @@ Settings → System → Network: set **Home Assistant URL** both local and inter
 `https://ha.example.com`. Otherwise links in notifications and the companion app point at
 `http://192.168.1.111:8123`.
 
+### Monitoring
+
+Uptime Kuma's `Home Assistant` monitor fetches `https://ha.example.com/manifest.json` through Caddy
+([`kuma/monitors/nas.toml`](../../kuma/monitors/nas.toml)); the container healthcheck reads the same
+file on `127.0.0.1:8123`.
+
 ## Operations
 
 > Restart/redeploy go through **Komodo** (Stack `homeassistant`), which deploys from `komodo/resources.toml`. Over SSH, `truenas_admin` has passwordless sudo, so `sudo -n docker …` works for inspection.

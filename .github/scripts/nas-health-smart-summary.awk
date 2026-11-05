@@ -1,4 +1,4 @@
-# Cuts the `smart` probe verb (~16 KB for four disks) down to what check 5 of
+# Cuts the `smart` probe verb (~20 KB for five devices) down to what check 5 of
 # .github/nas-health-check.md judges, so the raw dump never enters the agent's context:
 #   ssh ... 'smart' | awk -f .github/scripts/nas-health-smart-summary.awk
 # Only lines known to be irrelevant are dropped; anything unrecognised passes through, so

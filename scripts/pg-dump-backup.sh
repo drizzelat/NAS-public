@@ -49,7 +49,7 @@ dump_complete() {  # $1 = .sql.gz file | $2 = engine
   fi
 }
 
-# Failure email (mirrors cloudsync-chain.sh); TrueNAS's own cron mail goes nowhere.
+# Failure email; on NixOS midclt is the mail shim in hosts/nas/alerting.nix.
 MAILTO="$(midclt call mail.config 2>/dev/null \
   | python3 -c 'import sys,json;print(json.load(sys.stdin).get("fromemail") or "")' 2>/dev/null || true)"
 

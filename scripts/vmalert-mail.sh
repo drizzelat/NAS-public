@@ -1,6 +1,6 @@
 #!/bin/sh
-# Mail vmalert's firing alerts. vmalert has no Alertmanager (-notifier.blackhole): the only
-# mail path on this estate is TrueNAS's OAuth sender, which no container can use.
+# Send vmalert's firing alerts. vmalert has no Alertmanager (-notifier.blackhole): they go via the
+# host's midclt shim to nas-notify (hosts/nas/alerting.nix), which no container can reach.
 # Docs: docs/services/observability.md#alerting
 
 set -u

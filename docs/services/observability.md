@@ -51,7 +51,7 @@ now costs one container and means adding a service later is one config file, nev
 | `/etc/victoriametrics` (`ro`) | `/mnt/apps/komodo/repos/nas/stacks/observability/victoriametrics` | Scrape config, from the clone |
 | `/etc/vmalert` (`ro`) | `/mnt/apps/komodo/repos/nas/stacks/observability/vmalert` | Alerting rules, from the clone |
 | `/victoria-metrics-data` | `/mnt/apps/observability/victoriametrics` | Metrics store |
-| `/textfile` (`ro`) | `/mnt/apps/observability/textfile` | `host.prom`, written by the host cron job [`host-metrics.sh`](#host-metrics), read by `node-exporter` |
+| `/textfile` (`ro`) | `/mnt/apps/observability/textfile` | Read by `node-exporter`: `host.prom` from the host timer [`host-metrics.sh`](#host-metrics), `qbit-port.prom` from [`qbit-port-sync.sh`](../../scripts/qbit-port-sync.sh), `restic.prom` from the restic backup ([`backup.nix`](../../hosts/nas/backup.nix)) |
 | `/etc/grafana/provisioning` (`ro`) | `/mnt/apps/komodo/repos/nas/stacks/observability/grafana/provisioning` | Datasources + dashboard provider, from the clone |
 | `/etc/grafana/dashboards` (`ro`) | `/mnt/apps/komodo/repos/nas/stacks/observability/grafana/dashboards` | Dashboard JSON, from the clone |
 | `/usr/share/GeoIP` | `/mnt/apps/observability/geoip` | Same directory, the writer's side |
@@ -159,7 +159,7 @@ vhost behind the proxy appears in them automatically.
 | Tor — Bridges & Snowflake | `tor-traffic` | `100.64.0.13:9035` + `:9036` + `192.168.1.111:9999` | Traffic through the A1 [obfs4](a1-vps-tor-bridge.md) and [WebTunnel](a1-vps-webtunnel.md) bridges and the [NAS Snowflake proxy](snowflake.md); bridge egress month-to-date and projected against the 2 TiB their two caps add up to. UTC, to match Tor accounting and Oracle billing |
 | Community services | `community-services` | the Tor, Snowflake and Conduit targets above + `100.64.0.13:9037` (`ntp`) + `:9038` (`ntp-netstat`) + `gluetun:9022` (`qbittorrent`) | Everything run for other people on one page: status, users/clients, traffic per service, then a section each for the [bridges](a1-vps-tor-bridge.md), [Snowflake](snowflake.md), [Conduit](conduit.md), the [NTP Pool server](a1-vps-ntp.md) (queries, drops, offset, upstreams, bandwidth and data served) and Kiwix seeding (upload, peers, incoming port, per-file table). Bridge accounting detail stays in `tor-traffic` |
 | Media stack | `media-stack` | `jellyfin-exporter:9594` (`jellyfin`) + `exportarr-*:9707` (`sonarr`, `radarr`, `prowlarr`, `bazarr`) + `gluetun:9023` (`sabnzbd`) + `gluetun:9022` (`qbittorrent`) + Caddy log | [Jellyfin](jellyfin.md), the [\*arr apps](arr.md) and the [download clients](downloads.md): status and headline numbers, then a section each for Jellyfin (now playing, sessions, watch time per user, play method, transcode reasons and detail, egress, library counts), the library (series/movies on disk, missing, below cutoff, size, quality), downloads (queues, throughput, torrent states, incomplete torrents, SABnzbd queue, Usenet provider usage), Prowlarr indexers (queries, grabs, failures, response time), Bazarr subtitles, and health (each app's health checks, free space, web UI requests and 5xx, exporter scrape time) |
-| Hosts | `hosts` | `node` job, all three hosts + the `host.prom` textfile | CPU, load, memory, pressure, network, disk I/O and fill, temperatures (CPU, NVMe, SATA disks) per host (`$host` selector: `nas`, `a1`, `micro`), then the NAS's CPU and memory per Compose stack (default) or per container (`Group by` toggle), closest-to-limit per container and OOM kills. It replaced the Beszel hub, retired 2026-10-03 |
+| Hosts | `hosts` | `node` job, all three hosts + the `host.prom` textfile + `ups` job | CPU, load, memory, pressure, network, disk I/O and fill, temperatures (CPU, NVMe, SATA disks) per host (`$host` selector: `nas`, `a1`, `micro`), then the NAS's CPU and memory per Compose stack (default) or per container (`Group by` toggle), closest-to-limit per container and OOM kills, then the NAS's UPS (mains or battery, charge, runtime, draw; ignores `$host`). It replaced the Beszel hub, retired 2026-10-03 |
 | Observability — Pipeline Health | `observability-health` | self-scrape | Is the telemetry itself working — the one that catches silent drops |
 
 > **Why most apps have no dashboard of their own.** RomM, Mealie, Immich and the rest
@@ -232,7 +232,7 @@ vmalert re-reads the rule files every minute (`-configCheckInterval`), so a merg
 | `DownloadsDiskLow` | under 100 GB free where qBittorrent writes, for 30 min |
 | `ScrapeTargetDown` | any scrape target has been `up == 0` for 10 min |
 | `CrowdSecDecisionSpike` | local (non-CAPI) decisions jump more than 20 above the last hour's average |
-| `DatasetFilling` | a pool root (`apps`, `data`, `boot-pool`) or a quota'd dataset (`data/romm`) is over 80% full for 1 h |
+| `DatasetFilling` | a pool root (`apps`, `data`) or a quota'd dataset (`data/romm`, `data/pbs`) is over 80% full for 1 h |
 | `ContainerRestartLoop` | a container's Docker restart count rose by 3 or more in 30 min |
 | `OomKill` | the kernel OOM-killed any process in the last 15 min |
 | `MemoryPressure` | all runnable tasks stalled on memory for over 10% of the last 5 min, for 10 min |
@@ -242,9 +242,13 @@ vmalert re-reads the rule files every minute (`-configCheckInterval`), so a merg
 | `HostMetricsStale` | `host.prom` on any host is older than 15 min for 10 min, or the NAS's is missing (that file only: other textfiles no longer mask it) |
 | `HostMetricsSectionFailing` | `host-metrics.sh` could not collect one of its five sections for 10 min |
 | `QbittorrentPortMismatch` | qBittorrent's `listen_port` is not the port ProtonVPN forwards, and [`qbit-port-sync.sh`](../../scripts/qbit-port-sync.sh) could not fix it, for 10 min |
-| `QbittorrentPortSyncStale` | `qbit-port.prom` is missing or older than 10 min for 10 min (the sync cron stopped) |
+| `QbittorrentPortSyncStale` | `qbit-port.prom` is missing or older than 10 min for 10 min (the `nas-qbit-port-sync` timer stopped) |
+| `UpsOnBattery` | the NAS UPS reports `OB` (no `for`: a cut shorter than the mail bridge's 15 min poll may only reach ntfy, which `power.nix` notifies directly) |
+| `UpsBatteryNotCharging` | the UPS is on mains but its charge stays under 90% for 24 h (an ageing battery) |
+| `UpsDataMissing` | no `network_ups_tools_battery_charge` from the NAS for 15 min: USB link, `upsdrv` or the exporter is gone |
+| `ResticBackupStale` | the last successful restic backup to the Storage Box is over 26 h old, or `restic.prom` is missing, for 30 min (critical) — see backup.md |
 
-**What the host rules do not cover.** Only the NAS: the Oracle hosts export CPU, memory, disk and network for the Hosts dashboard, but no rule watches them beyond `ScrapeTargetDown`, and the runner VM has no node exporter. HDD S.M.A.R.T. stays with TrueNAS's own alerts.
+**What the host rules do not cover.** Only the NAS: the Oracle hosts export CPU, memory, disk and network for the Hosts dashboard, but no rule watches them beyond `ScrapeTargetDown`, and the runner VM has no node exporter. HDD and NVMe S.M.A.R.T. alerts come from `smartd` ([`storage.nix`](../../hosts/nas/storage.nix)), which alerts through `nas-notify` (ntfy).
 `ScrapeTargetDown` is the stand-in for an exporter that stopped answering.
 
 ### Host metrics
@@ -254,7 +258,7 @@ one scrape job, `node`, with a `host` label (`nas`, `a1`, `micro`) that the [Hos
 
 - **`node-exporter` on the NAS** (the `prom/node-exporter` image) runs read-only with `cap_drop: ALL`
   and every collector off except `cpu`, `meminfo`, `loadavg`, `hwmon`, `netdev` (the physical NIC and
-  `tailscale0`, not the 39 Docker bridges), `diskstats` (NVMe and SATA disks), `vmstat` (only
+  `tailscale0`, not the Docker bridges), `diskstats` (NVMe and SATA disks), `vmstat` (only
   `oom_kill`), `pressure` and `textfile`. It mounts nothing from the host but the textfile directory.
   It runs on the **host network**, because `/proc/net` is per network namespace and a bridged container
   would report its own interface: it listens on `192.168.1.111:9100` (LAN IP only, like Snowflake),
@@ -300,24 +304,29 @@ last exit, and the script samples every 5 minutes, so the kernel counter is the 
 
 **What to expect.** `ContainerRestartLoop` clears 30 minutes after the loop ends, because the window
 is 30 minutes. A series seen for the first time counts from 0, so a container whose `RestartCount`
-is already 3 or more when the cron job starts fires once; on 2026-10-02 all 58 were at 0.
+is already 3 or more when the job first runs fires once; on 2026-10-02 all 58 were at 0.
 
-**Setting up the cron job (once, after the merge has reached the host clone):**
+**The NAS timer** is `nas-host-metrics.timer`, declared in [`timers.nix`](../../hosts/nas/timers.nix)
+(`*:00/5`, root, stdout discarded). To check it by hand:
 
 ```sh
-sudo midclt call cronjob.create '{"description":"host metrics textfile",
-  "command":"/bin/sh /mnt/apps/scripts/nas/scripts/host-metrics.sh",
-  "user":"root","schedule":{"minute":"*/5","hour":"*","dom":"*","month":"*","dow":"*"},
-  "enabled":true,"stdout":false,"stderr":false}'
-
 sudo sh /mnt/apps/scripts/nas/scripts/host-metrics.sh        # prints nothing when all five sections work
 cat /mnt/apps/observability/textfile/host.prom               # host_metrics_section_ok{...} 1 on every line
 curl -s http://127.0.0.1:8880/api/v1/alerts | grep -c HostMetrics   # 0 once the file is fresh
 ```
 
-Stderr is off on purpose: a persistent failure would mail every 5 minutes, and `HostMetricsSectionFailing`
-already mails once. Run the script by hand to see the reason. Until the cron job exists,
-`HostMetricsStale` fires 10 minutes after the deploy, which is the reminder.
+The timer discards stdout and keeps only notice-level journal lines on purpose: a persistent section
+failure would otherwise alert every 5 minutes, and `HostMetricsSectionFailing` already mails once.
+Run the script by hand to see the reason.
+
+**The NixOS host exporters.** [`monitoring.nix`](../../hosts/nas/monitoring.nix) runs `zfs_exporter`
+on `:9134`, `smartctl_exporter` on `:9633` and the NUT exporter on `:9199` (the Eaton UPS,
+hardware.md). They listen on all addresses, but the host firewall
+admits them only from the Docker bridges (`br-*`), so VictoriaMetrics reaches them on
+`192.168.1.111` and the LAN does not. Only the NUT exporter is scraped (job `ups`, path
+`/ups_metrics`, label `host: nas`); it exports `battery.charge`, `battery.runtime`, `ups.load`,
+`ups.realpower` and `ups.status` (`nutVariables`: its default set asks for voltages the 3S lacks).
+The ZFS and SMART exporters still have no job: `host.prom` covers those today.
 
 **On each Oracle host** (once, after the node-exporter stack has deployed, which also pulls the clone):
 
@@ -333,17 +342,15 @@ The script runs from Komodo's clone, which a stack deploy fast-forwards, so a ch
 hosts with the next deploy of their node-exporter stack, not on its own. `HostMetricsStale` and
 `HostMetricsSectionFailing` carry the `host` label, so they name the host whose job stopped.
 
-### Setting up the mail bridge (once)
+### The mail bridge timer
+
+`nas-vmalert-mail.timer` ([`timers.nix`](../../hosts/nas/timers.nix), `*:00/15`, root) runs the
+bridge; a failed run also fires `notify-failure@`. The host has no `python3` or `jq` on its path.
 
 ```sh
-sudo midclt call cronjob.create '{"description":"vmalert mail bridge",
-  "command":"/bin/sh /mnt/apps/scripts/nas/scripts/vmalert-mail.sh",
-  "user":"root","schedule":{"minute":"*/15","hour":"*","dom":"*","month":"*","dow":"*"},
-  "enabled":true,"stdout":false,"stderr":true}'
-
 # Prove it end to end: this lists what vmalert is firing right now.
-curl -s http://127.0.0.1:8880/api/v1/alerts | python3 -m json.tool | head -20
-sudo /bin/sh /mnt/apps/scripts/nas/scripts/vmalert-mail.sh && tail -3 /var/log/vmalert-mail.log
+curl -s http://127.0.0.1:8880/api/v1/alerts | head -c 600; echo
+sudo systemctl start nas-vmalert-mail.service && sudo tail -3 /var/log/vmalert-mail.log
 ```
 
 The watchdog check: create `NAS vmalert watchdog` in healthchecks.io with **period 15 min, grace
@@ -353,7 +360,7 @@ The watchdog check: create `NAS vmalert watchdog` in healthchecks.io with **peri
 sudo sh -c 'umask 077; mkdir -p /root/.config; cat > /root/.config/vmalert-watchdog.url'  # paste, Ctrl-D
 ```
 
-Prove it: `sudo docker stop vmalert`, run the bridge once by hand (exit 1, check red at once),
+Prove it: `sudo docker stop vmalert`, run the bridge once by hand (`sudo sh /mnt/apps/scripts/nas/scripts/vmalert-mail.sh`) (exit 1, check red at once),
 `sudo docker start vmalert`, run it again (check green).
 
 ## Retention and sizing
@@ -476,8 +483,7 @@ both numbers after a month of real figures rather than guessing now.
 
 > Restart/redeploy go through **Komodo** (Stack `observability`). Over SSH,
 > `truenas_admin` is not in the `docker` group but has passwordless sudo, so `sudo -n docker …`
-> works for inspection. Manual webhook fire:
-> `curl -k -X POST https://192.168.1.111:31015/api/stacks/webhooks/<uuid>`.
+> works for inspection.
 
 ### Restart / redeploy
 
@@ -509,7 +515,7 @@ events silently dropped, because `drop_on_error: true`.
 
 ### Upgrade
 
-Renovate bumps all five images by digest like any other stack. Two to read the notes for:
+Renovate bumps all seven images by digest like any other stack. Two to read the notes for:
 
 - **VictoriaLogs / VictoriaMetrics** across a major — the on-disk format is backward compatible,
   but downgrading after a major is not always. Snapshot `apps/observability` first.

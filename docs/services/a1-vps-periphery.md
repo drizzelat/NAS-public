@@ -7,20 +7,20 @@ Komodo Periphery on the Ampere A1 VPS (**aarch64**). It is the agent Komodo Core
 does the work. If it is down, Komodo can neither deploy nor inspect anything here. Containers keep
 running either way.
 
-All six A1 stacks deploy through it.
+The five other A1 stacks deploy through it.
 
 ## Stack
 
 - **Stack folder:** `stacks/a1-vps-periphery/`
 - **Compose file:** `stacks/a1-vps-periphery/docker-compose.yml`
-- **Managed by:** the repo is the source of truth; **applied by the hourly periphery auto-apply cron**, never by Komodo.
+- **Managed by:** the repo is the source of truth; **applied by the hourly periphery auto-apply NAS timer (`nas-periphery-update`)**, never by Komodo.
   See [Why not Komodo](#why-not-komodo).
 - **Host copy:** `/home/ubuntu/periphery/docker-compose.yml` (compose project `periphery`, container `komodo-periphery`).
 - **Komodo Server:** `a1-vps`
 
 ## Why not Komodo
 
-The periphery is the transport its own server deploys through,: recreating it from Komodo drops the connection mid-command
+The periphery is the transport its own server deploys through: recreating it from Komodo drops the connection mid-command
 ([komodo.md → Rules](komodo.md#peripheries-are-hand-applied)). Enforced by its absence from `komodo/owned-stacks`, so a push that changes
 this file deploys nothing, and by `HAND_APPLIED` in the deploy-state probe.
 
@@ -49,7 +49,7 @@ unauthenticated Docker socket on `:8120`. Terminals are disabled (`PERIPHERY_DIS
 
 ## Applying a change
 
-The periphery auto-apply cron does this hourly after a merge. These are the by-hand steps, the repair path when it reports a failure.
+The periphery auto-apply timer does this hourly after a merge. These are the by-hand steps, the repair path when it reports a failure.
 
 Run from a clone of this repo, after the change is merged to `main`:
 
@@ -72,9 +72,9 @@ The `up -d` recreates the periphery, so Komodo shows Server `a1-vps` as unreacha
 
 ## Version pinning
 
-Pinned to `2.3.3@sha256:…`, the multi-arch manifest list, identical on all three hosts. Core and every
+Pinned by tag and digest (`@sha256:…`, see the compose file), the multi-arch manifest list, identical on every periphery host. Core and every
 periphery move together ([komodo.md → Upgrade](komodo.md#upgrade)): Renovate groups the two images into one PR, and a merge deploys only Core, and the
-periphery auto-apply cron applies the peripheries once Core runs the new pin.
+periphery auto-apply timer applies the peripheries once Core runs the new pin.
 
 ## Related
 

@@ -21,6 +21,8 @@ Single source of truth for home NAS.
 - **`stacks/`** — Docker Compose stacks, deployed as Komodo Stacks. Each subfolder = one stack.
 - **`docs/`** — network layout, storage, per-service details, runbooks.
 - **`scripts/`** — maintenance/backup helpers, deploy and review logic.
+- **`hosts/nas/`** — the NAS's NixOS configuration (flake at the repo root); hostname `truenas` and user `truenas_admin` are kept from TrueNAS.
+- **`komodo/`** — Komodo resources (`resources.toml`) and the `owned-stacks` list CI deploys.
 
 ## Critical rule: keep docs in sync
 
@@ -40,7 +42,7 @@ every stack needs `docs/services/<name>.md`, every LAN port it publishes needs a
 row in the `docs/network.md` ports table, every bind mount needs a row in the
 `docs/storage.md` mount table. The same step also holds every list that copies a public host or a
 LAN-only host to [`.github/estate.yml`](.github/estate.yml) (the Caddyfile, the SNI
-allowlist, `edge-access-policy.yml`, the Cloudflare records, `network.md`), and requires every `/mnt/data/*` bind mount to be under `DATA_INCLUDE` in `scripts/cloudsync-chain.sh` or in the backup runbook's
+allowlist, `edge-access-policy.yml`, the Cloudflare records, `network.md`), and requires every `/mnt/data/*` bind mount to be under a restic `roots` entry in `hosts/nas/backup.nix` or in the backup runbook's
 "NOT backed up" table. The same step checks `docs/agent-notes/`: every note has frontmatter and an index line, its `[[links]]` resolve and the repo paths it names exist; a note not re-verified for 90 days warns. Check before pushing: `python3 .github/scripts/docs-drift.py`.
 
 Compose conventions are enforced too (`validate` job, [`compose-policy.py`](.github/scripts/compose-policy.py)):
@@ -78,7 +80,7 @@ It never tears a stack down. See the deploy-stacks runbook.
 
 Not deployed that way, applied by hand instead:
 
-- The four `*-periphery` stacks, by the hourly NAS cron `scripts/periphery-update.sh` over SSH (runbook).
+- The four `*-periphery` stacks, by the hourly NAS systemd timer `nas-periphery-update` (`scripts/periphery-update.sh`) over SSH (runbook).
 - `komodo`, deployed by its own hourly Komodo Procedure `deploy-komodo`.
 
 **No hard-coded secrets in compose files.** Use `${VAR}` placeholders. Values live in the age vault
@@ -126,7 +128,7 @@ unwrapped key `secrets/age-key.txt`, any plaintext `.env`, or the plaintext SSH 
 `secrets/ssh/`.
 
 **Everything on `main` is published, scrubbed.** `public-mirror.yml` syncs a sanitized copy to a
-public repo every week, after a Claude review of the diff. Every push to `main` runs its gates. A
+public repo every day (the NAS timer `nas-public-mirror-trigger`), after a Claude review of the diff. Every push to `main` runs its gates. A
 new top-level path, public IP, domain or email address fails them: add a `scrub` line for your own
 values, or an `allow-*` line for third-party ones, to
 `scripts/public-mirror/rules` in the same commit. A new hostname or

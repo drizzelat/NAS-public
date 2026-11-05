@@ -78,7 +78,7 @@ After the stack is up, do this in the AdGuard web UI:
 
 ## Operations
 
-> Restart/redeploy go through **Komodo** (Stack `adguard`). Over SSH, `truenas_admin` is not in the `docker` group but has passwordless sudo, so `sudo -n docker …` works for inspection.
+> Restart/redeploy go through **Komodo** (Stack `adguard`). Over SSH, `truenas_admin` is in the `docker` group, so `docker …` (or `sudo -n docker …`) works for inspection.
 
 ### Restart / redeploy
 

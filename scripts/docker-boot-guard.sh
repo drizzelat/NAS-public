@@ -1,6 +1,6 @@
 #!/bin/sh
-# Stop dockerd starting before its ZFS data-root is mounted, and heal a boot where
-# it already did. POSTINIT. Docs: docs/runbooks/setup-operations/docker-image-prune.md
+# TrueNAS only (rollback boot; NixOS: docker.nix asserts the mount): stop dockerd starting before
+# its ZFS data-root is mounted. POSTINIT. Docs: docs/runbooks/setup-operations/docker-image-prune.md
 
 set -eu
 

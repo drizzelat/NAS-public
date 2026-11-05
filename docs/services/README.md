@@ -22,7 +22,7 @@ One file per service. File name matches the stack folder name under `stacks/`.
 | [Jellyfin (+ Seerr)](jellyfin.md) | `stacks/jellyfin/` | Media player (public, Authentik SSO) and its request UI (LAN-only) |
 | [Komodo Core](komodo.md) | `stacks/komodo/` (deployed by itself, not CI) | The control plane: deploys every stack through a periphery on each host |
 | [Uptime Kuma](kuma.md) | `stacks/kuma/` | Internal uptime monitoring; the external watchdog is [A1 Uptime Kuma](a1-vps-kuma.md) |
-| [NAS periphery](nas-periphery.md) | `stacks/nas-periphery/` (applied by hand, not by Komodo) | Komodo periphery on the NAS |
+| [NAS periphery](nas-periphery.md) | `stacks/nas-periphery/` (applied by the hourly periphery timer, not by Komodo) | Komodo periphery on the NAS |
 | [Mealie](mealie.md) | `stacks/mealie/` | Recipe manager and meal planner (public via Authentik OIDC) |
 | [Observability](observability.md) | `stacks/observability/` | Vector + VictoriaLogs + VictoriaMetrics + Grafana — traffic and service analytics; replaced GoAccess |
 | [Proxmox Backup Server](pbs.md) | `stacks/pbs/` | PBS 4 as the backup target for a remote PVE host, which reaches it through an outbound SSH tunnel |

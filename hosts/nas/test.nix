@@ -48,6 +48,12 @@ pkgs.testers.runNixOSTest {
         nas.fail("systemctl is-active samba-smbd.service")
         nas.fail("systemctl is-active docker.service")
 
+    with subtest("a timer job without pools fails at once and does not re-run the import"):
+        show = "systemctl show -p ExecMainStartTimestampMonotonic --value zfs-import-altroot"
+        before = nas.succeed(show)
+        nas.fail("systemctl start nas-healthchecks-ping.service")
+        assert nas.succeed(show) == before, "a timer job started the pool import again"
+
     with subtest("create scratch pools the way TrueNAS left the real ones"):
         nas.succeed("modprobe zfs")
         for d in ["vdb", "vdc", "vdd"]:

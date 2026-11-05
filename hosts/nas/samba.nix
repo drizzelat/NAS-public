@@ -69,13 +69,13 @@ in
     };
   };
 
-  # TrueNAS service_announcement.wsd (Windows network browsing). mDNS stays off.
+  # WS-Discovery so Windows network browsing finds the shares. mDNS stays off.
   services.samba-wsdd = {
     enable = true;
     openFirewall = true;
   };
 
-  # TrueNAS NFS exports: no host or network restriction, read-write.
+  # NFS exports: no host or network restriction, read-write.
   services.nfs.server = {
     enable = true;
     exports = ''

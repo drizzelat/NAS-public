@@ -1,6 +1,6 @@
 #cloud-config
-# runner-vm: the TrueNAS VM the GitHub runner lives in (SEC-1 step 4). Seeded once as a NoCloud ISO;
-# rebuild steps and why each piece exists: docs/services/runner-vm.md
+# runner-vm: the libvirt VM on the NAS the GitHub runner lives in (SEC-1 step 4). Seeded once as a
+# NoCloud ISO; rebuild steps: docs/runbooks/setup-operations/runner-vm.md
 hostname: runner-vm
 timezone: Etc/UTC
 ssh_pwauth: false

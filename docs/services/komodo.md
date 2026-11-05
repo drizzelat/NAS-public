@@ -37,8 +37,8 @@ That is 30 Komodo Stacks.
 | `/config/keys` | `/mnt/apps/komodo/keys` | Core's key pair; peripheries trust its public key |
 | `/backups` | `/mnt/apps/komodo/backups` | Core's dated database backups (daily procedure, 01:00) |
 
-Everything lives under `/mnt/apps/komodo`, dataset `apps/komodo`, never under `/etc`: a TrueNAS
-update boots a new boot environment and `/etc` goes with it.
+Everything lives under `/mnt/apps/komodo`, dataset `apps/komodo`, never under `/etc`: the stacks'
+state must survive a host rebuild and a boot into the TrueNAS rollback.
 
 ## Environment variables
 
@@ -71,7 +71,7 @@ revoke, delete the key under **API Keys** at `/profile`, then remove both lines 
 ## Dependencies
 
 - `proxy_komodo`, defined in `stacks/caddy` like every other `proxy_*` network.
-- A periphery on each host, applied by the periphery auto-apply cron as its own stack, never by Komodo:
+- A periphery on each host, applied by the periphery auto-apply timer as its own stack, never by Komodo:
   [nas-periphery](nas-periphery.md), [a1-vps-periphery](a1-vps-periphery.md),
   [micro-vps-periphery](micro-vps-periphery.md), [runner-vm-periphery](runner-vm-periphery.md).
 
@@ -132,7 +132,7 @@ Each Stack's env comes from Komodo Variables named `<STACK>__<KEY>`, written fro
     [`scripts/komodo/mount-matches.sh`](../../scripts/komodo/mount-matches.sh) for each mount.
 
   A failure in either fails the deploy. A deploy is therefore what applies a Caddyfile change; no
-  cron reloads Caddy.
+  timer reloads Caddy.
 - **`github-runner` is not owned** ([rule](#github-runner-deploys-between-jobs)).
 - **CI removes nothing.** A removed folder gets a warning. The Stack is destroyed and deleted by hand
   (deploy-stacks.md → Removing a stack).
@@ -206,7 +206,7 @@ running, only deploys stop.
 
 Renovate bumps both images by digest. Read the release notes for a Komodo **minor**: Core and every
 periphery move together, because a v2 minor can change the Core–periphery transport. Renovate groups
-Core and Periphery into one PR; a merge deploys Core (the hourly `deploy-komodo` Procedure), and the periphery auto-apply cron applies the peripheries once Core runs the new pin. Mongo stays on the 8.0
+Core and Periphery into one PR; a merge deploys Core (the hourly `deploy-komodo` Procedure), and the periphery auto-apply timer applies the peripheries once Core runs the new pin. Mongo stays on the 8.0
 major line: `renovate.json` caps it to `8.0.x`. Minor lines (8.2, 8.3) cannot be skipped, so leaving
 8.0 means snapshotting `apps/komodo` and doing one binary upgrade plus an FCV bump per hop.
 
@@ -222,8 +222,7 @@ rewriting `core.pub` on all four hosts.
 
 ### Bootstrap from nothing
 
-`apps/komodo` and its child leaf `apps/komodo/backups` are datasets (`midclt call
-pool.dataset.create`); `mongo/db`, `mongo/configdb` and `keys` (0700) are directories inside the
+`apps/komodo` and its child leaf `apps/komodo/backups` are datasets (`zfs create`); `mongo/db`, `mongo/configdb` and `keys` (0700) are directories inside the
 parent. From the workstation, in the repo root, after the change has reached the on-NAS clone:
 
 ```sh
@@ -292,7 +291,7 @@ recreates nothing and writes no update record.
   [`scripts/komodo/lib.sh`](../../scripts/komodo/lib.sh) checks the Stack deployed a commit at or
   after the one the run was for.
 
-`/mnt/apps/scripts/nas`, the cron clone, stays separate on purpose: host scripts must keep running
+`/mnt/apps/scripts/nas`, the clone the host timers run from, stays separate on purpose: host scripts must keep running
 while the control plane is down (nas-repo-autopull).
 
 ### CI creates new stacks through a filtered sync
@@ -315,7 +314,7 @@ until removed by hand.
 
 Each periphery is the transport its own Server deploys through; recreating it from Komodo drops the
 connection mid-command. So the four `*-periphery` stacks are repo-tracked and digest-pinned but
-applied by an hourly NAS cron over SSH (periphery auto-apply), and are absent from `owned-stacks` and `resources.toml`. Start one only with
+applied by an hourly NAS timer over SSH (periphery auto-apply), and are absent from `owned-stacks` and `resources.toml`. Start one only with
 `PERIPHERY_CORE_PUBLIC_KEYS` set: without it an inbound periphery is an unauthenticated Docker
 socket on `:8120`. The NAS periphery runs the host's compose plugin instead of the bundled one
 ([nas-periphery](nas-periphery.md)). An edit nobody applied shows in check 10 of the

@@ -6,7 +6,7 @@ name: public-mirror
 on:
   push:
     branches: [main]
-  # Daily sync trigger: scripts/public-mirror-trigger.sh (host cron). No schedule: GitHub's cron drops runs.
+  # Daily sync trigger: scripts/public-mirror-trigger.sh (NAS systemd timer). No schedule: GitHub's cron drops runs.
   workflow_dispatch:
     inputs:
       dry_run:

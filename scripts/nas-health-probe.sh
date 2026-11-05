@@ -1,6 +1,6 @@
 #!/bin/sh
-# Forced command behind the health check's SSH key: a closed verb list and nothing else.
-# Verbs, install and the sudo grants: docs/runbooks/setup-operations/nas-health-check.md
+# TrueNAS build of the health check's forced command; runs only if the NAS boots the rollback SSD.
+# NixOS runs hosts/nas/health-probe.sh instead. Docs: docs/runbooks/setup-operations/nas-health-check.md
 set -eu
 
 CLONE=/mnt/apps/scripts/nas

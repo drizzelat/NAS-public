@@ -42,7 +42,7 @@ let
         --data-binary @- "$(cat "$url_file")" >/dev/null
   '';
 
-  # The cron scripts alert through `midclt call mail.config` / `mail.send`. This shim
+  # The timer scripts alert through `midclt call mail.config` / `mail.send`. This shim
   # answers exactly those two and hands the mail to nas-notify; everything else fails.
   midclt = pkgs.writeShellScriptBin "midclt" ''
     set -eu

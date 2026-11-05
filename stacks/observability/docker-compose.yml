@@ -94,8 +94,8 @@ services:
       - proxy_arr
       - proxy_jellyfin
 
-  # Evaluates the alerting rules. -notifier.blackhole: there is no Alertmanager, because
-  # the only working mail path here is the TrueNAS one. docs/services/observability.md#alerting
+  # Evaluates the alerting rules. -notifier.blackhole: no Alertmanager; scripts/vmalert-mail.sh
+  # hands alerts to the host's nas-notify. docs/services/observability.md#alerting
   vmalert:
     image: victoriametrics/vmalert:v1.155.0@sha256:3256cba5ddaca5974eae6141105cec4ce37871f1c213f0a5c267ec0111bc68e1
     container_name: vmalert

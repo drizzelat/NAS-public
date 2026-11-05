@@ -16,7 +16,7 @@ A [WebTunnel bridge](a1-vps-webtunnel.md) runs next to it on the same host, and 
 | ------ | ------- |
 | Exit relay, any host | Abuse complaints and police inquiries go to the operator. In the 2012 exit-relay seizure case every computer in the home was seized even though running an exit is legal there. On the NAS that would mean the photo and document archive in police hands. An exit on a tailnet node could also reach tailnet services, which Caddy's LAN-only vhosts trust (`100.64.0.0/10`). |
 | Public non-exit relay on the A1 | Puts `198.51.100.20` on the public relay list. Some blocklists include every relay, which would hit every other service on the same IP. A bridge is not in the public list. |
-| Anything on the AMD micro | 954 MiB RAM, no swap, 50 Mbps internet cap, shared with the only public ingress. An OOM kill there takes every public site down. |
+| Anything on the AMD micro | 952 MiB RAM, no swap, 50 Mbps internet cap, shared with the only public ingress. An OOM kill there takes every public site down. |
 | Relay or bridge on the NAS | Impossible behind CGNAT (no inbound port), so the NAS runs [Snowflake](snowflake.md) instead. |
 
 ## Stack
@@ -176,7 +176,7 @@ authorities list as obsolete. Tor's apt repo already had 0.4.9.12.
 
 | Upstream change | How it reaches the A1 |
 | --------------- | --------------------- |
-| Debian security fix, new Tor release | Every day at 03:40 local time, [`tor-bridge-image-trigger.sh`](../../scripts/tor-bridge-image-trigger.sh) dispatches the build workflow, which runs on a native arm64 runner. It dry-runs `apt-get upgrade` inside the published image. Any pending package means a rebuild, pushed under the **same tag** with a new digest |
+| Debian security fix, new Tor release | Every day at 03:40 local time, the NAS timer `nas-tor-bridge-image-trigger` runs [`tor-bridge-image-trigger.sh`](../../scripts/tor-bridge-image-trigger.sh), which dispatches the build workflow, which runs on a native arm64 runner. It dry-runs `apt-get upgrade` inside the published image. Any pending package means a rebuild, pushed under the **same tag** with a new digest |
 | New Go patch release, new `debian:trixie-slim` | Caught by the same run: the image's `nas.go-version` / `nas.base-digest` labels no longer match what a build would pull |
 | New lyrebird release, new Go minor (`golang:1.27`), new `thetorproject/obfs4-bridge` release | Renovate opens a PR on the `Dockerfile`, which is **automerged** (`renovate.json`). The merge triggers a build, which pushes a new tag or digest. Renovate reads lyrebird's tags over git: they are `lyrebird-X.Y.Z`, so the Go proxy lists none |
 | Any of the above, once pushed | Renovate's 04:15 run opens the compose PR → renovate-pr-review → the 05:20 sweep merges it → `deploy-stacks` redeploys. Identity and accounting survive in `/opt/tor-bridge/data` |

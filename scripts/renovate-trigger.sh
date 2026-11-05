@@ -1,6 +1,6 @@
 #!/bin/sh
-# Dispatch the Renovate run once a day at 04:15 local time: GitHub's cron runs late
-# and drops events, so the host cron is the only trigger. Docs: docs/runbooks/setup-operations/renovate-trigger.md
+# Dispatch the Renovate run once a day at 04:15 local time from the NAS timer (hosts/nas/timers.nix): GitHub's
+# cron runs late and drops events, so this is the only trigger. Docs: docs/runbooks/setup-operations/renovate-trigger.md
 set -eu
 
 REPO="drizzelat/NAS"
@@ -12,9 +12,8 @@ REF="main"
 TOKEN_FILE="${RENOVATE_TRIGGER_TOKEN_FILE:-/root/.config/renovate-trigger.token}"
 LOG=/var/log/renovate-trigger.log
 
-# The host cron is Renovate's only trigger, so a dead cron or an expired token
-# must not be silent. Kuma push monitor pinged on success (a missing ping catches
-# the cron not running); failure mails like pg-dump-backup.sh. Host file, not git.
+# Only trigger, so it must not fail silently: a Kuma push on success catches a dead timer; a failure
+# alerts through the midclt mail shim (ntfy on NixOS, hosts/nas/alerting.nix). Host file, not git.
 PUSH_URL_FILE="/root/.config/renovate-trigger-kuma-push.url"
 
 exec >>"$LOG" 2>&1

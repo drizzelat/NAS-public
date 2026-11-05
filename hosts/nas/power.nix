@@ -1,7 +1,6 @@
-# HW-2: NUT for the planned USB HID UPS (docs/roadmap.md → UPS). Shutdown after 5 min on
-# battery, deliberately not at "low battery": stopping ~55 containers and exporting the
-# pools needs headroom. LOWBATT still shuts down at once (upsmon's own safety net).
-# Off until secrets.enc/nixos/upsmon-password.age exists: without a UPS the NUT units only fail.
+# HW-2: NUT for the Eaton 3S 700 on USB (docs/hardware.md → Power protection). Shutdown after
+# 5 min on battery, not at "low battery": stopping ~55 containers and exporting the pools
+# needs headroom. LOWBATT still shuts down at once. Gated on upsmon-password.age existing.
 {
   config,
   lib,
@@ -48,7 +47,7 @@ lib.mkIf (config.age.secrets ? upsmon-password) {
     ups.main = {
       driver = "usbhid-ups";
       port = "auto";
-      description = "USB HID UPS (HW-2)";
+      description = "Eaton 3S 700 (HW-2)";
     };
     users.upsmon = {
       inherit passwordFile;

@@ -31,13 +31,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /proc:/proc
-      # Identical path inside and out, on the apps pool: /etc/komodo goes with the boot
-      # environment on a TrueNAS update and would orphan every stack's working directory.
+      # Identical path inside and out, on the apps pool, never under /etc: the stacks' working
+      # directories must survive a host rebuild or a boot back into the TrueNAS rollback.
       - /mnt/apps/komodo:/mnt/apps/komodo
-      # The host's own compose plugin, not the 5.5.0 the image bundles: that one cannot parse the IPv6
-      # gateway TrueNAS's Docker 27.5.0 reports for newer networks (`fdd0:0:0:1b::1/64`) and fails every
-      # `up` touching one. A file mount is safe here: the binary only changes with a TrueNAS
-      # update, which reboots, and the container binds the new file when it restarts.
+      # The host's compose plugin (a static build docker.nix links here), not the image's bundled one,
+      # which failed on the host Docker's IPv6 gateway format. See docs/services/nas-periphery.md.
       - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
     environment:
       TZ: Europe/Berlin

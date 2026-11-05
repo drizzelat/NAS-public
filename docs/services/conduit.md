@@ -57,7 +57,7 @@ region. The raw series are `conduit_*` (`conduit_is_live`, `conduit_connected_cl
 > **Create it before the first deploy**, owned by the image's uid:
 >
 > ```sh
-> sudo midclt call pool.dataset.create '{"name": "apps/conduit"}'
+> sudo zfs create apps/conduit
 > sudo chown 1000:1000 /mnt/apps/conduit && sudo chmod 0750 /mnt/apps/conduit
 > ```
 
@@ -95,7 +95,7 @@ None. All settings are flags in the compose `command:`.
 
 ## Operations
 
-> Restart/redeploy go through **Komodo** (Stack `conduit`). Over SSH, `truenas_admin` is not in the `docker` group but has passwordless sudo, so `sudo -n docker …` works for inspection.
+> Restart/redeploy go through **Komodo** (Stack `conduit`). Over SSH, `truenas_admin` is in the `docker` group, so `docker …` (or `sudo -n docker …`) works for inspection.
 
 ### Restart / redeploy
 

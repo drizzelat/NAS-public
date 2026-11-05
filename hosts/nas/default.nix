@@ -1,5 +1,5 @@
-# The NAS as NixOS (PLT-1). Not installed yet; docs/nixos-host.md lists the modules and
-# docs/runbooks/setup-operations/nixos-cutover.md the way in.
+# The NAS as NixOS (PLT-1), live since the cutover. docs/nixos-host.md lists the modules,
+# docs/runbooks/setup-operations/nixos-cutover.md the cutover and its rollback.
 { ... }:
 {
   imports = [
@@ -23,7 +23,7 @@
   ];
 
   networking.hostName = "truenas";
-  time.timeZone = "Europe/Berlin"; # TrueNAS setting; cron schedules below are local time
+  time.timeZone = "Europe/Berlin"; # kept from TrueNAS; timers.nix OnCalendar times are local
   i18n.defaultLocale = "en_US.UTF-8";
 
   nix.settings.experimental-features = [

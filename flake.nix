@@ -1,5 +1,4 @@
-# DRAFT (PLT-1, docs/architecture-review-2026-09-25.md) — not deployed anywhere.
-# Build without touching any host:
+# The NAS host (PLT-1), live since the cutover; docs/nixos-host.md. Build without touching any host:
 #   nix build .#nixosConfigurations.nas.config.system.build.toplevel
 #   nixos-rebuild build-vm --flake .#nas     # QEMU VM, no real pools/disks
 {

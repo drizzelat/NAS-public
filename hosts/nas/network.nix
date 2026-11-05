@@ -10,6 +10,8 @@
     "1.1.1.1"
     "192.168.1.111" # AdGuard on this host, second so DNS survives AdGuard being down
   ];
+  # lan_only vhost the Kuma push heartbeats curl; via 1.1.1.1 it answers 525 (renovate-trigger.md → Alerting).
+  networking.hosts."192.168.1.111" = [ "kuma.example.com" ];
   services.resolved = {
     enable = true;
     settings.Resolve = {
@@ -75,7 +77,7 @@
     allowedUDPPorts = [
       5353 # mDNS for Home Assistant discovery, host network
     ];
-    # TrueNAS runs no host firewall and the tailnet ACL already decides who gets in.
+    # The tailnet ACL decides who gets in over tailscale0.
     trustedInterfaces = [ "tailscale0" ];
     checkReversePath = "loose"; # subnet router: tailscaled policy-routes by fwmark
     # Containers reach host-network services and exporters over their bridge.

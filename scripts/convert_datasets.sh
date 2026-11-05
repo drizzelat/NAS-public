@@ -1,4 +1,5 @@
 #!/bin/bash
+# One-off: turn each folder under mediaserver/config into its own ZFS dataset. Not scheduled anywhere.
 
 BASE_DIR="/mnt/apps/mediaserver/config"
 

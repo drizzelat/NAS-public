@@ -28,7 +28,7 @@ nas-health-probe (NixOS) — allowed verbs:
   datasets      zfs list -o name,mountpoint
   snapshots     zfs list -t snapshot -o name,creation (epoch, oldest first)
   smart         smartctl -H -A and -l selftest for every scanned device
-  disks         smartctl --scan-open + lsblk (model, size, rotational)
+  disks         smartctl --scan + lsblk (model, size, rotational)
   cloudsync     restic backup unit state + the tail of its journal (the chain is gone)
   dumps DIR...  ls -l DIR, then per database in it: newest dump, gzip -t, end marker
   paths PATH... whether each PATH exists
@@ -130,8 +130,9 @@ case "$verb" in
     ;;
 
   disks)
-    echo "=== smartctl --scan-open ==="
-    smartctl --scan-open 2>&1 || true
+    # --scan only lists /dev names; --scan-open needs raw device access nashealth lacks.
+    echo "=== smartctl --scan ==="
+    smartctl --scan 2>&1 || true
     echo "=== lsblk ==="
     lsblk -d -o NAME,SIZE,TYPE,ROTA,TRAN,MODEL
     ;;

@@ -19,14 +19,14 @@ and `MemAvailable` stayed at or above 341 MiB.
 
 - **Stack folder:** `stacks/micro-vps-periphery/`
 - **Compose file:** `stacks/micro-vps-periphery/docker-compose.yml`
-- **Managed by:** the repo is the source of truth; **applied by the hourly periphery auto-apply cron**, never by Komodo.
+- **Managed by:** the repo is the source of truth; **applied by the hourly periphery auto-apply NAS timer (`nas-periphery-update`)**, never by Komodo.
   See [Why not Komodo](#why-not-komodo).
 - **Host copy:** `/home/ubuntu/periphery/docker-compose.yml` (compose project `periphery`, container `komodo-periphery`).
 - **Komodo Server:** `micro-vps`
 
 ## Why not Komodo
 
-The periphery is the transport its own server deploys through,: recreating it from Komodo drops the connection mid-command
+The periphery is the transport its own server deploys through: recreating it from Komodo drops the connection mid-command
 ([komodo.md → Rules](komodo.md#peripheries-are-hand-applied)). Enforced by its absence from `komodo/owned-stacks`, so a push that changes
 this file deploys nothing, and by `HAND_APPLIED` in the deploy-state probe.
 
@@ -39,8 +39,7 @@ this file deploys nothing, and by `HAND_APPLIED` in the deploy-state probe.
 | UI | None. Managed from Komodo Core |
 
 **Host network, not a published port, on purpose.** Docker SNATs traffic arriving on a published
-port to the bridge gateway on this host (`172.22.0.1` on the A1, captured with `tcpdump` on
-2026-09-15), so `PERIPHERY_ALLOWED_IPS: 100.64.0.11` refused Core with `401` until the periphery
+port to the bridge gateway on this host (`172.22.0.1` on the A1), so `PERIPHERY_ALLOWED_IPS: 100.64.0.11` refused Core with `401` until the periphery
 moved onto the host network. There it sees the NAS's real tailnet address.
 
 **Never start it without `PERIPHERY_CORE_PUBLIC_KEYS`.** An inbound periphery with no accepted key is an
@@ -56,7 +55,7 @@ unauthenticated Docker socket on `:8120`. Terminals are disabled (`PERIPHERY_DIS
 
 ## Applying a change
 
-The periphery auto-apply cron does this hourly after a merge. These are the by-hand steps, the repair path when it reports a failure.
+The periphery auto-apply timer does this hourly after a merge. These are the by-hand steps, the repair path when it reports a failure.
 
 Run from a clone of this repo, after the change is merged to `main`:
 
@@ -79,9 +78,9 @@ The `up -d` recreates the periphery, so Komodo shows Server `micro-vps` as unrea
 
 ## Version pinning
 
-Pinned to `2.3.3@sha256:…`, the multi-arch manifest list, identical on all three hosts. Core and every
+Pinned by tag and digest (`@sha256:…`, see the compose file), the multi-arch manifest list, identical on every periphery host. Core and every
 periphery move together ([komodo.md → Upgrade](komodo.md#upgrade)): Renovate groups the two images into one PR, and a merge deploys only Core, and the
-periphery auto-apply cron applies the peripheries once Core runs the new pin.
+periphery auto-apply timer applies the peripheries once Core runs the new pin.
 
 ## Related
 

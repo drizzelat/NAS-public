@@ -38,8 +38,8 @@ it.
 **A host bind, not a named volume.** The old VPS instance kept its state in an anonymous named
 volume with no backup path at all, so losing the instance lost every monitor and notification
 setting. `/opt/kuma/data` is now mirrored to the NAS nightly by
-[`a1-file-backup.sh`](../../scripts/a1-file-backup.sh) into `/mnt/apps/a1-matrix/kuma`, which the
-03:00 cloud-sync chain carries offsite — see the
+[`a1-file-backup.sh`](../../scripts/a1-file-backup.sh) (NAS timer `nas-a1-file-backup`, 02:00) into `/mnt/apps/a1-matrix/kuma`, which the
+03:00 restic backup to the Hetzner Storage Box (`restic-backups-storagebox`) carries offsite — see the
 a1-matrix-backup runbook.
 
 ## Environment variables
@@ -62,8 +62,9 @@ a1-matrix-backup runbook.
 
 ### Dead-man's switch
 
-Kuma **push** monitors here receive heartbeats from the NAS cron jobs (dumps, config email, A1
-file sync), so a job that stops running at all is itself an alert.
+This instance runs only **HTTP** monitors: the five public vhosts, probed over the public internet like any
+visitor. The **push** monitors for the NAS's scheduled jobs (dumps, A1 file sync, restore drill) live on
+the NAS's own [Kuma](kuma.md) (`kuma/monitors/nas.toml`), not here.
 
 The reverse direction — proving something here is alive when everything here is down — cannot be
 answered from inside the estate. That is now covered by **healthchecks.io**: all three hosts ping

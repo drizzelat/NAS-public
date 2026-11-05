@@ -23,12 +23,12 @@ SNAP_TIERS=(
 SLACK_H=2           # cadence + 2 h for hourly/daily jobs (the checklist's freshness rule)
 SCRUB_MAX_D=40      # 35-day scrub threshold + 5 days of slack
 DUMP_CADENCE_H=24
-LEAKED_SNAP_D=2     # a cloud-sync temp snapshot older than this was left behind
+LEAKED_SNAP_D=2     # a non-sanoid snapshot older than this was left behind
 STORAGEBOX_MAX_H=36
 STORAGEBOX_MIN_COUNT=8
 # Kept on purpose until a decision, never a leaked-snapshot warning (docs/roadmap.md).
 # Shell patterns: `zfs snapshot -r` puts the same name on every child dataset.
-KEEP_SNAPSHOTS="apps/npm@pre-caddy-2026-09-06 *@pre-nixos"
+KEEP_SNAPSHOTS="*@pre-nixos"
 read -ra keep_patterns <<<"$KEEP_SNAPSHOTS"
 kept() {
   local p
@@ -86,7 +86,7 @@ else
     fi
   done <<<"$snaps"
   # Epoch creation times come from the -p flag; without it nothing parses as a number.
-  (( ${#newest[@]} > 0 )) || fail "snapshots: no dataset parsed — re-install scripts/nas-health-probe.sh on the NAS"
+  (( ${#newest[@]} > 0 )) || fail "snapshots: no dataset parsed — the host runs an older health probe (hosts/nas/health-probe.sh)"
 
   ntier=0
   for t in "${SNAP_TIERS[@]}"; do
@@ -209,7 +209,7 @@ else
   for want in "${want_pairs[@]}"; do
     found=0
     for got in ${seen_pairs[@]+"${seen_pairs[@]}"}; do [[ "$got" == "$want" ]] && { found=1; break; }; done
-    (( found )) || fail "dumps: ${want#* } in ${want%% *} reported no mtime — no dump for it, or re-install scripts/nas-health-probe.sh on the NAS"
+    (( found )) || fail "dumps: ${want#* } in ${want%% *} reported no mtime — no dump for it, or the host runs an older health probe (hosts/nas/health-probe.sh)"
   done
   if [[ $fails -eq $before ]]; then pass "dumps: ${#want_pairs[@]} database(s) fresh, gzip-clean and complete"; fi
 fi
@@ -227,7 +227,7 @@ else
     if (( commit_age < 60 )); then
       say "NOTE  repo clone: on-host clone at ${head_remote:0:8}, this commit is ${commit_age}m old — the */15 puller has not caught up"
     else
-      fail "repo clone: on-host clone is at ${head_remote:0:8}, HEAD is ${head_local:0:8} (${commit_age}m old) — the auto-pull cron is likely broken"
+      fail "repo clone: on-host clone is at ${head_remote:0:8}, HEAD is ${head_local:0:8} (${commit_age}m old) — the auto-pull timer (nas-repo-pull) is likely broken"
     fi
   fi
 fi

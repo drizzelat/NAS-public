@@ -1,6 +1,6 @@
 #!/bin/sh
-# Dispatch the daily public mirror sync at 12:00 local time: GitHub's own `schedule:`
-# drops most slots. Docs: docs/runbooks/setup-operations/public-mirror.md
+# Dispatch the daily public mirror sync at 12:00 local time from the NAS timer (hosts/nas/timers.nix):
+# GitHub's own `schedule:` drops most slots. Docs: docs/runbooks/setup-operations/public-mirror.md
 set -eu
 
 REPO="drizzelat/NAS"

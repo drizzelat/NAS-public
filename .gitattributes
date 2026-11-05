@@ -1,2 +1,4 @@
-# Shell scripts run on the TrueNAS (Linux) host — keep LF regardless of checkout OS.
+# Shell scripts run on the NAS and other Linux hosts — keep LF regardless of checkout OS.
 *.sh text eol=lf
+# age ciphertext: a CRLF checkout corrupts the header and agenix fails in the initrd.
+*.age binary

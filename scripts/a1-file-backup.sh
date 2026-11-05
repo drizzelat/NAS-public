@@ -1,6 +1,6 @@
 #!/bin/sh
 # Mirror the A1's non-database files onto the NAS over the tailnet, into a dataset the
-# 03:00 cloud-sync chain already carries. Docs: docs/runbooks/backup-restore/a1-matrix-backup.md
+# 03:00 restic backup already carries. Docs: docs/runbooks/backup-restore/a1-matrix-backup.md
 
 set -eu
 
@@ -16,7 +16,7 @@ LOCK=/var/run/a1-file-backup.lock
 # not running at all. Host file, not the repo — no token committed.
 PUSH_URL_FILE="/root/.config/a1-file-backup-kuma-push.url"
 
-# Failure email (mirrors pg-dump-backup.sh); TrueNAS's own cron mail goes nowhere.
+# Failure email (mirrors pg-dump-backup.sh); on NixOS midclt is the mail shim in hosts/nas/alerting.nix.
 MAILTO="$(midclt call mail.config 2>/dev/null \
   | python3 -c 'import sys,json;print(json.load(sys.stdin).get("fromemail") or "")' 2>/dev/null || true)"
 
@@ -54,8 +54,8 @@ trap 'rm -f "$LOG"' EXIT
 
   mkdir -p "$dest"
 
-  # --delete keeps this a true mirror; deletion history comes from the apps snapshot
-  # task (4-hourly, 3 days) and from the offsite copy, not from an ever-growing dir.
+  # --delete keeps this a true mirror; deletion history comes from sanoid's apps snapshots
+  # (4-hourly, 3 days) and from the offsite copy, not from an ever-growing dir.
   rc=0
   rsync -a --delete --partial --timeout=600 \
     -e "ssh -o BatchMode=yes" --stats "$alias:/" "$dest/" > "$LOG" 2>&1 || rc=$?

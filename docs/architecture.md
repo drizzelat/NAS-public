@@ -200,9 +200,10 @@ flowchart LR
 
   romm["romm<br>retro games + SMB share"]
   craft["infinite-craft<br>recipe crawler + graph page"]
-  truenas["NAS host<br>not a stack; the nas vhost lost<br>its TrueNAS UI backend"]
+  truenas["NAS host<br>not a stack, no vhost"]
   runner["github-runner<br>no web UI"]
   snowflake["snowflake<br>Tor proxy, host network"]
+  conduit["conduit<br>Psiphon station, no web UI"]
   ha["homeassistant<br>smart home, host network"]
   pbs["pbs<br>Proxmox Backup Server<br>+ outbound SSH tunnel"]
   pvehost(["Remote Proxmox VE host<br>via its jumphost VM"])
@@ -220,7 +221,6 @@ flowchart LR
   caddy --> romm
   caddy --> craft
   craft -.->|"crawl, off by default"| nealfun
-  caddy --> truenas
   caddy -->|"host :8123"| ha
   caddy -->|"pbs., pve., hedgedoc. and wildcam."| pbs
   immich -.->|"OIDC"| authentik
@@ -356,7 +356,7 @@ flowchart TB
   runner -.->|"unhealthy: rollback commit"| mainb
   komodo -.->|"deploy-runner, between jobs"| runner
   mainb -->|"git pull every 15 min"| clone
-  clone -->|"cron scripts"| cron
+  clone -->|"timer scripts"| cron
   cron -.->|"dispatch: Renovate, sweep,<br>health check, probes"| github
   author --> workstation
   vault --> workstation
@@ -375,7 +375,7 @@ flowchart TB
   `reconcile-owned` Procedure deploys anything a lost run left behind.
 - **`komodo/resources.toml` picks the host**, one `server` per Stack.
 - **Some folders sit outside this path**:
-  - The four peripheries, applied by an hourly NAS cron over SSH (periphery-auto-apply), because a control plane cannot redeploy the transport it deploys through.
+  - The four peripheries, applied by the hourly NAS timer `nas-periphery-update` over SSH (periphery-auto-apply), because a control plane cannot redeploy the transport it deploys through.
   - `komodo`, which Komodo's `deploy-komodo` Procedure deploys hourly, because Core cannot be
     deployed by a CI job that talks to Core.
   - `github-runner`, which Komodo's `deploy-runner` Procedure deploys between jobs, because no job
@@ -384,7 +384,7 @@ flowchart TB
   - Container config comes from Komodo's clone, which each deploy pulls: the Caddyfile, the
     Authentik blueprints, the observability config and `files`' `config.yaml`. The `caddy` Stack's
     `post_deploy` reloads Caddy ([caddy.md](services/caddy.md)).
-  - The cron scripts alone come from the NAS clone at `/mnt/apps/scripts/nas`, which fast-forwards
+  - The host timers' scripts alone come from the NAS clone at `/mnt/apps/scripts/nas`, which fast-forwards
     every 15 minutes (nas-repo-autopull).
 - **Secrets never pass through CI.** Per-stack env lives age-encrypted in `secrets.enc/` and reaches
   Komodo's Variables from a workstation — secret-sync.

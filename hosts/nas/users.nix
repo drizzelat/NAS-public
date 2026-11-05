@@ -8,7 +8,7 @@
   ...
 }:
 let
-  # Public half of secrets/ssh/truenas_ed25519, the only key TrueNAS accepts for it.
+  # Public half of secrets/ssh/truenas_ed25519, the only key sshd accepts for it.
   adminKeys = [
     "ssh-ed25519 <redacted> you@example.com"
   ];
@@ -42,7 +42,7 @@ in
   };
   users.groups.truenas_admin.gid = 950;
 
-  # TrueNAS built-in owner of app data (files, filebrowser, portainer, smb_share).
+  # TrueNAS built-in owner of app data (files, smb_share).
   users.users.apps = {
     uid = 568;
     isSystemUser = true;
@@ -85,7 +85,7 @@ in
     group = "nashealth";
     description = "nas-health-check CI (forced command, read-only)";
     home = "/mnt/apps/nas-health";
-    createHome = false; # on the apps pool; created by TrueNAS
+    createHome = false; # on the apps pool, root-owned so the user cannot rewrite its key
     shell = pkgs.dash;
     openssh.authorizedKeys.keys = [
       ''command="${nasHealthProbe}",restrict ssh-ed25519 <redacted> nas-health-check CI -> nashealth@truenas (forced command)''

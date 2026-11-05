@@ -124,9 +124,10 @@ Everything else, and some of it is load-bearing:
 - **Certificates** (`authentik Self-signed Certificate`, the internal JWT certificate) — private key
   material.
 - **The brand** (default flows, branding).
-- **No Docker service connection.** The default `Local Docker connection` was deleted on 2026-10-09:
+- **No Docker service connection should exist.** The default `Local Docker connection` was deleted on 2026-10-09:
   the worker has no socket, so its `outpost_service_connection_monitor` task failed every 2.5 min and
-  the worker's memory grew about 40 MiB/day until the 1G limit OOM-killed it. Do not recreate it
+  the worker's memory grew about 40 MiB/day until the 1G limit OOM-killed it. It is back on the live
+  instance (System → Outposts → Integrations) and failing again; delete it, and do not recreate it
   without mounting a socket proxy.
 
 ### Application access (the login allowlist)
@@ -252,7 +253,7 @@ login also enrols one.
    except Rollback:
        pass
    ```
-3. Merge. Wait for the NAS pull, or force it: `sudo /mnt/apps/scripts/git-pull-nas.sh`.
+3. Merge. `deploy-stacks` deploys `authentik`, which pulls Komodo's clone the worker mounts.
 4. Confirm the apply landed: Admin interface → **Customization → Blueprints**, or
 
    ```sh
@@ -310,7 +311,7 @@ is the part a blueprint cannot do.
 
 ## Operations
 
-> Restart/redeploy go through **Komodo** (Stack `authentik`). Over SSH, `truenas_admin` is not in the `docker` group but has passwordless sudo, so `sudo -n docker …` works for inspection.
+> Restart/redeploy go through **Komodo** (Stack `authentik`). Over SSH, `truenas_admin` is in the `docker` group, so `docker …` (or `sudo -n docker …`) works for inspection.
 
 ### Restart / redeploy
 

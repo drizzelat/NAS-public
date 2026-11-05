@@ -21,8 +21,8 @@ services:
     volumes:
       - /mnt/apps/adguard/config:/opt/adguardhome/conf
       - /mnt/apps/adguard/workdir:/opt/adguardhome/work
-    # Bound to the LAN IP, not the wildcard: Incus' dnsmasq binds :53 with SO_REUSEADDR
-    # and docker-proxy does not, so a wildcard bind fails whenever Incus wins the race.
+    # Bound to the LAN IP, not the wildcard: the host's systemd-resolved stub already
+    # holds 127.0.0.53/54:53, so a wildcard bind would collide with it.
     ports:
       - 192.168.1.111:53:53/tcp
       - 192.168.1.111:53:53/udp

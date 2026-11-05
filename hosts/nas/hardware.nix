@@ -1,4 +1,4 @@
-# The spare boot SSD. Compare with nixos-generate-config at install (cutover runbook).
+# The NixOS boot SSD (the TrueNAS one stays connected as the rollback until the soak ends).
 { modulesPath, ... }:
 {
   imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];

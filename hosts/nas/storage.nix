@@ -15,8 +15,8 @@ let
     "data"
   ];
 
-  # Trial import: altroot /mnt over the stored mountpoints /apps and /data. After the
-  # Phase 3 commit step (zfs set mountpoint=/mnt/...), drop -R here.
+  # Import under altroot /mnt over the stored mountpoints /apps and /data. After the soak-end
+  # step (zfs set mountpoint=/mnt/...), drop -R here.
   importScript = pkgs.writeShellScript "zfs-import-altroot" ''
     set -u
     export PATH=${
@@ -208,7 +208,7 @@ in
   # which writes delegations to the pools on every run. Run as root instead.
   systemd.services.sanoid = {
     after = [ "nas-pools.target" ];
-    requires = [ "nas-pools.target" ];
+    requisite = [ "nas-pools.target" ]; # timer-driven: never start the import (timers.nix)
     onFailure = [ "notify-failure@%n.service" ];
     serviceConfig = {
       DynamicUser = lib.mkForce false;
@@ -222,7 +222,7 @@ in
   systemd.services.truenas-snapshot-expiry = {
     description = "Expire TrueNAS-schema snapshots by their old task retention";
     after = [ "nas-pools.target" ];
-    requires = [ "nas-pools.target" ];
+    requisite = [ "nas-pools.target" ]; # timer-driven: never start the import (timers.nix)
     onFailure = [ "notify-failure@%n.service" ];
     serviceConfig = {
       Type = "oneshot";

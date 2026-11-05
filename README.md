@@ -32,10 +32,10 @@ Stacks are **Komodo Stacks** declared in [`komodo/resources.toml`](komodo/resour
 2. Commit and push (image bumps arrive as Renovate PRs, merged by the review sweep)
 3. [`deploy-stacks`](.github/workflows/deploy-stacks.yml) deploys every changed stack through Komodo, health-checks it and rolls it back if it comes up unhealthy — see the deploy-stacks runbook
 
-Not deployed that way, applied by hand instead:
+Not deployed that way:
 
-- The three Komodo peripheries.
-- `komodo` itself.
+- The four Komodo peripheries, applied by the hourly NAS timer `nas-periphery-update` (runbook).
+- `komodo` itself, deployed by its own hourly Komodo Procedure `deploy-komodo`.
 
 ## Adding a new service
 
@@ -45,7 +45,7 @@ See the new service runbook.
 
 Want to build a NAS like this one from scratch? See the
 replicate-setup runbook — the full build order
-from TrueNAS install through GitOps, reverse proxy, SSO, and offsite backups.
+from the host install through GitOps, reverse proxy, SSO, and offsite backups.
 
 ## AI assistants
 

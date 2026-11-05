@@ -1,6 +1,6 @@
 #!/bin/sh
-# Dispatch the nightly health check at 06:30 local time — GitHub's own `schedule:` cron
-# is hours late. Docs: docs/runbooks/setup-operations/nas-health-check.md
+# Dispatch the nightly health check at 06:30 local time from the NAS timer (hosts/nas/timers.nix):
+# GitHub's own `schedule:` is hours late. Docs: docs/runbooks/setup-operations/nas-health-check.md
 set -eu
 
 REPO="drizzelat/NAS"

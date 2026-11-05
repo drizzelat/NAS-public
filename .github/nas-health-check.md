@@ -24,9 +24,9 @@ Terse register. Drop articles, filler, hedging. Fragments fine.
 ## Access
 
 **SSH to the NAS host gives a fixed verb list, not a shell.** The key in
-`$NAS_SSH_KEY_FILE` belongs to `nashealth`, an unprivileged TrueNAS user whose
-`authorized_keys` pins a forced command (`scripts/nas-health-probe.sh`, installed on
-the host). Anything not in the table below exits **111** with
+`$NAS_SSH_KEY_FILE` belongs to `nashealth`, an unprivileged user whose
+`authorized_keys` pins a forced command (`hosts/nas/health-probe.sh`, built into the
+NixOS system by `hosts/nas/health-probe.nix`). Anything not in the table below exits **111** with
 `nas-health-probe: refused (...)` and runs nothing. No shell, no `sudo`, no `scp`, no
 port forwarding, no PTY — do not work around this, and do not report a refusal as a
 NAS fault. Setup: `docs/runbooks/setup-operations/nas-health-check.md`.
@@ -43,17 +43,17 @@ that account is for humans and this key does not open it.
 | --- | --- | --- |
 | `help` | the verb list the host actually has | — |
 | `host` | failed systemd units, `NTPSynchronized`, boot time | 3 |
-| `alerts` | `alert.list` | 2 |
+| `alerts` | failed units, `zpool status -x`, `nas-notify` alerts of the last 24 h | 2 |
 | `pools` | `zpool status` + `zpool list -o name,capacity,health` | 4 |
 | `datasets` | `zfs list -o name,mountpoint` | 6 |
 | `smart` | `smartctl -H -A` **and** `-l selftest` for every scanned device | 5 |
-| `disks` | `disk.query` | 5 |
-| `cloudsync` | last 200 lines of the chain log + `cloudsync.query` task state | 7 |
+| `disks` | `smartctl --scan-open` + `lsblk` (model, size, rotational) | 5 |
+| `cloudsync` | restic backup unit state, last-success metric, journal tail | 7 |
 | `paths PATH...` | `OK`/`MISSING` per path | 6 |
 | `yaml2json` | YAML on **stdin** → JSON on stdout (the runner has no PyYAML) | 8 |
 | `version` | `sha256` of the installed scripts | — |
 
-`snapshots`, `dumps`, `repo-head`, `boot-guard`, `compose-hash`, `storagebox`, `kuma` and `trains` exist too, and belong to the
+`snapshots`, `dumps`, `repo-head`, `boot-guard`, `compose-hash`, `host-copies`, `storagebox` and `kuma` exist too, and belong to the
 deterministic probe below — do not call them here.
 
 `PATH` arguments must be absolute under `/mnt` with no `..` and no characters
@@ -100,8 +100,8 @@ times.
 - **Never read a repo doc whole** — no `cat`, no `sed -n '1,200p'`, no `Read` of
   `docs/scheduled-tasks.md`, `docs/network.md` or `docs/storage.md`. Pull the section:
   - cadences: `grep -n '^###' docs/scheduled-tasks.md` — most headings carry theirs;
-    Cloud Sync needs the body, e.g.
-    `sed -n '/^### Cloud Sync/,/^### /p' docs/scheduled-tasks.md`
+    the restic backup needs the body, e.g.
+    `sed -n '/^### restic/,/^### /p' docs/scheduled-tasks.md`
   - NAS LAN IP: `sed -n '/^## NAS host/,/^## /p' docs/network.md`; A1/VPS addresses:
     `sed -n '/^## Cloud hosts/,/^## /p' docs/network.md`
   - mount-table paths: `sed -n '/^## Shares/,/^## /p' docs/storage.md | grep -oE '/mnt/[A-Za-z0-9._/-]+' | sort -u`;
@@ -138,9 +138,9 @@ source the check names, then allow slack — **cadence + 2 h** for hourly/daily 
 
 1. **SSH reachability** — the `host` verb returns. If not: FAIL this check, SKIP
    everything needing SSH, still finish the report.
-2. **TrueNAS alerts** — the `alerts` verb. FAIL on any active (`dismissed: false`)
-   alert of level `CRITICAL`/`ERROR`; note `WARNING` inline as a warning. Quote the
-   `klass` and its formatted text. TrueNAS's own alert surface; catches
+2. **Host alerts** — the `alerts` verb. FAIL on any failed unit, on `zpool status -x`
+   reporting anything but `all pools are healthy`, or on a `nas-notify` line of the last
+   24 h (zed, smartd and unit-failure alerts go through it). Quote the line. Catches
    problems the checks below do not model — never skip it because others passed.
 3. **Host basics** — the `host` verb. `systemctl --failed` must be empty (name any
    failed unit, FAIL). `NTPSynchronized` must be `yes`, FAIL on `no`.
@@ -153,13 +153,13 @@ source the check names, then allow slack — **cadence + 2 h** for hourly/daily 
    with zero read/write/checksum errors. Capacity: FAIL >90%, warn >80% (still PASS).
 5. **SMART** — a pool reads `ONLINE` while a member disk dies. The `smart` verb reports
    **every** device `smartctl --scan` finds — health, attributes, self-test log — in one
-   call; pass it no device. The raw output is ~16 KB, so never spool it to a file or read
+   call; pass it no device. The raw output is ~20 KB, so never spool it to a file or read
    it back: pipe it through the filter, which keeps per device the health line, the
    attributes below plus `Power_On_Hours`, and the newest self-test entries, and passes
    through any line it does not recognise —
    `ssh … 'smart' | awk -f .github/scripts/nas-health-smart-summary.awk`.
-   `disks` maps devices to models/serials; filter it too:
-   `ssh … 'disks' | jq -r '.[] | [.name, .model, .serial] | @tsv'`. FAIL when overall health is not `PASSED`. Warn on non-zero
+   `disks` maps devices to models (`lsblk` section; its `--scan-open` lines read
+   `Permission denied` as `nashealth`, which is expected). FAIL when overall health is not `PASSED`. Warn on non-zero
    `Reallocated_Sector_Ct`, `Current_Pending_Sector` or `Offline_Uncorrectable` (SATA),
    or `media_errors` > 0 / `percentage_used` > 80 (NVMe). From the self-test log: FAIL
    if the newest completed self-test did not pass, warn if it is older than the SMART
@@ -182,15 +182,13 @@ source the check names, then allow slack — **cadence + 2 h** for hourly/daily 
 
 ### Backups
 
-7. **Cloud sync chain** — only offsite protection for the non-redundant `apps` pool, and
-    nothing else alerts on it going stale. The `cloudsync` verb returns the log tail (path is `LOG=` in `scripts/cloudsync-chain.sh`).
-    The last `chain done (fail=N)` line must be younger than the chain's cadence
-    (`docs/scheduled-tasks.md`) plus slack, with `N` = 0. FAIL on a non-zero `fail=`, a
-    stale last run, or a `chain start` with no matching `chain done` (hung or killed
-    run). Name the failed datasets from the `FAIL <dataset>` lines. Cross-check the
-    template task's last job state against the `cloudsync.query` section of the same
-    output — it carries `state` and `time_finished` per task. Log unreadable → SKIP with
-    that reason.
+7. **Offsite backup (restic)** — only offsite protection for the non-redundant `apps` pool.
+    The `cloudsync` verb returns `restic-backups-storagebox.service` state, the
+    `restic_last_success_timestamp_seconds` metric and the journal tail. The last success
+    must be younger than the backup's cadence (`docs/scheduled-tasks.md`) plus slack, with
+    `Result=success` and `ExecMainStatus=0`. FAIL on a failed result, a stale or `never`
+    last success, or an `ActiveState=activating` older than the cadence (hung run). Quote
+    any error line from the journal tail. Output unreadable → SKIP with that reason.
 
 ### Repo vs live
 

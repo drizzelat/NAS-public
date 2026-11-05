@@ -3,7 +3,7 @@
 ## Overview
 
 Tailscale **subnet router** running on the NAS host as native `tailscaled` (NixOS
-`services.tailscale`; until the NixOS PR #570 merges, its config is on branch `plt-1-nixos-draft`).
+`services.tailscale` in [`hosts/nas/network.nix`](../hosts/nas/network.nix)).
 It was the Komodo stack `tailscale` until the NixOS cutover; that stack is gone.
 
 It advertises the home LAN
@@ -22,7 +22,7 @@ micro-vps-ingress.md.
 
 ## Host config
 
-- **Where:** the NixOS module `services.tailscale` in the host config's `network.nix`: hostname
+- **Where:** the NixOS module `services.tailscale` in [`hosts/nas/network.nix`](../hosts/nas/network.nix): hostname
   `nas`, `--advertise-routes=192.168.1.0/24`, `--accept-dns=false`, `--snat-subnet-routes=false`,
   `useRoutingFeatures = "server"` (IP forwarding), state dir `/mnt/apps/tailscale`.
 - **Unit:** `tailscaled.service`, ordered after the pools (`nas-pools.target`) and with
@@ -143,9 +143,12 @@ Only needed for a new node; the cutover kept the existing one.
   the host + Docker use **nftables** — a second firewall backend on the FORWARD
   path, and the legacy `ts-forward` chain had no MSS clamp, so large HTTP/2
   frames break on the 1280-MTU tunnel. Fixed by `TS_DEBUG_FIREWALL_MODE=nftables`
-  (aligns backends, installs clamp-MSS-to-PMTU). Verify on host:
-  `sudo nft list ruleset | grep -i maxseg` shows a clamp rule, and tailscaled
-  logs `router: default choosing nftables`.
+  (one backend). Verify: tailscaled logs `router: netfilter running in nftables mode`.
+  The native host has **no MSS clamp and needs none**: the tailnet end of every
+  connection has `tailscale0` MTU 1280 and advertises MSS 1228, so neither side
+  (LAN hosts behind the subnet route included) sends a segment that does not fit. From the micro VPS, `ping -M do -s 1252 100.64.0.11` passes, 1253
+  fails locally, and a 485 KB HTTP/2 fetch from NAS Caddy over the tunnel succeeds.
+  If HTTP/2 breaks again, rerun those two checks before adding a clamp.
 - **Every LAN-only service is refused instantly over the tunnel** (empty reply;
   raw IP + DNS fine; the Caddy access log shows a `172.16.x` gateway as the
   client) → the tailnet source was masqueraded by `--snat-subnet-routes`, so it

@@ -105,8 +105,8 @@ listening on the old port (`47874`, Proton now forwarding `51623`) for five days
 visibly: outbound connections still worked, so the *Incoming port* panel stayed green, peers stayed
 near 190, and Kiwix upload fell from about 60 GB/day to under 10.
 
-[`scripts/qbit-port-sync.sh`](../../scripts/qbit-port-sync.sh) is the backstop. A host cron job runs it
-every 2 minutes as root. It reads the forwarded port from gluetun's control API
+[`scripts/qbit-port-sync.sh`](../../scripts/qbit-port-sync.sh) is the backstop. The systemd timer `nas-qbit-port-sync.timer`
+([`hosts/nas/timers.nix`](../../hosts/nas/timers.nix)) runs it every 2 minutes as root. It reads the forwarded port from gluetun's control API
 (`/v1/portforward`) and qBittorrent's `listen_port`, sets the latter when they differ (logged to
 syslog as `qbit-port-sync`), and writes `/mnt/apps/observability/textfile/qbit-port.prom` for
 `node-exporter`:
@@ -119,17 +119,14 @@ syslog as `qbit-port-sync`), and writes `/mnt/apps/observability/textfile/qbit-p
 
 `QbittorrentPortMismatch` fires when `synced` stays `0` for 10 minutes (the repair cannot work: no
 forwarded port, or qBittorrent down), and `QbittorrentPortSyncStale` when the file is missing or older
-than 10 minutes (cron stopped). The *Incoming port* panel multiplies in `synced`, so a stale port now
+than 10 minutes (timer stopped). The *Incoming port* panel multiplies in `synced`, so a stale port now
 shows FIREWALLED.
 
-Cron job (once, after the merge has reached the host clone):
+Check the timer and a manual run:
 
 ```sh
-sudo midclt call cronjob.create '{"description":"qbittorrent port sync",
-  "command":"/bin/sh /mnt/apps/scripts/nas/scripts/qbit-port-sync.sh",
-  "user":"root","schedule":{"minute":"*/2","hour":"*","dom":"*","month":"*","dow":"*"},
-  "enabled":true,"stdout":false,"stderr":false}'
-sudo sh /mnt/apps/scripts/nas/scripts/qbit-port-sync.sh
+systemctl list-timers nas-qbit-port-sync.timer
+sudo systemctl start nas-qbit-port-sync.service
 grep -v '^#' /mnt/apps/observability/textfile/qbit-port.prom    # all three non-zero, synced 1
 ```
 

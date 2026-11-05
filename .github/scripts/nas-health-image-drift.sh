@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Check 14's digest comparison for .github/nas-health-check.md, as one command, so the
+# Check 8's digest comparison for .github/nas-health-check.md, as one command, so the
 # agent reads findings instead of every container and every compose pin. From the repo root:
 #   .github/scripts/nas-health-image-drift.sh <nas-lan-ip>
 # Env: KOMODO_URL, KOMODO_API_KEY/_SECRET (probe-read), KOMODO_RESOLVE, NAS_SSH_KEY_FILE.
@@ -61,7 +61,7 @@ while IFS= read -r server; do
       continue
     fi
     IFS=$'\t' read -r project service image_id <<<"$row"
-    # Stack name first, then a TrueNAS custom app's project ix-<app>, then <server>-<project>
+    # Stack name first, then ix-<app> (a TrueNAS app, only after a rollback), then <server>-<project>
     # (a periphery runs as project periphery, filed under stacks/<server>-periphery).
     folder=""
     if [[ "$project" != - ]]; then

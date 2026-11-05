@@ -60,13 +60,21 @@ awk -F'\t' '
 
 # No tools: the diff arrives on stdin, so nothing in it can make the model read or run anything.
 # Run outside the checkout, or the repo's CLAUDE.md would be loaded as instructions.
-(cd "$work" && claude -p "$(cat "$instructions")" \
-  --model claude-sonnet-5 \
-  --tools "" \
-  --max-turns 2 \
-  --output-format json <"$work/input" >"$work/claude.json")
-rc=$?
-jq -r '.result // empty' "$work/claude.json" >"$work/report.md" 2>/dev/null || : >"$work/report.md"
+review() {
+  (cd "$work" && claude -p "$(cat "$instructions")" \
+    --model claude-sonnet-5 \
+    --tools "" \
+    --max-turns 2 \
+    --output-format json <"$work/input" >"$work/claude.json")
+  rc=$?
+  jq -r '.result // empty' "$work/claude.json" >"$work/report.md" 2>/dev/null || : >"$work/report.md"
+}
+for attempt in 1 2; do   # no VERDICT line = API error, overload or usage limit: print it, retry once
+  review
+  grep -qE '^VERDICT: ' "$work/report.md" && break
+  echo "claude exit $rc, no verdict: $(jq -r '[.subtype, .result] | map(select(.)) | join(": ")' "$work/claude.json" 2>/dev/null | head -c 300)"
+  [ "$attempt" = 2 ] || sleep 60
+done
 usage=$(jq -r '"\(.num_turns) turns, $\(.total_cost_usd)"' "$work/claude.json" 2>/dev/null || echo "usage unavailable")
 
 # Pessimistic, like the Renovate review: a HOLD anywhere wins; only a clean last-line PUBLISH passes.
@@ -76,5 +84,5 @@ if grep -qE '^VERDICT: HOLD' "$work/report.md"; then
 elif [ "$last" = "VERDICT: PUBLISH" ]; then
   verdict PUBLISH "Claude found nothing to hold back ($usage, $size bytes reviewed)."
 else
-  verdict HOLD "No usable verdict (claude exit $rc, $usage)."
+  verdict HOLD "No usable verdict after a retry (claude exit $rc, $usage). The CLI error is printed above."
 fi

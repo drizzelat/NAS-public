@@ -48,7 +48,7 @@ if [ -n "$stale" ]; then
   echo "::error::The merge sweep has not acted on cleared PRs:$stale"
   echo "Every one of these has a green renovate-review status and should have"
   echo "merged in an 05:00-06:00 Berlin window. Check that the window-merge job"
-  echo "is actually running in-window: the TrueNAS cron (scripts/merge-sweep-trigger.sh)"
+  echo "is actually running in-window: the NAS timer nas-merge-sweep-trigger (scripts/merge-sweep-trigger.sh)"
   echo "is its only trigger."
   exit 1
 fi

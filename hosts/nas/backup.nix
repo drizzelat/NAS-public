@@ -65,14 +65,14 @@ let
   } -o StrictHostKeyChecking=yes u000000@u000000.your-storagebox.de -s sftp";
 in
 {
-  # Storage Box host key on port 23, read 2026-09-27 while installing the restic key.
+  # Storage Box host key on port 23.
   programs.ssh.knownHosts.storagebox = {
     hostNames = [ "[u000000.your-storagebox.de]:23" ];
     publicKey = "ssh-ed25519 <redacted>";
   };
 
   services.restic.backups.storagebox = {
-    # Initialised 2026-09-27; never auto-create one. Port 23 is SSH with /home as the
+    # Initialised by hand; never auto-create one. Port 23 is SSH with /home as the
     # box's root (port 22's /backup is /home/backup here).
     initialize = false;
     repository = "sftp:u000000@u000000.your-storagebox.de:/home/restic/nas";
@@ -103,7 +103,7 @@ in
 
   systemd.services.restic-backups-storagebox = {
     after = [ "nas-pools.target" ];
-    requires = [ "nas-pools.target" ];
+    requisite = [ "nas-pools.target" ]; # timer-driven: never start the import (timers.nix)
     onFailure = [ "notify-failure@%n.service" ];
     serviceConfig = {
       ExecStartPost = [ "${markSuccess}" ];

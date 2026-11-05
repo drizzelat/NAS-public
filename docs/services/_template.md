@@ -41,7 +41,7 @@ _(Anything unusual, quirks, upgrade warnings, etc.)_
 
 ## Operations
 
-> Restart/redeploy go through **Komodo** (Stack `<name>`), which deploys from `komodo/resources.toml`. Over SSH, `truenas_admin` is not in the `docker` group but has passwordless sudo, so `sudo -n docker …` works for inspection.
+> Restart/redeploy go through **Komodo** (Stack `<name>`), which deploys from `komodo/resources.toml`. Over SSH, `truenas_admin` is in the `docker` group (and has passwordless sudo), so `docker …` works for inspection.
 
 ### Restart / redeploy
 

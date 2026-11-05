@@ -9,7 +9,7 @@
   ...
 }:
 let
-  # Off until hosts/nas is on main: before that, main has no flake and every run would fail.
+  # Off until the TrueNAS rollback soak ends (docs/roadmap.md item 12); deploy by hand until then.
   enabled = false;
 
   clone = "/mnt/apps/scripts/nas";
@@ -61,7 +61,7 @@ in
       "nas-pools.target"
     ];
     wants = [ "network-online.target" ];
-    requires = [ "nas-pools.target" ];
+    requisite = [ "nas-pools.target" ]; # timer-driven: never start the import (timers.nix)
     onFailure = [ "notify-failure@%n.service" ];
     restartIfChanged = false; # it is the thing doing the switch
     unitConfig.RequiresMountsFor = [ clone ];

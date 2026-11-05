@@ -62,7 +62,7 @@ groups:
           description: "Either the service is down or its exporter is. A container that is up whenever a probe looks but restarting in between shows here first."
           runbook: "docs/services/observability.md#alerting"
 
-  # Series from node-exporter and the textfile scripts/host-metrics.sh writes (cron, every 5 min).
+  # Series from node-exporter and the textfile scripts/host-metrics.sh writes (systemd timer, every 5 min).
   # A window shorter than the mail bridge's 15 min poll could fire and clear unseen.
   - name: host
     interval: 1m
@@ -136,7 +136,7 @@ groups:
           runbook: "docs/services/observability.md#host-metrics"
 
       # A fresh host is silent for the mail bridge; here the missing file is the signal, because
-      # the cron job is a manual step and a dead one would otherwise look like a quiet estate.
+      # the timer is outside this stack and a dead one would otherwise look like a quiet estate.
       - alert: HostMetricsStale
         expr: (time() - node_textfile_mtime_seconds{file="/textfile/host.prom"} > 900) or absent(node_textfile_mtime_seconds{file="/textfile/host.prom",host="nas"})
         for: 10m
@@ -157,7 +157,41 @@ groups:
           description: "The other sections still update. Run `sudo sh /mnt/apps/scripts/nas/scripts/host-metrics.sh` by hand: it prints the reason."
           runbook: "docs/services/observability.md#host-metrics"
 
-  # scripts/qbit-port-sync.sh (host cron, every 2 min) repairs a stale listen port itself, so
+  # NUT exporter (scrape job ups). hosts/nas/power.nix already sends every power event to ntfy and
+  # shuts down after 5 min on battery; these rules keep a record and catch a failing battery.
+  - name: ups
+    interval: 1m
+    rules:
+      - alert: UpsOnBattery
+        expr: network_ups_tools_ups_status{flag="OB"} == 1
+        labels:
+          severity: warning
+        annotations:
+          summary: "The NAS UPS is on battery ({{ with query \"network_ups_tools_battery_charge\" }}{{ . | first | value }}{{ end }}% left)"
+          description: "Mains is out. NUT shuts the NAS down after 5 min on battery; ntfy has the live events."
+          runbook: "docs/hardware.md#power-protection"
+
+      - alert: UpsBatteryNotCharging
+        expr: network_ups_tools_ups_status{flag="OL"} == 1 and on() network_ups_tools_battery_charge < 90
+        for: 24h
+        labels:
+          severity: warning
+        annotations:
+          summary: "The NAS UPS has been on mains for a day but its battery is at {{ $value }}%"
+          description: "A healthy battery is full within hours. A lead-acid battery that stays low is ageing; the runtime it buys may no longer cover the 5 min wait plus the shutdown."
+          runbook: "docs/hardware.md#power-protection"
+
+      - alert: UpsDataMissing
+        expr: absent(network_ups_tools_battery_charge{host="nas"})
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No UPS data from the NAS for 15 min"
+          description: "NUT lost the UPS (USB unplugged, upsdrv down) or the exporter is down; without it the NAS will not shut down cleanly on a cut. `upsc main@localhost`, `systemctl status upsdrv upsd upsmon`."
+          runbook: "docs/hardware.md#power-protection"
+
+  # scripts/qbit-port-sync.sh (host timer, every 2 min) repairs a stale listen port itself, so
   # either rule firing means the repair cannot work. 10 min outlasts a few failed runs.
   - name: downloads
     interval: 1m
@@ -181,6 +215,21 @@ groups:
           summary: "qbit-port.prom is missing or older than 10 min"
           description: "The qbit-port-sync cron job stopped or was never created, so a stale listen port would go unseen and unrepaired. If ScrapeTargetDown also fires, node-exporter is the cause."
           runbook: "docs/services/downloads.md#port-forwarding-sync"
+
+  # restic.prom is written by hosts/nas/backup.nix after each successful nightly run (03:00).
+  # 26 h tolerates one slow run; absent() catches a host that never wrote the file.
+  - name: backup
+    interval: 5m
+    rules:
+      - alert: ResticBackupStale
+        expr: (time() - restic_last_success_timestamp_seconds{repo="storagebox"} > 26 * 3600) or absent(restic_last_success_timestamp_seconds{host="nas",repo="storagebox"})
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No successful restic backup to the Storage Box in over 26 h"
+          description: "Last success {{ with query \"time() - restic_last_success_timestamp_seconds{repo='storagebox'}\" }}{{ . | first | value | humanizeDuration }} ago{{ else }}never recorded{{ end }}. `sudo systemctl status restic-backups-storagebox` and its journal give the reason. If ScrapeTargetDown also fires, node-exporter is the cause."
+          runbook: "docs/runbooks/backup-restore/backup.md#failure-alerts"
 
   - name: edge
     interval: 1m

@@ -10,7 +10,7 @@ on:
     paths:
       - stacks/a1-vps-tor-bridge/Dockerfile
       - .github/workflows/build-obfs4-image.yml
-  # Daily trigger: scripts/tor-bridge-image-trigger.sh (host cron). No schedule: GitHub's cron drops runs.
+  # Daily trigger: scripts/tor-bridge-image-trigger.sh (NAS systemd timer). No schedule: GitHub's cron drops runs.
   workflow_dispatch:
     inputs:
       force:

@@ -1,6 +1,6 @@
 #!/bin/sh
-# Run S.M.A.R.T. self-tests on NVMe devices — TrueNAS's own tasks silently skip
-# them, and nvme0n1 is the whole non-redundant `apps` pool. See docs/scheduled-tasks.md.
+# TrueNAS only (NixOS: smartd tests the NVMe, storage.nix): NVMe self-tests, which TrueNAS's
+# own tasks skip, and nvme0n1 is the whole `apps` pool. See docs/scheduled-tasks.md.
 
 set -eu
 

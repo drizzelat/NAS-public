@@ -1,6 +1,6 @@
 #!/bin/sh
-# Dispatch the daily freshness checks of both self-built Tor bridge images: GitHub's schedule runs
-# late and is often dropped. Docs: docs/runbooks/setup-operations/renovate-trigger.md#tor-bridge-image-trigger
+# Dispatch the daily freshness checks of both self-built Tor bridge images (GitHub's schedule drops runs).
+# Run on the NAS by systemd timer nas-tor-bridge-image-trigger (hosts/nas/timers.nix). Docs: docs/runbooks/setup-operations/renovate-trigger.md#tor-bridge-image-trigger
 set -eu
 
 REPO="drizzelat/NAS"

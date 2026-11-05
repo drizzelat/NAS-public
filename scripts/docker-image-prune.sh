@@ -1,6 +1,6 @@
 #!/bin/sh
-# Reclaim disk by removing UNUSED Docker images. Portable POSIX sh; runs on the
-# NAS and both VPS hosts. Docs: docs/runbooks/setup-operations/docker-image-prune.md
+# Reclaim disk by removing UNUSED Docker images. Portable POSIX sh; runs on the NAS,
+# both VPS hosts and the runner VM. Docs: docs/runbooks/setup-operations/docker-image-prune.md
 
 set -eu
 

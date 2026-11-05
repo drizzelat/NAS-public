@@ -1,5 +1,5 @@
-# Komodo Periphery on the AMD micro VPS (x86_64), the transport Core deploys through. Applied by hand as project `periphery`
-# from /home/ubuntu/periphery/docker-compose.yml over SSH, never by Komodo (docs/services/komodo.md → Rules). Docs: docs/services/micro-vps-periphery.md
+# Komodo Periphery on the AMD micro VPS (x86_64), the transport Core deploys through. Applied as project `periphery` from
+# /home/ubuntu/periphery/docker-compose.yml over SSH (NAS timer nas-periphery-update), never by Komodo (docs/services/komodo.md → Rules). Docs: docs/services/micro-vps-periphery.md
 x-logging: &default-logging   # json-file never rotates by default. docs/runbooks/setup-operations/new-service.md
   driver: json-file
   options:
@@ -18,7 +18,7 @@ services:
       - no-new-privileges=true
     # Host network, bound to the tailnet IP only (F6: inbound periphery). A published port would do,
     # except Docker SNATs it to the bridge gateway, and PERIPHERY_ALLOWED_IPS could then never see
-    # the NAS (measured 2026-09-15).
+    # the NAS.
     network_mode: host
     deploy:
       resources:

@@ -1,6 +1,6 @@
 #!/bin/sh
-# Dispatch the Renovate merge sweep once a day at 05:20 local time — GitHub's own
-# `schedule:` cron is too unreliable. Docs: docs/runbooks/setup-operations/renovate-trigger.md
+# Dispatch the Renovate merge sweep once a day at 05:20 local time from the NAS timer (hosts/nas/timers.nix):
+# GitHub's own `schedule:` is too unreliable. Docs: docs/runbooks/setup-operations/renovate-trigger.md
 set -eu
 
 REPO="drizzelat/NAS"
@@ -25,7 +25,7 @@ else
   exit 1
 fi
 
-# NO `inputs` block on purpose: both defaults are what this cron wants — sweep
+# NO `inputs` block on purpose: both defaults are what this timer wants — sweep
 # mode, and the run enforcing the 05:00-06:00 window itself.
 status="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
   -H "Accept: application/vnd.github+json" \

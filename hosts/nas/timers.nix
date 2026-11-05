@@ -165,7 +165,9 @@ let
       "network-online.target"
     ];
     wants = [ "network-online.target" ];
-    requires = [ "nas-pools.target" ];
+    # Requisite, not Requires: a timer firing without pools fails at once instead of
+    # re-running the 60 s import every minute (docs/nixos-host.md → Decisions).
+    requisite = [ "nas-pools.target" ];
     onFailure = [ "notify-failure@%n.service" ];
     path = jobPath;
     environment.HOME = "/root";

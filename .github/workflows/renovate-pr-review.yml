@@ -7,7 +7,7 @@ on:
   pull_request:
     # Every stack PR gets both layers now, so no `labeled` trigger.
     types: [opened, synchronize, reopened]
-  # MERGE SWEEP: dispatched only, by host cron (scripts/merge-sweep-trigger.sh). GitHub's cron drops runs.
+  # MERGE SWEEP: dispatched only, by the NAS timer (scripts/merge-sweep-trigger.sh). GitHub's cron drops runs.
   schedule:
     # STALE-CLEARANCE ALARM: goes red if a cleared PR sits open >1 day. Once a day,
     # because silence is otherwise indistinguishable from a dead sweep.

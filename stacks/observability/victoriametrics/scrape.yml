@@ -24,6 +24,13 @@ scrape_configs:
       - targets: ["100.64.0.12:9100"]
         labels: {host: micro}
 
+  # NUT exporter on the NAS host (hosts/nas/monitoring.nix): firewalled from the LAN, reached from the bridge.
+  - job_name: ups
+    metrics_path: /ups_metrics
+    static_configs:
+      - targets: ["192.168.1.111:9199"]
+        labels: {host: nas}
+
   # Needs prometheus.listen_addr 0.0.0.0 in the crowdsec config on the host — it
   # defaults to 127.0.0.1. See docs/services/observability.md.
   - job_name: crowdsec

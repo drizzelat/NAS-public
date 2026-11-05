@@ -14,8 +14,8 @@ services:
     logging: *default-logging
     security_opt:
       - no-new-privileges=true
-    # 954 MiB host with no swap: the cap is what protects sshd and the periphery.
-    # Peak RSS in a month of Beszel history is 7.7 MB.
+    # 952 MiB host with no swap: the cap is what protects sshd and the periphery.
+    # Peak RSS in a month of container metrics was 7.7 MB.
     deploy:
       resources:
         limits:

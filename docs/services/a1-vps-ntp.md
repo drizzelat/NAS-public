@@ -72,7 +72,7 @@ takes it from the host: IPv6 = the increase of `node_netstat_Udp6_InDatagrams` (
 `Udp6InDatagrams` from `/proc/net/snmp6`), IPv4 = chrony's received count minus that. Both count a
 query before `ratelimit` sees it, so the two shares add up to chrony's total. It is an approximation
 in one direction only: any other UDP the host receives over v6 counts as NTP. Today that is chrony's
-own upstream replies (one per source every 1024 s) and Tailscale, if it picks a v6 path to a peer —
+own upstream replies (one per source every 256–1024 s) and Tailscale, if it picks a v6 path to a peer —
 a handful of packets a second at most, against ~1 100 queries/s. Only the IPv4 side of the host
 counter (`Udp_InDatagrams`) would be worse: it also carries DNS and, usually, Tailscale. First live
 reading, 2026-09-23 13:30 UTC over the preceding hour: 267 708 of 4 519 077 queries arrived over
@@ -214,10 +214,11 @@ but any future v6 service on this host will need the rule.
 
 ## Dependencies
 
-- **Two stateless Oracle Security List rules** for `123/udp` (console actions, see
+- **Four stateless Oracle Security List rules** for `123/udp` (console actions, see
   [Security List rules](#security-list-rules)).
 - **An NTP Pool account** that holds the server registration — one entry per address, three in total.
-- Outbound UDP 123 to the upstreams; Oracle's default egress allows it.
+- Outbound UDP 123 to the upstreams. chrony reaches PTB and Cloudflare over IPv6, so this rides the
+  stateful `::/0` egress rule; Oracle's default egress covers IPv4 only.
 
 ## Notes
 
@@ -289,7 +290,7 @@ sudo docker exec a1-ntp chronyc serverstats     # NTP packets received, and drop
 ### Leave the pool
 
 Delete the server on the manage page. Keep the stack running for months while traffic fades, then remove
-the stack and both Security List rules.
+the stack and the NTP Security List rules.
 
 ### Restart / redeploy
 
@@ -340,5 +341,5 @@ Nothing to restore.
   for i in $(seq 20); do curl -so /dev/null -w '%{time_connect}\n' -H 'Host: 0.de.pool.ntp.org' http://198.51.100.20/; sleep 1; done
   ```
 
-  Don't judge a fix by the reachability panel. Each upstream is polled every 1024 s and the ratio
-  covers the last 8 polls, so it takes about 2.5 h to recover.
+  Don't judge a fix by the reachability panel. Each upstream is polled every 256–1024 s and the ratio
+  covers the last 8 polls, so it takes up to about 2.5 h to recover.

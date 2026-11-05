@@ -11,7 +11,7 @@ either way.
 
 - **Stack folder:** `stacks/runner-vm-periphery/`
 - **Compose file:** `stacks/runner-vm-periphery/docker-compose.yml`
-- **Managed by:** the repo is the source of truth; **applied by the hourly periphery auto-apply cron**, never by Komodo.
+- **Managed by:** the repo is the source of truth; **applied by the hourly periphery auto-apply timer**, never by Komodo.
   See [Why not Komodo](#why-not-komodo).
 - **Host copy:** `/home/ubuntu/periphery/docker-compose.yml` on the VM (compose project `periphery`,
   container `komodo-periphery`).
@@ -49,7 +49,7 @@ cloud-init before the first start. Terminals are disabled.
 
 ## Applying a change
 
-The periphery auto-apply cron does this hourly after a merge. These are the by-hand steps, the repair path when it reports a failure.
+The periphery auto-apply timer does this hourly after a merge. These are the by-hand steps, the repair path when it reports a failure.
 
 From a clone of this repo, after the change is merged to `main`:
 

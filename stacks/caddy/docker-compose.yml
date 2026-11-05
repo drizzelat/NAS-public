@@ -41,7 +41,7 @@ services:
     # sends a short name Docker DNS lacks (crowdsec, while it is down) to Cloudflare, and
     # the bouncer kept that keep-alive connection after crowdsec came back (2026-09-25).
     dns_search: .
-    # This stack DEFINES all 19 proxy_* networks; every other stack consumes them as
+    # This stack DEFINES all 18 proxy_* networks; every other stack consumes them as
     # external. Adding one is docs/network.md -> Adding a New Stack.
     networks:
       - proxy_network

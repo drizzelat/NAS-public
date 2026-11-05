@@ -1,5 +1,5 @@
 #!/bin/sh
-# SMART reads for the nightly health check — the only part of it that needs root.
+# SMART reads for the health check's `smart` verb, run as root through an exact sudo grant.
 # Takes NO arguments, so its sudoers grant has nothing to inject into.
 set -eu
 

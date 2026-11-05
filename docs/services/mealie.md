@@ -19,7 +19,7 @@ generates shopping lists. Mobile-friendly UI with a REST API.
 | ----- | ------------------------------------------------------------------- |
 | URL   | `https://mealie.example.com`                                      |
 | Port  | 9000 (container, not published)                                     |
-| Auth  | Authentik OIDC (native connector); local password login as fallback |
+| Auth  | Authentik OIDC (native connector) only; password login is off (`ALLOW_PASSWORD_LOGIN=false`) |
 
 **Public** — exposed to the internet (VPS SNI allowlist + a Caddy vhost without the `lan_only` snippet) so friends can log in
 via Authentik without VPN access. No host port published — only reachable through the reverse
@@ -38,7 +38,9 @@ network-layer wall in front of the app, so those routes stay reachable without a
 | `/var/lib/postgresql`      | `/mnt/apps/mealie/db`   | Postgres database (PG18 versioned datadir; data under `db/18/docker`) |
 
 Both on the `apps` NVMe pool — covered by the recursive `apps` ZFS snapshot (every 4h)
-and the nightly Hetzner push.
+and the nightly restic backup to the Hetzner Storage Box. The `nas.backup.*` labels on `db` put it
+in the nightly logical dump (`nas-pg-dump.timer`, 02:30), which writes `mealie_<date>.sql.gz` to
+`/mnt/apps/mealie/dumps` (postgres-dump runbook).
 
 ## Environment variables
 
@@ -69,7 +71,7 @@ is hidden) — see the break-glass note under First-time UI setup. See First-tim
 `OIDC_REQUIRES_EMAIL_VERIFICATION=false` is **required with this Authentik setup**, not a
 preference: Mealie v3.21+ refuses any OIDC login unless the IdP asserts `email_verified`, and
 Authentik's default `OpenID 'email'` scope mapping hardcodes `email_verified: False` (its
-`blueprints/system/providers-oauth2.yaml`, still true in 2026.5.6). Leaving it at Mealie's default
+`blueprints/system/providers-oauth2.yaml`, still true in Authentik 2026.8). Leaving it at Mealie's default
 `true` locks everyone out, admin included, because `ALLOW_PASSWORD_LOGIN=false` leaves no fallback.
 The check exists to stop an unverified self-asserted email from matching an existing account —
 no risk here (two hand-created Authentik accounts, no self-registration). Alternative, if the
@@ -133,7 +135,7 @@ Diagnose from the shell before touching Mealie (`200` = URL/key/model good):
 curl "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" \
   -H "Authorization: Bearer $GEMINI_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"gemini-3-flash-preview","messages":[{"role":"user","content":"hi"}]}'
+  -d '{"model":"gemini-3.1-flash-lite","messages":[{"role":"user","content":"hi"}]}'
 ```
 
 ## Dependencies
@@ -178,7 +180,7 @@ curl "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" 
 
 ## Operations
 
-> Restart/redeploy go through **Komodo** (Stack `mealie`). Over SSH, `truenas_admin` is not in the `docker` group but has passwordless sudo, so `sudo -n docker …` works for inspection.
+> Restart/redeploy go through **Komodo** (Stack `mealie`). Over SSH, `truenas_admin` is in the `docker` group and has passwordless sudo, so `docker …` (or `sudo -n docker …`) works for inspection.
 
 ### Restart / redeploy
 

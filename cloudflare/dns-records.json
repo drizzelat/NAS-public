@@ -27,7 +27,7 @@
   "type": "TXT"
  },
  {
-  "comment": "tailnet address of the pbs-guest node, reachable only by shared guests",
+  "comment": null,
   "content": "100.64.0.14",
   "name": "hedgedoc.example.com",
   "proxied": false,
