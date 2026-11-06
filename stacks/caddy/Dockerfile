@@ -6,8 +6,8 @@ FROM caddy:2.11.7-builder-alpine@sha256:95a5e7e2692b5eb9545aadc5b90a39f6f509bee5
 # Each --replace forces a patched dependency Caddy or a plugin still pins — docs/services/caddy.md → Image.
 RUN xcaddy build \
       --with github.com/caddy-dns/cloudflare@v0.2.4 \
-      --with github.com/hslatman/caddy-crowdsec-bouncer/http@v0.14.1 \
-      --with github.com/hslatman/caddy-crowdsec-bouncer/appsec@v0.14.1 \
+      --with github.com/hslatman/caddy-crowdsec-bouncer/http@v0.15.0 \
+      --with github.com/hslatman/caddy-crowdsec-bouncer/appsec@v0.15.0 \
       --replace golang.org/x/crypto=golang.org/x/crypto@v0.58.0 \
       --replace golang.org/x/net=golang.org/x/net@v0.62.0 \
       --replace golang.org/x/text=golang.org/x/text@v0.43.0 \

@@ -1186,7 +1186,7 @@
     {
       "id": 25,
       "type": "stat",
-      "title": "Draw",
+      "title": "Draw (UPS estimate)",
       "gridPos": {
         "h": 4,
         "w": 6,
@@ -1231,7 +1231,7 @@
           "expr": "network_ups_tools_ups_realpower{job=\"ups\"}"
         }
       ],
-      "description": "Real power through the UPS: the NAS and whatever else is plugged into its protected outlets. 700 VA model.",
+      "description": "Not measured: the Eaton reports ups.load × 5.6 W (700 VA × 0.8). At this low load it reads about twice the real draw; a wall meter showed the NAS at ~25 W. Use it for trends, not watts.",
       "options": {
         "colorMode": "value",
         "graphMode": "area"
@@ -1288,7 +1288,7 @@
     {
       "id": 27,
       "type": "timeseries",
-      "title": "Draw and runtime",
+      "title": "Draw estimate and runtime",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -1309,7 +1309,24 @@
             "spanNulls": true
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "runtime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
       },
       "targets": [
         {
@@ -1327,11 +1344,11 @@
             "type": "prometheus",
             "uid": "victoriametrics"
           },
-          "expr": "network_ups_tools_battery_runtime{job=\"ups\"} / 60",
-          "legendFormat": "runtime (min)"
+          "expr": "network_ups_tools_battery_runtime{job=\"ups\"}",
+          "legendFormat": "runtime"
         }
       ],
-      "description": "Draw in W; runtime in minutes on the same axis (the UPS's estimate)."
+      "description": "Draw is the UPS's estimate (load × 5.6 W, about 2× high at this load), left axis. Runtime is the UPS's estimate from the same load figure, right axis, so it errs low."
     }
   ]
 }
