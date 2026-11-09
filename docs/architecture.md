@@ -354,6 +354,7 @@ flowchart TB
   komodo -->|"periphery over the tailnet"| microstacks
   komodo -->|"periphery over the tailnet"| a1stacks
   runner -.->|"unhealthy: rollback commit"| mainb
+  runner -.->|"green deploy of a sweep merge:<br>next sweep run"| sweep
   komodo -.->|"deploy-runner, between jobs"| runner
   mainb -->|"git pull every 15 min"| clone
   clone -->|"timer scripts"| cron

@@ -12,6 +12,10 @@ on:
     # STALE-CLEARANCE ALARM: goes red if a cleared PR sits open >1 day. Once a day,
     # because silence is otherwise indistinguishable from a dead sweep.
     - cron: "30 8 * * *"
+  # MERGE SWEEP CHAIN: a sweep merge that deploys ends its run; that deploy's completion starts the next.
+  workflow_run:
+    workflows: [deploy-stacks]
+    types: [completed]
   # Manual re-run: a pull_request run uses the workflow file from the PR's HEAD
   # branch, so older branches need a dispatch. No `pr` input = merge sweep.
   workflow_dispatch:
@@ -37,7 +41,7 @@ permissions:
   statuses: write   # the `renovate-review` verdict, posted on the PR head SHA.
   # Check runs are a separate resource from commit statuses; the sweep reads both.
   checks: read
-  # The sweep polls deploy-stacks between merges (wait_for_deploy).
+  # The sweep reads deploy-stacks' run list before merging.
   actions: read
 
 concurrency:
@@ -179,10 +183,16 @@ jobs:
   # Merges every cleared PR inside the 05:00-06:00 Berlin window; the only path
   # from a cleared PR to a running container. Separate job: it holds the merge credential.
   window-merge:
-    if: github.event_name == 'workflow_dispatch' && inputs.pr == ''
+    # Chain link: only a green push deploy of a merged renovate/ PR (a revert or hand push never matches).
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.pr == '') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       contains(github.event.workflow_run.head_commit.message, format('from {0}/renovate/', github.repository_owner)))
     runs-on: ubuntu-latest   # GitHub-hosted ONLY — do not change to self-hosted.
-    # Was 20. The sweep now waits for each merge's deploy to finish (wait_for_deploy).
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       # The scripts below live in the repo, so this job needs the checkout that the
       # inline version never did. Shallow: only scripts/review/ is read.
@@ -207,8 +217,7 @@ jobs:
           REPO: ${{ github.repository }}
           IGNORE_WINDOW: ${{ inputs.ignore_window }}
           DRY_RUN: ${{ inputs.dry_run }}
-          # Seconds to let one merge's deploy-stacks run finish before merging the next.
-          DEPLOY_WAIT: 420
+          CHAIN_SHA: ${{ github.event.workflow_run.head_sha }}   # the deploy this run follows; empty otherwise
         run: scripts/review/merge-sweep.sh
 
   # DEAD-MAN'S SWITCH: cleared PRs merge silently, so a dead sweep looks like a

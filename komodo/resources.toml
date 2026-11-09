@@ -513,6 +513,8 @@ project_name = "adguard"
 auto_pull = true
 destroy_before_deploy = false
 webhook_enabled = true
+# Copies the repo-owned keys of managed.yaml into the live AdGuardHome.yaml; restarts AdGuard only on a change.
+post_deploy.command = "sh apply-managed.sh"
 
 [[stack]]
 name = "pbs"

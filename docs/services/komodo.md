@@ -133,6 +133,10 @@ Each Stack's env comes from Komodo Variables named `<STACK>__<KEY>`, written fro
 
   A failure in either fails the deploy. A deploy is therefore what applies a Caddyfile change; no
   timer reloads Caddy.
+- **`adguard`'s `post_deploy` applies its repo-owned settings.** It runs
+  [`stacks/adguard/apply-managed.sh`](../../stacks/adguard/apply-managed.sh), which copies
+  `managed.yaml`'s keys into the live config and restarts AdGuard only on a change
+  ([adguard.md → Config as code](adguard.md#config-as-code)).
 - **`github-runner` is not owned** ([rule](#github-runner-deploys-between-jobs)).
 - **CI removes nothing.** A removed folder gets a warning. The Stack is destroyed and deleted by hand
   (deploy-stacks.md → Removing a stack).

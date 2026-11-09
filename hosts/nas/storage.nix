@@ -196,6 +196,18 @@ in
         autosnap = false;
         autoprune = false;
       };
+      # As under TrueNAS: the runner VM's disk churns every job, so it gets only the
+      # weekly and monthly tiers (13.7G of a 20G zvol was snapshots on 2026-11-02).
+      "apps/runner-vm" = {
+        useTemplate = [ "apps" ];
+        hourly = 0;
+        daily = 0;
+      };
+      # Netdata's metrics DB was never snapshotted under TrueNAS; prune what sanoid took.
+      "apps/.system/netdata-ae32c386e13840b2bf9c0083275e7941" = {
+        useTemplate = [ "apps" ];
+        autosnap = false;
+      };
       "data/smb_share" = {
         useTemplate = [ "data" ];
         recursive = true;

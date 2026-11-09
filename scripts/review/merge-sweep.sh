@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Layer 4: merge cleared PRs in the 05:00 window, one at a time, waiting on each deploy.
+# Layer 4: merge cleared PRs in the 05:00 window. A merge that deploys ends the run; the
+# deploy's completion starts the next one (workflow_run chain), so nothing polls and bills.
 # Docs: docs/runbooks/setup-operations/renovate-pr-review.md
 
 set -uo pipefail   # NOT -e: a refused merge must not go red.
@@ -19,24 +20,40 @@ if [ -z "${MERGE_TOKEN:-}" ]; then
   exit 0
 fi
 
+# ONE DEPLOY AT A TIME: GitHub keeps a single PENDING run per concurrency group, so
+# back-to-back merges cancel the middle deploys before they start. A run that finds a
+# deploy in flight stops, so a second trigger cannot fork the chain.
+busy=$(gh api "repos/$REPO/actions/workflows/deploy-stacks.yml/runs?per_page=20" \
+         --jq '[.workflow_runs[] | select(.status == "queued" or .status == "in_progress")] | length' \
+         2>"$RUNNER_TEMP/gh.err") || {
+  echo "::warning::could not read the deploy-stacks runs — merging nothing. gh said: $(tr '\n' ' ' < "$RUNNER_TEMP/gh.err")"
+  exit 0
+}
+if [ "${busy:-0}" != "0" ]; then
+  if [ "$DRY_RUN" = "true" ]; then
+    echo "$busy deploy-stacks run(s) in flight — a real sweep would stop here; the dry run goes on."
+  else
+    echo "$busy deploy-stacks run(s) in flight — merging nothing; the next sweep starts when it finishes or tomorrow."
+    exit 0
+  fi
+fi
+
+# A chained run only continues from the tip it was started for: a later push (a revert,
+# a hand merge) means the deploy it follows is no longer the whole story.
+if [ "${GITHUB_EVENT_NAME:-}" = "workflow_run" ]; then
+  tip=$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha 2>"$RUNNER_TEMP/gh.err") || {
+    echo "::warning::could not read main's tip — merging nothing. gh said: $(tr '\n' ' ' < "$RUNNER_TEMP/gh.err")"
+    exit 0
+  }
+  if [ "$tip" != "${CHAIN_SHA:-}" ]; then
+    echo "main moved on (${tip:0:7}, the deploy was of ${CHAIN_SHA:0:7}) — merging nothing."
+    exit 0
+  fi
+fi
+
 open=$(gh pr list --repo "$REPO" --state open --limit 100 \
          --json number,headRefName,headRefOid,isDraft 2>/dev/null) || open='[]'
 merged=0
-
-# ONE DEPLOY AT A TIME: GitHub keeps a single PENDING run per concurrency group,
-# so back-to-back merges cancel the middle deploys before they start.
-wait_for_deploy() {
-  local waited=0 busy
-  sleep 15   # let GitHub register the run the merge just triggered
-  while [ "$waited" -lt "$DEPLOY_WAIT" ]; do
-    busy=$(gh api "repos/$REPO/actions/workflows/deploy-stacks.yml/runs?per_page=20" \
-             --jq '[.workflow_runs[] | select(.status == "queued" or .status == "in_progress")] | length' \
-             2>/dev/null) || busy=0
-    [ "${busy:-0}" = "0" ] && return 0
-    sleep 20; waited=$((waited + 20))
-  done
-  echo "::warning::deploy-stacks still busy after ${DEPLOY_WAIT}s — merging on anyway; the reconcile pass picks up anything that gets cancelled."
-}
 
 while read -r pr; do
   [ -n "$pr" ] || continue
@@ -126,10 +143,23 @@ while read -r pr; do
     continue
   fi
 
+  # Does the merge deploy? Only stacks/** starts deploy-stacks; any other PR (an Actions pin) has
+  # no deploy to chain from, so the sweep carries on. Unreadable counts as a deploy: stop, never race.
+  if files=$(gh api "repos/$REPO/pulls/$num/files" --paginate --jq '.[].filename' 2>"$RUNNER_TEMP/gh.err"); then
+    grep -q '^stacks/' <<<"$files" && deploys=true || deploys=false
+  else
+    echo "::warning::#$num: could not list its files — treating it as a deploy. gh said: $(tr '\n' ' ' < "$RUNNER_TEMP/gh.err")"
+    deploys=true
+  fi
+
   # Dry run exercises the read path at any hour without redeploying. Run one after
   # touching this job or its permissions.
   if [ "$DRY_RUN" = "true" ]; then
-    echo "#$num: WOULD MERGE (dry run)."
+    if [ "$deploys" = "true" ]; then
+      echo "#$num: WOULD MERGE (dry run) — touches stacks/, a real sweep ends here and chains the next on the deploy."
+    else
+      echo "#$num: WOULD MERGE (dry run) — no stacks/ change, a real sweep carries on."
+    fi
     merged=$((merged + 1))
     continue
   fi
@@ -139,7 +169,10 @@ while read -r pr; do
        --delete-branch --match-head-commit "$head"; then
     merged=$((merged + 1))
     echo "merged #$num"
-    wait_for_deploy
+    if [ "$deploys" = "true" ]; then
+      echo "#$num starts a deploy — stopping; its completion starts the next sweep run."
+      break
+    fi
   else
     echo "::warning::#$num: merge refused — merge it by hand."
   fi

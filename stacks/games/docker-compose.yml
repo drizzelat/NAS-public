@@ -8,7 +8,7 @@ x-logging: &default-logging   # json-file never rotates by default. docs/runbook
 
 services:
   gamevault-backend:
-    image: phalcode/gamevault-backend:17.1.0@sha256:87999b98d686b3297ddd7abde51f42dd2fa30b987f0cf050a42403a398711199
+    image: phalcode/gamevault-backend:17.2.0@sha256:a2d4fe2cb4bc6cc0cd6badb57162692b108a25a4dd7ac839ddeadfd3454ecf48
     container_name: gamevault-backend
     security_opt:
       - no-new-privileges=true
@@ -42,7 +42,7 @@ services:
       nas.backup.user: gamevault
       nas.backup.db: gamevault
       nas.backup.dir: /mnt/apps/mediaserver/config/gamevault/dumps
-    image: postgres:18.6@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
+    image: postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
     container_name: gamevault-db
     security_opt:
       - no-new-privileges=true

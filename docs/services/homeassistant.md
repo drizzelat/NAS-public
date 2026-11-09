@@ -101,9 +101,9 @@ needs its port added there too.
 
 ### After onboarding
 
-Settings → System → Network: set **Home Assistant URL** both local and internet to
-`https://ha.example.com`. Otherwise links in notifications and the companion app point at
-`http://192.168.1.111:8123`.
+Both **Home Assistant URLs** (Settings → System → Network) are `https://ha.example.com`, set 2026-10-30
+in `.storage/core.config` with HA stopped. Without them, links in notifications and the companion app
+point at `http://192.168.1.111:8123`.
 
 ### Monitoring
 

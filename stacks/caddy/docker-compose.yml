@@ -8,7 +8,7 @@ services:
   caddy:
     # Custom xcaddy build (Cloudflare DNS + CrowdSec bouncer), built by
     # .github/workflows/build-caddy-image.yml. Digest pin is applied by hand.
-    image: ghcr.io/drizzelat/nas-caddy:2.11.7@sha256:beb227b82045679cba62d7c84a439bbced18abe29a533a25747567c35cdd9df4
+    image: ghcr.io/drizzelat/nas-caddy:2.11.7@sha256:b2155cef2d64638639ce41246dd4ded1be1910bfabab464d427d5b03b92d5ec7
     container_name: caddy
     restart: unless-stopped
     logging: *default-logging

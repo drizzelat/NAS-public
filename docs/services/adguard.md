@@ -71,10 +71,33 @@ None.
 After the stack is up, do this in the AdGuard web UI:
 
 1. **Setup wizard** — with the temporary `30004:30004` mapping in place (see Bootstrap note above), first visit to `http://192.168.1.111:30004` runs the wizard. Set the **Admin Web Interface** to listen on port **30004** (not 80/3000 — Caddy's upstream is `adguard:30004`) and DNS on **port 53**. Create the admin user + password.
-2. **Upstream DNS** — Settings → **DNS settings**: set upstream resolvers (e.g. `https://dns.cloudflare.com/dns-query`), enable a bootstrap/fallback, test upstreams.
-3. **Blocklists** — Filters → **DNS blocklists**: add the lists you want (AdGuard default + extras).
-4. **Make it the LAN resolver** — point the router/FritzBox DHCP **DNS server** at the NAS IP so every device resolves through AdGuard. (This is what makes blocking actually take effect.)
-5. **Local hostnames (optional)** — Filters → **DNS rewrites** for internal names; Settings → **Clients** to label/per-client rules.
+2. **Make it the LAN resolver** — point the router/FritzBox DHCP **DNS server** at the NAS IP so every device resolves through AdGuard. (This is what makes blocking actually take effect.)
+3. **Deploy once more** so `post_deploy` writes upstreams, blocklists, rewrites and clients from
+   [`managed.yaml`](../../stacks/adguard/managed.yaml) ([Config as code](#config-as-code)). The
+   `*.example.com` rewrite is what makes `https://adguard.example.com` resolve.
+
+## Config as code
+
+[`stacks/adguard/managed.yaml`](../../stacks/adguard/managed.yaml) owns these keys of the live
+`AdGuardHome.yaml`: upstream, bootstrap and fallback DNS and the upstream mode, blocklists
+(`filters`, `whitelist_filters`), `user_rules`, DNS rewrites, blocked services, persistent clients,
+and the statistics ignore list. The UI keeps everything else: the admin user, TLS, query log and
+statistics retention, and runtime state.
+
+- **Change one of those keys in the repo, not the UI.** Edit `managed.yaml` and merge it. The push
+  deploys the stack, and its `post_deploy` runs [`apply-managed.sh`](../../stacks/adguard/apply-managed.sh).
+- **A UI edit to a managed key is reverted by the next deploy.** Nothing reverts it sooner: the
+  hourly `reconcile-owned` deploys only on a compose change. To keep a UI change, copy it into
+  `managed.yaml`.
+- **The script restarts AdGuard only when something differs.** AdGuard writes its YAML back from
+  memory on every UI save and on shutdown, so the script stops the container, edits the file with
+  pinned `mikefarah/yq`, and starts it again. That costs a few seconds of LAN DNS. A deploy with
+  nothing to change leaves AdGuard running. The deploy fails if AdGuard is not running afterwards
+  or the file still differs.
+- **Keep a filter's `id` when editing it.** It names the downloaded list
+  (`workdir/data/filters/<id>.txt`). A new list needs a new unique `id`.
+- **Adding a key to the managed set:** copy the live value into `managed.yaml` first, then add its
+  path to `KEYS` in `apply-managed.sh`. Then the first deploy is a no-op instead of a reset.
 
 ## Operations
 
@@ -95,7 +118,7 @@ After the stack is up, do this in the AdGuard web UI:
 ### Restore from backup
 
 1. Stop the `adguard` stack in Komodo (**Stop**; never **Destroy**, which is a compose down).
-2. Restore `apps/adguard/config` (filters, DNS rewrites, clients, settings) — and optionally `apps/adguard/workdir` (stats/query log, regenerable) — from a local ZFS snapshot of `apps` (every 4h) or from Hetzner (backup runbook).
+2. Restore `apps/adguard/config` (the admin user, TLS and the other UI-owned settings; the next deploy re-applies `managed.yaml` on top) — and optionally `apps/adguard/workdir` (stats/query log, regenerable) — from a local ZFS snapshot of `apps` (every 4h) or from Hetzner (backup runbook).
 3. Start the stack.
 
 ### Common failures

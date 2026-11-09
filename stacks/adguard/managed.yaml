@@ -1,0 +1,53 @@
+# AdGuard settings owned by this repo (docs/services/adguard.md → Config as code).
+# post_deploy (apply-managed.sh) copies every key listed in its KEYS from here into the live
+# AdGuardHome.yaml, so a UI change to one of these is reverted by the next deploy. Everything else
+# (users, TLS, query log, statistics retention, runtime state) stays UI-owned.
+dns:
+  upstream_dns:
+    - 1.1.1.1
+  bootstrap_dns:
+    - 9.9.9.10
+    - 149.112.112.10
+    - 2620:fe::10
+    - 2620:fe::fe:10
+  fallback_dns: []
+  upstream_mode: fastest_addr
+statistics:
+  ignored:
+    - wpad.fritz.box
+# `id` names the downloaded list in workdir/data/filters/<id>.txt: keep it when editing an entry.
+filters:
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt
+    name: AdGuard DNS filter
+    id: 1
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_2.txt
+    name: AdAway Default Blocklist
+    id: 2
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_24.txt
+    name: 1Hosts (Lite)
+    id: 1775549048
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_59.txt
+    name: AdGuard DNS Popup Hosts filter
+    id: 1775549049
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_5.txt
+    name: OISD Blocklist Small
+    id: 1775549050
+whitelist_filters: []
+user_rules:
+  - '||wpad.fritz.box^$dnsrewrite=NXDOMAIN'
+filtering:
+  blocked_services:
+    schedule:
+      time_zone: Etc/UTC
+    ids: []
+  rewrites:
+    - domain: '*.example.com'
+      answer: 192.168.1.111
+      enabled: true
+clients:
+  persistent: []

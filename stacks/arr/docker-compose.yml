@@ -8,7 +8,7 @@ x-logging: &default-logging   # json-file never rotates by default. docs/runbook
 
 services:
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:2.6.5.5623-ls165@sha256:b3b00047ed20f6ce2b16780145cb6a0acb51c9e28ea6aa6f5dcd33c7034f1797
+    image: lscr.io/linuxserver/prowlarr:2.7.0.5723-ls167@sha256:431d7efebcef466e56adaa40a7a2fa2b0e85159a037b8bf465eaadbf0cf5bedf
     container_name: prowlarr
     security_opt:
       - no-new-privileges=true
@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
   radarr:
-    image: lscr.io/linuxserver/radarr:6.4.4.10685-ls323@sha256:fc0ae3c50f8128b97e84381903ec8d6845c3a569641cb7117c124376cccb57c1
+    image: lscr.io/linuxserver/radarr:6.4.4.10685-ls325@sha256:ade5937813c6ae415b29db729386e53fea3ecf067a019849bafbe2d2a6ec02ba
     container_name: radarr
     security_opt:
       - no-new-privileges=true
@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
   bazarr:
-    image: lscr.io/linuxserver/bazarr:v1.6.2-ls369@sha256:946dc8c5bb5331418eac60050cf40a63cb8f66ac039841dda493870e3559799c
+    image: lscr.io/linuxserver/bazarr:v1.6.2-ls371@sha256:7ef0e58216900dbce30b123e0eb65f5cb30e36f126de9474acdd2022fb069c54
     container_name: bazarr
     security_opt:
       - no-new-privileges=true
@@ -99,7 +99,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
   unpackerr:
-    image: ghcr.io/unpackerr/unpackerr:v1.0.0@sha256:21c6bfa4f4c86ab2dd0232da0dfb3ed4c5d929e42e09894e7b4d2154d0c144f6
+    image: ghcr.io/unpackerr/unpackerr:v1.0.1@sha256:22b4693fbeaae4bd927905d63b59b8f67b4a1446682d965ac876c61a48976658
     container_name: unpackerr
     security_opt:
       - no-new-privileges=true
@@ -123,7 +123,7 @@ services:
     logging: *default-logging
 
   questarr:
-    image: ghcr.io/doezer/questarr:v1.5.0@sha256:8b6a6df437aa3983a4ccffe164f3f33f664646c48cde05d263434e9768598621
+    image: ghcr.io/doezer/questarr:v1.6.0@sha256:495a1648f1ad8dddd4c7f96b4bf817d9d061bfd5608ef520522f0d891415e972
     container_name: questarr
     security_opt:
       - no-new-privileges=true
