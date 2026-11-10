@@ -1,6 +1,6 @@
 # The official caddy image has neither the Cloudflare DNS provider (needed for the
 # *.example.com wildcard over DNS-01) nor a CrowdSec bouncer. docs/services/caddy.md
-FROM caddy:2.11.8-builder-alpine@sha256:e42a64b3bc70aa3a1387bde85b930e507a378fecae5852d5bfde9dcd37d0b999 AS builder
+FROM caddy:2.11.9-builder-alpine@sha256:d26fbc8a56ed8c3c1534f5573162d148ad3ed41732665da8526eb181fac0b728 AS builder
 
 # Every module version is pinned, and Renovate bumps them (customManagers in renovate.json).
 # Each --replace forces a patched dependency Caddy or a plugin still pins — docs/services/caddy.md → Image.
@@ -13,7 +13,7 @@ RUN xcaddy build \
       --replace golang.org/x/text=golang.org/x/text@v0.43.0 \
       --replace google.golang.org/grpc=google.golang.org/grpc@v1.85.0
 
-FROM caddy:2.11.8-alpine@sha256:f6228111e5fafa1a5238258d0858e103f10599b8d1659a146e7726681a002bb9
+FROM caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
 # Upstream rebuilds this base only with its Alpine base, so repo fixes lag; take them at build time.
 RUN apk upgrade --no-cache
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
