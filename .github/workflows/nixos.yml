@@ -1,6 +1,6 @@
 name: nixos
 
-# PLT-1: evaluate and build the NAS host config (flake.nix, hosts/nas/) on every PR.
+# PLT-1: evaluate both host configs and build the NAS one (flake.nix, hosts/) on every PR.
 # GitHub-hosted ONLY. No `paths:` filter (a path-filtered required check deadlocks
 # unrelated PRs); the first step skips the rest when nothing Nix-relevant changed.
 
@@ -31,10 +31,10 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          # hosts/nas reads these scripts at build time (health-probe.nix).
+          # Scripts the hosts read at build time (hosts/nas/health-probe.nix, hosts/a1/users.nix).
           if git diff --quiet "$BASE" "$HEAD" -- flake.nix flake.lock hosts/ secrets.enc/nixos/ \
-              scripts/nas-health-probe.sh scripts/nas-health-smart.sh scripts/nas-hetzner-snapshots.sh \
-              .github/workflows/nixos.yml; then
+              scripts/nas-health-smart.sh scripts/nas-hetzner-snapshots.sh scripts/nas-health-kuma.sh \
+              scripts/periphery-apply.sh .github/workflows/nixos.yml; then
             echo "run=false" >> "$GITHUB_OUTPUT"
             echo "No Nix-relevant change; skipping." >> "$GITHUB_STEP_SUMMARY"
           else
@@ -51,7 +51,8 @@ jobs:
         if: steps.changed.outputs.run == 'true'
         run: nix fmt -- --check $(git ls-files '*.nix')
 
-      - name: nix flake check (evaluation + the nas-pools VM test)
+      # Evaluates nixosConfigurations.a1 too; building it needs an aarch64 builder, so it is not built here.
+      - name: nix flake check (evaluation of both hosts + the nas-pools VM test)
         if: steps.changed.outputs.run == 'true'
         run: nix flake check --print-build-logs
 

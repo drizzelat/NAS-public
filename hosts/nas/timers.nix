@@ -125,12 +125,7 @@ let
     };
   };
 
-  # Replaced, not ported (PLT-1 "What changes in the repo"):
-  #   3  truenas-config-email.sh  the repo is the config now
-  #   4  cloudsync-chain.sh       restic from snapshots, backup.nix (BAK-1)
-  #   10, 11 nvme-smart-test.sh   smartd schedules NVMe self-tests, storage.nix
-  #   init docker-boot-guard.sh   docker.service asserts its mount, docker.nix
-  #   init ethtool --set-eee      .link file, network.nix
+  # Not ported (ids 3, 4, 10, 11, init): replaced by the flake, docs/nixos-host.md.
 
   # What the scripts call. dash, not bash: TrueNAS's /bin/sh is dash.
   jobPath = [

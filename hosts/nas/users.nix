@@ -14,12 +14,8 @@ let
   ];
 in
 {
-  users.mutableUsers = false;
   programs.zsh.enable = true; # truenas_admin's shell
   users.allowNoPasswordLogin = adminKeys == [ ];
-
-  # Keys come only from Nix; ~/.ssh/authorized_keys on the pools is ignored.
-  services.openssh.authorizedKeysInHomedir = false;
 
   # Kept under its TrueNAS name: runbooks, CI and scripts all ssh as truenas_admin.
   users.users.truenas_admin = {
@@ -93,8 +89,5 @@ in
   };
   users.groups.nashealth.gid = 3003;
 
-  security.sudo = {
-    execWheelOnly = false; # nashealth's grants live in health-probe.nix
-    wheelNeedsPassword = false; # TrueNAS: truenas_admin sudo ALL NOPASSWD
-  };
+  security.sudo.execWheelOnly = false; # nashealth's grants live in health-probe.nix
 }

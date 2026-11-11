@@ -40,7 +40,8 @@ problem() {
 
 # Single instance: the media sync takes ~an hour on a cold start, and two --delete
 # mirrors onto one destination fight over the same tree.
-exec 9>"$LOCK" 2>/dev/null || { echo "cannot open lock $LOCK" >&2; exit 1; }
+# No `2>/dev/null` here: on `exec` it would silence stderr for the whole script.
+exec 9>"$LOCK" || { echo "cannot open lock $LOCK" >&2; exit 1; }
 if command -v flock >/dev/null 2>&1; then
   # A held lock at the next nightly run means the previous one has been going 24h.
   flock -n 9 || problem "another sync still holds $LOCK — the previous run never finished"
@@ -56,9 +57,10 @@ trap 'rm -f "$LOG"' EXIT
 
   # --delete keeps this a true mirror; deletion history comes from sanoid's apps snapshots
   # (4-hourly, 3 days) and from the offsite copy, not from an ever-growing dir.
+  # Source `.`, not `/`: rrsync 3.5 rejects any other spelling of its root dir as `unsafe arg`.
   rc=0
   rsync -a --delete --partial --timeout=600 \
-    -e "ssh -o BatchMode=yes" --stats "$alias:/" "$dest/" > "$LOG" 2>&1 || rc=$?
+    -e "ssh -o BatchMode=yes" --stats "$alias:." "$dest/" > "$LOG" 2>&1 || rc=$?
 
   if [ "$rc" -ne 0 ]; then
     problem "ERROR $alias -> $dest: rsync exited $rc — $(tail -3 "$LOG" | tr '\n' ' ')"

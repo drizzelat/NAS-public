@@ -1,6 +1,5 @@
-# The NAS host (PLT-1), live since the cutover; docs/nixos-host.md. Build without touching any host:
-#   nix build .#nixosConfigurations.nas.config.system.build.toplevel
-#   nixos-rebuild build-vm --flake .#nas     # QEMU VM, no real pools/disks
+# The NAS (live since the PLT-1 cutover) and the A1 (not deployed yet); docs/nixos-host.md.
+# Build without touching any host: nix build .#nixosConfigurations.<nas|a1>.config.system.build.toplevel
 {
   description = "NAS estate — NixOS host configurations";
 
@@ -10,6 +9,10 @@
       url = "github:ryantm/agenix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    disko = {
+      url = "github:nix-community/disko";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -17,6 +20,7 @@
       self,
       nixpkgs,
       agenix,
+      disko,
       ...
     }:
     {
@@ -25,6 +29,16 @@
         modules = [
           agenix.nixosModules.default
           ./hosts/nas
+        ];
+      };
+
+      # Oracle Ampere A1, aarch64. Installed with nixos-anywhere, which runs disko.
+      nixosConfigurations.a1 = nixpkgs.lib.nixosSystem {
+        system = "aarch64-linux";
+        modules = [
+          agenix.nixosModules.default
+          disko.nixosModules.disko
+          ./hosts/a1
         ];
       };
 

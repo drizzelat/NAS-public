@@ -38,7 +38,7 @@ That is 30 Komodo Stacks.
 | `/backups` | `/mnt/apps/komodo/backups` | Core's dated database backups (daily procedure, 01:00) |
 
 Everything lives under `/mnt/apps/komodo`, dataset `apps/komodo`, never under `/etc`: the stacks'
-state must survive a host rebuild and a boot into the TrueNAS rollback.
+state must survive a host rebuild.
 
 ## Environment variables
 

@@ -9,9 +9,6 @@
   ...
 }:
 let
-  # Off until the TrueNAS rollback soak ends (docs/roadmap.md item 12); deploy by hand until then.
-  enabled = false;
-
   clone = "/mnt/apps/scripts/nas";
   state = "/var/lib/nas-host-deploy";
   hcUrl =
@@ -27,6 +24,7 @@ let
         pkgs.openssh
         config.nix.package
         config.system.build.nixos-rebuild
+        config.systemd.package # nixos-rebuild switches via systemd-run
       ]
     }
 
@@ -74,7 +72,7 @@ in
   };
 
   systemd.timers.nas-host-deploy = {
-    wantedBy = lib.optional enabled "timers.target";
+    wantedBy = [ "timers.target" ];
     timerConfig = {
       OnCalendar = "*-*-* *:40:00"; # after the :37 repo pull
       Persistent = true;

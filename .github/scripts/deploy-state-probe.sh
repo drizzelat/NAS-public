@@ -301,7 +301,7 @@ for s in $HAND_APPLIED; do
     fi
   else
     if ! out="$(probe compose-hash <"stacks/$s/docker-compose.yml" 2>&1)"; then
-      fail "periphery config: probe verb compose-hash failed ($(grep -m1 refused <<<"$out" || tr '\n' ' ' <<<"$out" | head -c 160)); re-install scripts/nas-health-probe.sh on the NAS"
+      fail "periphery config: probe verb compose-hash failed ($(grep -m1 refused <<<"$out" || tr '\n' ' ' <<<"$out" | head -c 160)); is the NAS host deploy behind main? (hosts/nas/health-probe.sh)"
       continue
     fi
     if [[ "$(compose_family "$(head -1 <<<"$out")")" == "$(compose_family "$applied")" ]]; then

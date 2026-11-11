@@ -44,7 +44,7 @@ No UI.
 
 | Port | Bind | Purpose |
 | ---- | ---- | ------- |
-| `123/udp` | public, IPv4 + IPv6 | NTP. chronyd binds it directly on the host: the stack runs `network_mode: host`, see [IPv6](#ipv6). Needs four **stateless** Oracle Security List rules, see [Security List rules](#security-list-rules), **and** a host iptables `ACCEPT`, see [Host firewall](#host-firewall) |
+| `123/udp` | public, IPv4 + IPv6 | NTP. chronyd binds it directly on the host: the stack runs `network_mode: host`, see [IPv6](#ipv6). Needs four **stateless** Oracle Security List rules, see [Security List rules](#security-list-rules), **and** the host firewall's `udp/123`, see [Host firewall](#host-firewall) |
 | `80/tcp` | public, shared | Not this stack: `a1-caddy` redirects the pool's names to `https://www.ntppool.org/`, see [Web redirect](#web-redirect) |
 | `9037/tcp` | `100.64.0.13` (tailnet) | `chrony_exporter` metrics (container `:9123`), scraped by the NAS `victoriametrics` (job `ntp`) |
 | `9038/tcp` | `100.64.0.13` (tailnet) | `node_exporter` UDP counters (`a1-ntp-netstat`, host network), scraped by the NAS `victoriametrics` (job `ntp-netstat`) |
@@ -165,21 +165,15 @@ Check: `curl -sI -H 'Host: 0.de.pool.ntp.org' http://198.51.100.20/` → `301`, 
 
 Host networking changed which chain the traffic meets. A published port is DNATed by Docker and
 traverses `FORWARD`, so `INPUT` never sees it; chronyd binding `123/udp` on the host puts every query
-through `INPUT`, which on Oracle's Ubuntu image ends in `REJECT --reject-with icmp-host-prohibited`.
-IPv4 NTP went dead the moment the stack was redeployed, while IPv6 kept working — the `ip6tables`
-`INPUT` chain is policy `ACCEPT` with no `REJECT` of its own.
+through the host's input chain.
 
-```sh
-sudo iptables -I INPUT 8 -p udp --dport 123 -j ACCEPT
-```
+Since 2026-11-10 (NixOS) the rule is `allowedUDPPorts = [ 123 ]` in
+[`hosts/a1/network.nix`](../../hosts/a1/network.nix), for IPv4 and IPv6 alike. Check with
+`sudo nft list ruleset | grep 123`. Removing that line kills both servers.
 
-Persisted by hand in `/etc/iptables/rules.v4`, one line above the final `REJECT`, rather than with
-`netfilter-persistent save`: the live table holds Docker's generated chains, and saving would freeze a
-copy of them into the file. Backup at `/etc/iptables/rules.v4.bak-20260923`; check with
-`sudo iptables-restore --test /etc/iptables/rules.v4`.
-
-Nothing is needed for IPv6 today, but a `REJECT` added to the `ip6tables` `INPUT` chain later would
-silently kill the two v6 servers.
+On Ubuntu (2026-09-23 to 2026-11-10) it was a hand-added `iptables -I INPUT … --dport 123 -j ACCEPT`
+in `/etc/iptables/rules.v4`. Before it, IPv4 NTP went dead the moment the stack moved to host
+networking while IPv6 kept working: Ubuntu's ip6tables `INPUT` was `ACCEPT`.
 
 ### IPv6
 
@@ -193,20 +187,11 @@ until the one above it exists:
 | Route rule | `::/0` → the VCN's Internet Gateway, in the subnet's route table |
 | VNIC addresses | `2001:db8:1::20` and `2001:db8:1::21`, both Oracle-allocated on the primary VNIC |
 
-The addresses are static on the host, in `/etc/netplan/60-ipv6.yaml` — a file of its own, because
-cloud-init owns `50-cloud-init.yaml` and rewrites it. `accept-ra: true` is what supplies the default
-route (`via fe80::1`, `proto ra`); no DHCPv6 client is needed.
-
-```yaml
-network:
-  version: 2
-  ethernets:
-    enp0s6:
-      accept-ra: true
-      addresses:
-        - "2001:db8:1::20/64"
-        - "2001:db8:1::21/64"
-```
+The addresses are static on the host, in [`hosts/a1/network.nix`](../../hosts/a1/network.nix)
+(systemd-networkd; on Ubuntu they were in `/etc/netplan/60-ipv6.yaml`). `IPv6AcceptRA` is what
+supplies the default route (`via fe80::1`, `proto ra`); no DHCPv6 client is needed.
+Privacy addresses are off, so replies leave from the address the client asked (checked with
+tcpdump after the NixOS cutover).
 
 **Open item:** no ICMPv6 ingress rule. `ping6` from outside times out, which also means Packet Too
 Big cannot reach the host. It does not affect NTP — a v6 reply is 96 B against a 1280 B minimum MTU —
@@ -316,8 +301,8 @@ Nothing to restore.
   still fails open, so the score is unaffected, but repeat abusers are no longer recognised. Raise
   `clientloglimit`, and the container's `memory:` limit with it.
 - **IPv4 times out while IPv6 answers** (`Timeout reached` from the `chronyd -Q` check, pool score
-  falling for the v4 server only) → the host iptables `ACCEPT` for `udp/123` is gone, so `INPUT` rejects
-  it. `sudo iptables -L INPUT -n --line-numbers` and see [Host firewall](#host-firewall).
+  falling for the v4 server only) → the host firewall drops `udp/123` (on NixOS both families would
+  fail together). `sudo nft list ruleset | grep 123` and see [Host firewall](#host-firewall).
 - **Every v6 query logged from one address, `ratelimit` dropping nearly all of them** → the stack lost
   `network_mode: host` and is publishing the port again. Check with `chronyc -n clients | grep 172.`:
   the bridge gateway must not appear.

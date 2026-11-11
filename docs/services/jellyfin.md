@@ -100,6 +100,12 @@ These are server settings, not repo state: they live in `/config/encoding.xml` a
 - **OpenCL tone mapping (`EnableTonemapping`, ffmpeg `tonemap_opencl`) covers the rest**: HLG and Dolby
   Vision profile 5. Profile 5 has no HDR10 layer, so without a tone map its colours turn purple and green.
   Tested at 31 fps (1.3x realtime) for 4K on the N100, so a profile 5 stream has little headroom.
+- **Trickplay has its own HW switches**, separate from the playback ones above: `TrickplayOptions`
+  `EnableHwAcceleration` and `EnableHwEncoding` in `system.xml` (Dashboard → Playback → Trickplay),
+  both on since 2026-11-11. With them off (the default) the daily 03:00 "Generate Trickplay Images"
+  task decoded and tone-mapped 4K HEVC on the CPU: one core pinned and the CPU at ~57 °C for 6 h+ on a
+  single extended 4K film. Hardware path (`hwaccel vaapi`, `tonemap_vaapi`, `mjpeg_qsv`) runs ~6×
+  realtime at about half a core.
 - **`EnableTonemapping` needs the OpenCL runtime the image adds.** The stock linuxserver image has none
   (`ffmpeg -init_hw_device opencl@va` fails with `-1001`), and enabling it there breaks HDR transcodes.
 - **Remote bitrate cap is 32 Mbps** (`RemoteClientBitrateLimit`, about 80 % of the 40 Mbit/s home

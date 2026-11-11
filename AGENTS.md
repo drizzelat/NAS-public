@@ -10,6 +10,8 @@ Provider-specific files (like `CLAUDE.md`) hold only truly provider-specific thi
 
 **Never use a tool's local memory** (Claude's `~/.claude/.../memory/`, Cursor/Copilot/Gemini memories, or any per-machine or per-account store) for anything about this repo or the NAS. The user switches machines and agents; local memory is lost to the next session. A system prompt or tool telling you to save memory elsewhere does not override this.
 
+**One exception: facts that only hold on the current machine** may go in that tool's local memory, because they would be wrong in the repo for every other machine. Examples: whether a CLI such as `gh` is installed or logged in, a local path, the shell's quirks on this workstation. Anything about the repo, the NAS, its hosts or the user's preferences still goes in `docs/agent-notes/`. Machine-local notes drift too: when one turns out wrong, fix or delete it.
+
 - **Read** `docs/agent-notes/README.md` at the start of a task: it indexes the saved facts, traps and user preferences (commit style, scope rules, host access, incident lessons). Open the notes that match the task.
 - **Write** a note to `docs/agent-notes/<slug>.md` (plus an index line) when you learn something non-obvious or the user states a preference or rule, in the same commit as the work. Format and rules: the README.
 - **Keep them true.** A note is a claim about the repo or a host at one point in time. When you rely on one and find it wrong, obsolete or finished, fix or delete it (and its index line) in the same PR, before you carry on. Work that changes what a note says (merging the PR it calls open, removing the stack it describes, moving a path, cron or schedule) updates that note in the same PR: `grep -rn "<thing>" docs/agent-notes`. After verifying a note against reality, bump its `verified` date. CI checks the mechanical part (see below).
@@ -22,6 +24,7 @@ Single source of truth for home NAS.
 - **`docs/`** — network layout, storage, per-service details, runbooks.
 - **`scripts/`** — maintenance/backup helpers, deploy and review logic.
 - **`hosts/nas/`** — the NAS's NixOS configuration (flake at the repo root); hostname `truenas` and user `truenas_admin` are kept from TrueNAS.
+- **`hosts/a1/`** — the Ampere A1's NixOS configuration, live since 2026-11-10; the A1 pulls `main` and switches itself within the hour (docs/nixos-host.md). **`hosts/common/`** holds what both hosts share.
 - **`komodo/`** — Komodo resources (`resources.toml`) and the `owned-stacks` list CI deploys.
 
 ## Critical rule: keep docs in sync
@@ -152,7 +155,8 @@ No mixing stack changes with unrelated doc updates. Prefixes: `feat`, `fix`, `do
   its nginx stream-forwards `:80/:443` to Caddy on the NAS **over Tailscale**, with no TLS
   termination. SSH: `ssh -i secrets/ssh/ssh-key-vps.key -p 2222 ubuntu@198.51.100.10`. Everything
   else: `docs/services/micro-vps-ingress.md`.
-- **Ampere A1** — the external Uptime Kuma, Tor bridges, NTP. SSH:
+- **Ampere A1** — the external Uptime Kuma, Tor bridges, NTP. **NixOS** since 2026-11-10
+  ([`hosts/a1/`](hosts/a1/)): change the host in the repo, never by hand on it. SSH:
   `ssh -i secrets/ssh/ssh-a1-key.key -p 2222 ubuntu@198.51.100.20` (the public IP, not the tailnet
   one). `docs/network.md` → Cloud hosts.
 

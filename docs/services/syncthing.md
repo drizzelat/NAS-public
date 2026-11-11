@@ -5,7 +5,8 @@
 Syncthing keeps the `smb_share` folders in sync between the NAS and each person's devices.
 It replaces the SMB *mount* with a *sync*: every device holds a
 local copy, works offline, and nothing hangs when the NAS is away. The NAS is the always-on node.
-SMB keeps running beside it; folders move over one at a time (see [Rollout](#rollout)).
+Since 2026-11-10 it replaces SMB for `user1`, `shared` and `user2` (SMB has had no passwords since
+the NixOS cutover); see [Rollout](#rollout).
 
 ## Stack
 
@@ -71,11 +72,13 @@ Host-header check, which Caddy would otherwise fail) and `STNODEFAULTFOLDER=1` a
 
 ### Rollout
 
-1. Add one folder, e.g. `user1` at `/srv/smb_share/user1`, type **Send & Receive**, versioning
-   **Staggered** (default max age 365 days).
-2. On the device: add the NAS by its device ID and address, accept the folder share.
-3. Live on it for a few weeks before moving the next folder. Retire a share's SMB access only once
-   its owner has stopped using it.
+1. **NAS side, done 2026-11-10:** folders `user1`, `shared` and `user2` at `/srv/smb_share/<name>`,
+   type **Send & Receive**, versioning **Staggered** (max age 365 days), shared with no device yet.
+2. On each device: install Syncthing, add the NAS by its device ID (GUI → Actions → Show ID) and
+   address `tcp://192.168.1.111:22000`. Then accept the device on the NAS GUI and share it the
+   folder(s) its owner uses (`shared` with both people).
+3. Once both people are syncing, remove the `user1`, `shared` and `user2` shares from
+   [`samba.nix`](../../hosts/nas/samba.nix); `roms` stays.
 
 ### Restart / redeploy
 

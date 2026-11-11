@@ -1,6 +1,6 @@
 # docs/network.md: LAN address on br0 over enp2s0, static, STP off; EEE off on enp2s0.
 # The MAC TrueNAS gave br0 comes from an agenix drop-in (secrets.nix), not from git.
-{ config, lib, ... }:
+{ lib, ... }:
 {
   networking.useNetworkd = true;
   networking.useDHCP = false;
@@ -64,9 +64,7 @@
     };
   };
 
-  networking.nftables.enable = true;
   networking.firewall = {
-    enable = true;
     # Docker-published ports (53, 80, 443, 8443, 8120, 8090) are DNATed and never reach
     # this input chain. Host-network services and host daemons are listed here.
     allowedTCPPorts = [
@@ -77,8 +75,6 @@
     allowedUDPPorts = [
       5353 # mDNS for Home Assistant discovery, host network
     ];
-    # The tailnet ACL decides who gets in over tailscale0.
-    trustedInterfaces = [ "tailscale0" ];
     checkReversePath = "loose"; # subnet router: tailscaled policy-routes by fwmark
     # Containers reach host-network services and exporters over their bridge.
     # SSDP devices answer Home Assistant's multicast M-SEARCH from :1900, which conntrack can't match.
@@ -92,9 +88,7 @@
   # Native module instead of stacks/tailscale. Same state dir as the container, so the
   # node keeps its identity and tailnet IP (100.64.0.11, which the VPS peripheries allow).
   services.tailscale = {
-    enable = true;
     useRoutingFeatures = "server";
-    openFirewall = true;
     # The module passes --state=/var/lib/tailscale/...; the later flag wins.
     extraDaemonFlags = [
       "--state=/mnt/apps/tailscale/tailscaled.state"
@@ -111,32 +105,17 @@
     after = [ "nas-pools.target" ];
     requires = [ "nas-pools.target" ];
     unitConfig.RequiresMountsFor = [ "/mnt/apps/tailscale" ];
-    # Same reason as the container: tailscaled otherwise may pick iptables-legacy.
-    environment.TS_DEBUG_FIREWALL_MODE = "nftables";
   };
 
   # avahi stays off (no .local needed; see docs/network.md).
   services.avahi.enable = false;
 
+  # Hardening in hosts/common/ssh.nix.
   services.openssh = {
-    enable = true;
     ports = [ 22 ];
     openFirewall = false; # port 22 is in allowedTCPPorts above
-    settings = {
-      PasswordAuthentication = false;
-      KbdInteractiveAuthentication = false;
-      PermitRootLogin = "no";
-      AllowTcpForwarding = false; # TrueNAS ssh.config tcpfwd false
-      X11Forwarding = false;
-    };
   };
 
-  assertions = [
-    {
-      assertion = !config.networking.nftables.flushRuleset;
-      message = "flushRuleset would wipe Docker's and tailscaled's nftables tables on every reload";
-    }
-  ];
   boot.kernel.sysctl = {
     # TrueNAS values; ip_forward is set by useRoutingFeatures before dockerd starts, so
     # Docker leaves the FORWARD policy at ACCEPT (the runner VM on br0 needs that).

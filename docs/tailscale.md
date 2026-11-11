@@ -26,7 +26,8 @@ micro-vps-ingress.md.
   `nas`, `--advertise-routes=192.168.1.0/24`, `--accept-dns=false`, `--snat-subnet-routes=false`,
   `useRoutingFeatures = "server"` (IP forwarding), state dir `/mnt/apps/tailscale`.
 - **Unit:** `tailscaled.service`, ordered after the pools (`nas-pools.target`) and with
-  `TS_DEBUG_FIREWALL_MODE=nftables`. The firewall trusts `tailscale0`.
+  `TS_DEBUG_FIREWALL_MODE=nftables`. The firewall trusts `tailscale0`. Both of these are in
+  [`hosts/common/network.nix`](../hosts/common/network.nix), shared with the A1 config.
 - **Deploy:** with the host config (`nixos-rebuild`, or the pull-deploy once it is on). Not Komodo.
 
 ## Access

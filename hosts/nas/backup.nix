@@ -1,6 +1,5 @@
-# BAK-1: restic from ZFS snapshots to the Hetzner Storage Box, replacing cloudsync-chain.sh.
-# Same dataset set as the chain: every apps filesystem minus its exclusions, and the data
-# whitelist (DATA_INCLUDE). The snapshot name is fixed, so restic sees stable paths.
+# BAK-1: restic from ZFS snapshots to the Hetzner Storage Box (replaced TrueNAS Cloud Sync).
+# Every apps filesystem minus the exclusions, plus two data roots. Fixed snapshot name: stable paths.
 {
   lib,
   pkgs,
@@ -15,11 +14,8 @@ let
     "data/immich"
     "data/smb_share"
   ];
-  # cloudsync-chain.sh APPS_EXCLUDE, plus the re-pullable Docker data-root.
+  # Tailscale state (re-auth instead) and the re-pullable Docker data-root.
   exclude = [
-    "apps/.system"
-    "apps/.ix-virt"
-    "apps/ix-apps"
     "apps/tailscale"
     "apps/docker"
   ];

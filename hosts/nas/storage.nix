@@ -1,6 +1,5 @@
-# ZFS: apps + data imported as they are (PLT-1 "Facts that shape the migration").
-# Nothing here may write a pool property: no extraPools (its zfs-sync-<pool> unit
-# sets nixos:shutdown-time), no autotrim/trim, no zpool upgrade.
+# ZFS: apps + data, imported by our own unit. No extraPools (its zfs-sync-<pool> unit
+# sets nixos:shutdown-time on every shutdown), no autotrim/trim, no zpool upgrade.
 {
   config,
   lib,
@@ -15,9 +14,9 @@ let
     "data"
   ];
 
-  # Import under altroot /mnt over the stored mountpoints /apps and /data. After the soak-end
-  # step (zfs set mountpoint=/mnt/...), drop -R here.
-  importScript = pkgs.writeShellScript "zfs-import-altroot" ''
+  # TrueNAS left the stored mountpoints at /apps and /data (it imports with altroot /mnt):
+  # the first import without altroot stores /mnt/<pool>, unmounted (-u), before zfs-mount.
+  importScript = pkgs.writeShellScript "zfs-import-pools" ''
     set -u
     export PATH=${
       lib.makeBinPath [
@@ -31,10 +30,14 @@ let
         continue
       fi
       for _ in $(seq 1 60); do
-        zpool import -d /dev/disk/by-partuuid -N -R /mnt "$pool" && break
+        zpool import -d /dev/disk/by-partuuid -N -o cachefile=none "$pool" && break
         sleep 1
       done
       zpool list -H -o name "$pool" >/dev/null 2>&1 || { echo "import of $pool failed"; exit 1; }
+      if [ "$(zfs get -H -o source mountpoint "$pool")" = default ]; then
+        echo "$pool: storing mountpoint /mnt/$pool"
+        zfs set -u mountpoint="/mnt/$pool" "$pool" || exit 1
+      fi
     done
   '';
 
@@ -86,8 +89,8 @@ in
   # Safety net for spikes; swappiness stays at 1 (network.nix), so it is rarely touched.
   zramSwap.enable = true;
 
-  systemd.services.zfs-import-altroot = {
-    description = "Import ZFS pools apps and data under altroot /mnt";
+  systemd.services.zfs-import-pools = {
+    description = "Import ZFS pools apps and data";
     after = [
       "systemd-udev-settle.service"
       "systemd-modules-load.service"
@@ -101,6 +104,8 @@ in
     requiredBy = [ "zfs-import.target" ];
     conflicts = [ "shutdown.target" ];
     onFailure = [ "notify-failure@%n.service" ];
+    # A restart would propagate through nas-pools.target to Docker, Samba and the VM.
+    restartIfChanged = false;
     unitConfig.DefaultDependencies = false;
     serviceConfig = {
       Type = "oneshot";
@@ -114,11 +119,11 @@ in
   systemd.targets.nas-pools = {
     description = "Pools apps and data imported and mounted";
     requires = [
-      "zfs-import-altroot.service"
+      "zfs-import-pools.service"
       "zfs-mount.service"
     ];
     after = [
-      "zfs-import-altroot.service"
+      "zfs-import-pools.service"
       "zfs-mount.service"
     ];
     wantedBy = [ "multi-user.target" ];
@@ -135,7 +140,7 @@ in
   # TrueNAS: weekly slot, 35-day threshold (apps Tue, data Mon) = about monthly.
   services.zfs.autoScrub = {
     enable = true;
-    pools = pools;
+    pools = pools ++ [ "replica" ]; # replica.nix
     interval = "Mon *-*-01..07 00:00";
     randomizedDelaySec = "0";
   };
@@ -203,11 +208,6 @@ in
         hourly = 0;
         daily = 0;
       };
-      # Netdata's metrics DB was never snapshotted under TrueNAS; prune what sanoid took.
-      "apps/.system/netdata-ae32c386e13840b2bf9c0083275e7941" = {
-        useTemplate = [ "apps" ];
-        autosnap = false;
-      };
       "data/smb_share" = {
         useTemplate = [ "data" ];
         recursive = true;
@@ -250,7 +250,7 @@ in
   };
 
   # TrueNAS: SHORT Mon-Fri+Sun 02:00, LONG Sat 02:00, all disks. NVMe included,
-  # which replaces nvme-smart-test.sh. DEVICESCAN keeps disk serials out of git.
+  # where TrueNAS needed a cron script. DEVICESCAN keeps disk serials out of git.
   services.smartd = {
     enable = true;
     autodetect = true;

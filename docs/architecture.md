@@ -401,6 +401,7 @@ flowchart LR
     apps[("apps pool<br>1 NVMe, no redundancy<br>config + databases")]
     data[("data pool<br>2 × 4 TB HDD mirror<br>photos · documents · SMB · media")]
     snaps["sanoid snapshots<br>apps every 4 h, data daily"]
+    replica[("replica pool<br>1 × 128 GB SATA SSD<br>copy of apps")]
     dumps["DB dumps 02:30<br>containers labelled nas.backup.dump"]
     a1sync["A1 file sync 02:00<br>rsync, read-only keys"]
     chain["restic 03:00<br>from a ZFS snapshot, encrypted"]
@@ -419,6 +420,7 @@ flowchart LR
 
   apps --> snaps
   data --> snaps
+  snaps -->|"syncoid every 4 h<br>apps snapshots, not docker"| replica
   dumps -->|"into apps datasets"| apps
   kumaext -->|"monitor database"| a1sync
   a1sync -->|"apps/a1-matrix"| apps
@@ -436,10 +438,11 @@ flowchart LR
   microhost -.->|"ping every minute"| hc
 ```
 
-- **Two layers of backup:** local ZFS snapshots for a quick restore, and a nightly encrypted push to
-  a Hetzner Storage Box (restic) for losing the machine. The `apps` pool is a single NVMe with no redundancy,
-  which is why all of it is both snapshotted every 4 hours and backed up offsite —
-  storage.md, backup.
+- **Three layers of backup:** local ZFS snapshots for a quick restore, a copy of `apps` on a
+  second SSD every 4 hours for losing the NVMe, and a nightly encrypted push to a Hetzner Storage
+  Box (restic) for losing the machine. The `apps` pool is a single NVMe with no redundancy, which is
+  why all of it is snapshotted, copied locally and backed up offsite — storage.md,
+  local replica, backup.
 - **Databases are dumped, not just snapshotted.** Every container labelled `nas.backup.dump=true` is
   discovered and dumped, on the NAS and on the A1, into a dataset restic then carries offsite —
   postgres-dump.

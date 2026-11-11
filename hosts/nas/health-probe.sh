@@ -1,7 +1,6 @@
 #!/bin/sh
-# NixOS build of scripts/nas-health-probe.sh (PLT-1 Phase 3 step 3): the same verbs over
-# zpool/zfs/smartctl/systemctl instead of midclt. PATH comes from health-probe.nix; the
-# root helpers are store paths with exact sudo grants. Verbs: nas-health-check.md
+# The NAS health probe (nashealth's forced command), over zpool/zfs/smartctl/systemctl.
+# PATH comes from health-probe.nix; the root helpers are store paths with exact sudo grants. Verbs: nas-health-check.md
 set -eu
 
 CLONE=/mnt/apps/scripts/nas

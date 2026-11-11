@@ -1,5 +1,5 @@
 # VM test (Phase 3 step 1): scratch pools named apps and data, laid out like the real ones
-# (stored mountpoints /apps and /data, ix-apps noauto, .system legacy), imported the way
+# (stored mountpoints /apps and /data, as TrueNAS left them), imported the way
 # storage.nix does it. Run: nix build .#checks.x86_64-linux.nas-pools
 { pkgs, agenix }:
 pkgs.testers.runNixOSTest {
@@ -35,21 +35,21 @@ pkgs.testers.runNixOSTest {
       "nas-health-trigger", "nas-edge-probe-trigger", "nas-deploy-state-trigger",
       "nas-tor-bridge-image-trigger", "nas-kiwix-seed", "nas-public-mirror-trigger",
       "nas-vmalert-mail", "nas-host-metrics", "nas-qbit-port-sync", "nas-periphery-update", "sanoid", "zfs-scrub", "truenas-snapshot-expiry",
-      "restic-backups-storagebox", "restic-check-storagebox",
+      "restic-backups-storagebox", "restic-check-storagebox", "zfs-replica",
     ]
 
     nas.start()
     nas.wait_for_unit("multi-user.target")
 
     with subtest("first boot without pools: import fails, nothing starts on the empty /mnt"):
-        nas.fail("systemctl is-active zfs-import-altroot.service")
+        nas.fail("systemctl is-active zfs-import-pools.service")
         nas.fail("mountpoint -q /mnt/apps")
         nas.fail("systemctl is-active nas-pools.target")
         nas.fail("systemctl is-active samba-smbd.service")
         nas.fail("systemctl is-active docker.service")
 
     with subtest("a timer job without pools fails at once and does not re-run the import"):
-        show = "systemctl show -p ExecMainStartTimestampMonotonic --value zfs-import-altroot"
+        show = "systemctl show -p ExecMainStartTimestampMonotonic --value zfs-import-pools"
         before = nas.succeed(show)
         nas.fail("systemctl start nas-healthchecks-ping.service")
         assert nas.succeed(show) == before, "a timer job started the pool import again"
@@ -73,23 +73,19 @@ pkgs.testers.runNixOSTest {
                    "data/smb_share/user1", "data/smb_share/user2", "data/smb_share/shared",
                    "data/romm", "data/romm/roms"]:
             nas.succeed(f"zfs create {ds}")
-        nas.succeed("zfs create -o mountpoint=/.ix-apps -o canmount=noauto apps/ix-apps")
-        nas.succeed("zfs create -o mountpoint=legacy apps/.system")
         nas.succeed("zfs snapshot apps@auto-2020-01-01_00-00")
         nas.succeed("zfs snapshot apps@auto-$(date +%Y-%m-%d_%H-%M)")
         nas.succeed("zpool export apps data")
 
     nas.shutdown()
     nas.start()
-    nas.wait_for_unit("zfs-import-altroot.service")
+    nas.wait_for_unit("zfs-import-pools.service")
     nas.wait_for_unit("nas-pools.target")
 
-    with subtest("imported under altroot /mnt, stored properties untouched"):
+    with subtest("imported without altroot, /mnt/<pool> stored once, nothing else written"):
         for pool in ["apps", "data"]:
-            nas.succeed(f"test \"$(zpool get -H -o value altroot {pool})\" = /mnt")
-            nas.succeed(f"test \"$(zfs get -H -o source mountpoint {pool})\" = default")
-        nas.succeed("test \"$(zfs get -H -o value mountpoint apps/ix-apps)\" = /mnt/.ix-apps")
-        nas.succeed("test \"$(zfs get -H -o source mountpoint apps/ix-apps)\" = local")
+            nas.succeed(f"test \"$(zpool get -H -o value altroot {pool})\" = -")
+            nas.succeed(f"test \"$(zfs get -H -o value,source mountpoint {pool})\" = '/mnt/{pool}\tlocal'")
         # The first reboot ran a full shutdown: extraPools' zfs-sync would have set this.
         nas.succeed("test \"$(zfs get -H -o value nixos:shutdown-time apps)\" = -")
         nas.succeed("test -z \"$(zfs allow apps)\"")
@@ -98,7 +94,6 @@ pkgs.testers.runNixOSTest {
         for mp in ["/mnt/apps", "/mnt/apps/docker", "/mnt/apps/scripts", "/mnt/data/romm/roms",
                    "/mnt/data/smb_share/user1", "/mnt/data/smb_share/user2"]:
             nas.succeed(f"mountpoint -q {mp}")
-        nas.fail("mountpoint -q /mnt/.ix-apps")
         nas.fail("mountpoint -q /apps")
         nas.fail("mountpoint -q /data")
 
@@ -117,7 +112,7 @@ pkgs.testers.runNixOSTest {
     with subtest("timers"):
         for t in timers:
             nas.succeed(f"systemctl is-active {t}.timer")
-        nas.fail("systemctl is-enabled nas-host-deploy.timer")
+        nas.succeed("systemctl is-enabled nas-host-deploy.timer")
 
     with subtest("sanoid snapshots, without zfs allow, not on apps/docker"):
         nas.succeed("systemctl start sanoid.service")  # Type=simple: returns at once
@@ -142,6 +137,5 @@ pkgs.testers.runNixOSTest {
         assert "/mnt/data/smb_share/user1/.zfs/snapshot/restic" in out, out
         assert "/mnt/apps/docker/" not in out, out
         assert "/mnt/apps/tailscale/" not in out, out
-        assert ".ix-apps" not in out, out
   '';
 }

@@ -30,7 +30,7 @@ The container needs `tailscaled` up first to bind the tailnet IP; after a reboot
 
 | Container path | Host path | Purpose |
 | -------------- | --------- | ------- |
-| `/textfile` (`ro`) | `/var/lib/node-exporter-textfile` | `host.prom` with the per-container CPU and memory series, written by the host cron job `/etc/cron.d/host-metrics` ([observability → Host metrics](observability.md#host-metrics)), read by the `textfile` collector |
+| `/textfile` (`ro`) | `/var/lib/node-exporter-textfile` | `host.prom` with the per-container CPU and memory series, written by the host's `host-metrics` timer ([`hosts/a1/jobs.nix`](../../hosts/a1/jobs.nix), every 5 min; a cron job until the NixOS cutover on 2026-11-10), read by the `textfile` collector |
 | `/probe/root` (`ro`) | `/var/lib/node-exporter-probe` | Empty probe dir on the 45 GB root filesystem |
 | `/probe/matrix` (`ro`) | `/opt/matrix/node-exporter-probe` | Empty probe dir on the 100 GB block volume mounted at `/opt/matrix`, a path kept from the Matrix days |
 
@@ -47,7 +47,7 @@ None.
 
 - The `tailscale` daemon on the host, for the tailnet-IP bind.
 - The NAS [observability](observability.md) stack, which scrapes it.
-- The host cron job `/etc/cron.d/host-metrics`, which writes the textfile (setup in [observability](observability.md#host-metrics)).
+- The host's `host-metrics` timer ([`jobs.nix`](../../hosts/a1/jobs.nix)), which writes the textfile, running the script from the `a1-host-deploy` clone ([observability](observability.md#host-metrics)).
 
 ## Notes
 

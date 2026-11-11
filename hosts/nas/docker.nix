@@ -1,5 +1,5 @@
-# Docker as TrueNAS configured it (daemon.json), with data-root on a fresh apps/docker
-# dataset (Phase 3 step 2). komodo-periphery stays compose, applied by the periphery-update timer.
+# Docker as TrueNAS configured it (daemon.json; the rest in hosts/common/docker.nix), data-root on
+# a fresh apps/docker dataset. komodo-periphery stays compose, applied by the periphery-update timer.
 { pkgs, ... }:
 let
   staticCompose = pkgs.docker-compose.overrideAttrs (o: {
@@ -10,9 +10,6 @@ let
 in
 {
   virtualisation.docker = {
-    enable = true;
-    storageDriver = "overlay2";
-    logDriver = "json-file"; # TrueNAS default; journald would take every container's logs
     daemon.settings = {
       data-root = "/mnt/apps/docker";
       ipv6 = true;
@@ -28,11 +25,9 @@ in
         }
       ];
       default-network-opts.bridge."com.docker.network.enable_ipv6" = "true";
-      iptables = true;
       # Keep FORWARD at ACCEPT even if dockerd enables forwarding itself: the tailnet
       # subnet route and the runner VM on br0 are forwarded through this host.
       ip-forward-no-drop = true;
-      live-restore = false;
     };
   };
 

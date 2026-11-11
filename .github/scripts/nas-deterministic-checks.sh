@@ -14,11 +14,12 @@ nas="${1:?usage: nas-deterministic-checks.sh <nas-lan-ip>}"
 # there is a change here. Hours unless the name says days.
 # One line per sanoid tier: tier | datasets | cadence h | retention d. Sanoid names its snapshots
 # autosnap_<date>_<time>_<tier>; the templates are in hosts/nas/storage.nix (services.sanoid).
+# replica/apps is the local replica (hosts/nas/replica.nix): a stale tier there = replication stopped.
 SNAP_TIERS=(
-  "hourly|apps|4|3"
-  "daily|apps data/smb_share data/immich|24|14"
-  "weekly|apps data/smb_share data/immich|168|56"
-  "monthly|apps data/smb_share data/immich|744|186"
+  "hourly|apps replica/apps|4|3"
+  "daily|apps data/smb_share data/immich replica/apps|24|14"
+  "weekly|apps data/smb_share data/immich replica/apps|168|56"
+  "monthly|apps data/smb_share data/immich replica/apps|744|186"
 )
 SLACK_H=2           # cadence + 2 h for hourly/daily jobs (the checklist's freshness rule)
 SCRUB_MAX_D=40      # 35-day scrub threshold + 5 days of slack

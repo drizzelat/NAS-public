@@ -90,7 +90,7 @@ else
 fi
 
 if [ "$MODE" = all ]; then
-# Enumerate via smartctl's own scan, like nvme-smart-test.sh, so a second NVMe needs no edit here.
+# Enumerate via smartctl's own scan, so a second NVMe needs no edit here.
 devices="$(smartctl --scan 2>/dev/null | awk '$1 ~ /^\/dev\/nvme/ { print $1 }')"
 nvme_ok=0
 nvme_out=""

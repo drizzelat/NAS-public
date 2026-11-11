@@ -43,9 +43,10 @@ No UI.
 | `9443/tcp` | public | ORPort. Tor's reachability self-test needs it before the bridge is handed out |
 | `9035/tcp` | `100.64.0.13` (tailnet) | `MetricsPort`, scraped by `victoriametrics` on the NAS. Reachable only over the tailnet; Configuration explains why the policy cannot name the NAS |
 
-Both public ports need an **Oracle Security List** ingress rule (TCP, source `0.0.0.0/0`). Host
-iptables needs no rule: Docker DNATs published ports in `PREROUTING`, so the packets are forwarded
-to the container and never hit the `INPUT` chain's final `REJECT`.
+Both public ports need an **Oracle Security List** ingress rule (TCP, source `0.0.0.0/0`). For
+IPv4 the host firewall needs no rule: Docker DNATs published ports in `PREROUTING`, so the packets
+are forwarded to the container and never reach the input chain. IPv6 lands on docker-proxy, so
+[`hosts/a1/network.nix`](../../hosts/a1/network.nix) lists both ports (NixOS since 2026-11-10).
 
 **Traffic:** Grafana → *NAS (git)* → **Tor — Bridges & Snowflake** (`tor-traffic`). Tor's own view
 is [Relay Search](https://metrics.torproject.org/rs.html) with the **hashed** fingerprint (see

@@ -3,7 +3,7 @@
 FROM lscr.io/linuxserver/jellyfin:10.11.11ubu2404-ls38@sha256:c9bb091532bec4fa12b3ce3c08d163cab2b369f5f30f1f30ca49a46d97f5eec8 AS base
 
 # Reads from the stock assemblies which commit and assembly version to rebuild, so a new base never pairs with old sources.
-FROM mcr.microsoft.com/dotnet/sdk:9.0@sha256:07ed28d9e7279248fcea27334880f6c415b42c631c39b8bc5b3caf13ec6fdaa2 AS version
+FROM mcr.microsoft.com/dotnet/sdk:9.0@sha256:1dfdb27e9c2c345cb598925ccf6b13719ecfebea8467bd4745c23a3c108cdf84 AS version
 COPY --from=base /usr/lib/jellyfin/bin/Jellyfin.Api.dll /usr/lib/jellyfin/bin/MediaBrowser.Controller.dll /stock/
 RUN set -eu; mkdir /version; cd /stock; \
     pwsh -NoProfile -Command '[Diagnostics.FileVersionInfo]::GetVersionInfo("/stock/MediaBrowser.Controller.dll").FileVersion' > /version/release; \
@@ -11,7 +11,7 @@ RUN set -eu; mkdir /version; cd /stock; \
     pwsh -NoProfile -Command '[Reflection.AssemblyName]::GetAssemblyName("/stock/Jellyfin.Api.dll").Version.ToString()' > /version/assembly; \
     head /version/*
 
-FROM mcr.microsoft.com/dotnet/sdk:9.0@sha256:07ed28d9e7279248fcea27334880f6c415b42c631c39b8bc5b3caf13ec6fdaa2 AS server
+FROM mcr.microsoft.com/dotnet/sdk:9.0@sha256:1dfdb27e9c2c345cb598925ccf6b13719ecfebea8467bd4745c23a3c108cdf84 AS server
 COPY --from=version /version /version
 COPY patches/jellyfin.patch /patches/
 RUN set -eu; release=$(cat /version/release) commit=$(cat /version/commit) assembly=$(cat /version/assembly); \
