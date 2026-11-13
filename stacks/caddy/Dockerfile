@@ -10,7 +10,7 @@ RUN xcaddy build \
       --with github.com/hslatman/caddy-crowdsec-bouncer/appsec@v0.15.0 \
       --replace golang.org/x/crypto=golang.org/x/crypto@v0.58.0 \
       --replace golang.org/x/net=golang.org/x/net@v0.62.0 \
-      --replace golang.org/x/text=golang.org/x/text@v0.43.0 \
+      --replace golang.org/x/text=golang.org/x/text@v0.44.0 \
       --replace google.golang.org/grpc=google.golang.org/grpc@v1.85.0
 
 FROM caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
