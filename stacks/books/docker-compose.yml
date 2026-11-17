@@ -7,7 +7,7 @@ x-logging: &default-logging   # json-file never rotates by default. docs/runbook
 
 services:
   shelfmark:
-    image: ghcr.io/calibrain/shelfmark:v1.6.1@sha256:0e5c9ff5f858a9695dc18bc355d8aa29dfee5c0d9c634919484c2bab9955ad5a
+    image: ghcr.io/calibrain/shelfmark:v1.7.0@sha256:6544e02595271b0267b9acda58fa7f3db6f14942bece51b7aadfe4000cf34f1c
     container_name: shelfmark
     security_opt:
       - no-new-privileges=true

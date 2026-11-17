@@ -222,7 +222,7 @@ flowchart LR
   caddy --> craft
   craft -.->|"crawl, off by default"| nealfun
   caddy -->|"host :8123"| ha
-  caddy -->|"pbs., pve., hedgedoc. and wildcam."| pbs
+  caddy -->|"pbs., pve., hedgedoc. and task1-/task2-wildcam./traefik."| pbs
   immich -.->|"OIDC"| authentik
   files -.->|"OIDC"| authentik
   mealie -.->|"OIDC"| authentik

@@ -11,7 +11,7 @@ services:
       nas.backup.user: mealie
       nas.backup.db: mealie
       nas.backup.dir: /mnt/apps/mealie/dumps
-    image: docker.io/library/postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
+    image: docker.io/library/postgres:18.7@sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc
     container_name: mealie-db
     restart: unless-stopped
     logging: *default-logging
@@ -38,7 +38,7 @@ services:
       PGDATA: /var/lib/postgresql/18/docker
 
   mealie:
-    image: ghcr.io/mealie-recipes/mealie:v3.30.0@sha256:90f83da6f3ab0a421efc827118a556168573930105f13fa3321768f42163d784
+    image: ghcr.io/mealie-recipes/mealie:v3.31.0@sha256:97e21ac96e9a8d1ee15aaf558ba3f14998936b9d6f334e40ebb4c6c2127dc12f
     container_name: mealie
     restart: unless-stopped
     logging: *default-logging

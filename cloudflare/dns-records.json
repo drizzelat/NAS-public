@@ -93,7 +93,34 @@
  {
   "comment": "tailnet address of the pbs-guest node, reachable only by shared guests",
   "content": "100.64.0.14",
-  "name": "wildcam.example.com",
+  "name": "task1-traefik.example.com",
+  "proxied": false,
+  "settings": {},
+  "ttl": 1,
+  "type": "A"
+ },
+ {
+  "comment": "tailnet address of the pbs-guest node, reachable only by shared guests",
+  "content": "100.64.0.14",
+  "name": "task1-wildcam.example.com",
+  "proxied": false,
+  "settings": {},
+  "ttl": 1,
+  "type": "A"
+ },
+ {
+  "comment": "tailnet address of the pbs-guest node, reachable only by shared guests",
+  "content": "100.64.0.14",
+  "name": "task2-traefik.example.com",
+  "proxied": false,
+  "settings": {},
+  "ttl": 1,
+  "type": "A"
+ },
+ {
+  "comment": "tailnet address of the pbs-guest node, reachable only by shared guests",
+  "content": "100.64.0.14",
+  "name": "task2-wildcam.example.com",
   "proxied": false,
   "settings": {},
   "ttl": 1,

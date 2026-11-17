@@ -27,7 +27,7 @@ PVE host 127.0.0.1:8007  <--- ssh -R ---  tunnel container (NAS)  --->  pbs:8007
   loopback on the PVE host only), no Tailscale node, no share, no ACL change, no auth key.
 - The key (`pbs-tunnel@nas`) is restricted on both hops: on the jumphost it may only open
   `192.168.100.1:22`, and on the PVE host it may only listen on `127.0.0.1:8007`, open `127.0.0.1:8006` (the UI)
-  `192.168.100.30:443` (the HedgeDoc VM) and `192.168.100.110:443` (the wildcam Traefik VM), and has no shell.
+  `192.168.100.30:443` (the HedgeDoc VM), `192.168.100.110:443` and `192.168.100.120:443` (the lecture task 1 and task 2 Traefik VMs), and has no shell.
 - The tunnel is the only dependency on the other host. If it is down, PVE backups fail and nothing
   else happens; `autossh` retries on its own.
 
@@ -48,7 +48,7 @@ PVE host 127.0.0.1:8007  <--- ssh -R ---  tunnel container (NAS)  --->  pbs:8007
 
 | | |
 |---|---|
-| URL | `https://pbs.example.com` (PBS), `https://pve.example.com` (the lecture PVE host's web UI), `https://hedgedoc.example.com` (the lecture HedgeDoc VM) and `https://wildcam.example.com` (the lecture app, through its Traefik VM), LAN and tailnet only. `https://192.168.1.111:8007` still works on the LAN |
+| URL | `https://pbs.example.com` (PBS), `https://pve.example.com` (the lecture PVE host's web UI), `https://hedgedoc.example.com` (the lecture HedgeDoc VM) and `https://task1-wildcam.example.com`, `https://task2-wildcam.example.com` (the lecture app per task, through its Traefik VM) and `https://task1-traefik.example.com`, `https://task2-traefik.example.com` (that Traefik's dashboard), LAN and tailnet only. `https://192.168.1.111:8007` still works on the LAN |
 | Port | `8007/tcp` on the LAN IP; PVE uses `127.0.0.1:8007` on its own host, via the tunnel |
 | Auth | PBS users. `admin@pbs` and `root@pbs` (both full admin; log in as `root` with the *Proxmox Backup authentication server* realm) and `guest@pbs` (full admin too, for the lecture teammate, see [pbs-guest](pbs-guest.md)) and `pve@pbs` with the API token `pve` (backup-only, for PVE). `pve.` is the PVE host's own login (`root@pam`). Passwords are in the gitignored `secrets/pbs-credentials.txt` |
 
@@ -61,7 +61,7 @@ host's own `127.0.0.1:8006`. Nothing new is opened on the PVE host's network, an
 open that one port (`permitopen="127.0.0.1:8006"` next to the `permitlisten` for 8007).
 
 PVE's noVNC and shell consoles are websockets; Caddy passes them through. If the tunnel is down,
-`pve.`, `hedgedoc.` and `wildcam.` answer 502 and the backups fail too.
+`pve.`, `hedgedoc.` and the lecture task names answer 502 and the backups fail too.
 
 `hedgedoc.` is a third forward in the same session: `-L` to the nginx in front of HedgeDoc on its VM,
 `192.168.100.30:443` on the PVE host's VM bridge, which the PVE host opens on the tunnel's behalf
@@ -73,10 +73,14 @@ its links and its websocket URL from its own `CMD_DOMAIN`, so the VM needs
 them the page loads but realtime editing does not connect. A missing `permitopen` does not break the
 tunnel: the backups and `pve.` keep working, only `hedgedoc.` answers 502.
 
-`wildcam.` is a fourth forward of the same kind: `-L 4443` to the Traefik load balancer of the lecture
-app, `192.168.100.110:443` (`permitopen="192.168.100.110:443"`), reached as `https://pbs-tunnel:4443`
-with Traefik's self-signed certificate accepted. Traefik's routers match any host, so the forwarded
-`Host: wildcam.example.com` needs nothing on the VM.
+The lecture app has two more forwards of the same kind, one per Traefik load balancer: `-L 4443` to the
+task 1 VM `192.168.100.110:443` (`task1-wildcam.`, `task1-traefik.`) and `-L 5443` to the task 2 VM
+`192.168.100.120:443` (`task2-wildcam.`, `task2-traefik.`), each with its own `permitopen`, reached as
+`https://pbs-tunnel:4443`/`:5443` with Traefik's self-signed certificate accepted. Traefik's routers match
+any host, so the forwarded `Host` needs nothing on the VMs. For the `-traefik` names Caddy rewrites every
+path outside `/api` and `/dashboard` to `/dashboard<path>`, so they show only the dashboard (basic auth on
+Traefik), never the app. The tunnel arrives from the PVE host's bridge address, which the dashboards' IP
+allowlist admits.
 
 **Do not share the `nas` tailnet node with another tailnet to give someone access** — share [`pbs-guest`](pbs-guest.md) instead, which forwards only these services. The `lan_only`
 matcher admits all of `100.64.0.0/10`, so a guest's tailnet address would pass every internal vhost

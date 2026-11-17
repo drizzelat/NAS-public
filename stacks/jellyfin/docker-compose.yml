@@ -8,7 +8,7 @@ x-logging: &default-logging   # json-file never rotates by default. docs/runbook
 
 services:
   jellyfin:
-    image: ghcr.io/drizzelat/nas-jellyfin:10.11.11ubu2404-ls38@sha256:3784cc96c65c6122a398564580247fc32c3d602b6dbd1cdf7952de5cfa883ab0
+    image: ghcr.io/drizzelat/nas-jellyfin:10.11.11ubu2404-ls38@sha256:e38b71ee7cb94a81397877b35f8b4d71b72170a8e3267641a7a91ae9cc8e38ea
     container_name: jellyfin
     security_opt:
       - no-new-privileges=true
@@ -33,7 +33,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
   seerr:
-    image: ghcr.io/seerr-team/seerr:v3.5.1@sha256:d8fab675b55ad293ded98fd71efcfd46054cbad9746534ae1cc4794a88c0b3be
+    image: ghcr.io/seerr-team/seerr:v3.5.2@sha256:aadee014b40e28cf9aa4928bc9d1183a6eb08f8c44d543cddc9efdcb16549be2
     container_name: seerr
     security_opt:
       - no-new-privileges=true

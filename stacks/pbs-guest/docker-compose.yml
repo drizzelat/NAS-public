@@ -7,7 +7,7 @@ x-logging: &default-logging   # json-file never rotates by default. docs/runbook
 
 services:
   tailscale:
-    image: tailscale/tailscale:v1.104.4@sha256:ed6480b33c6eb67c9cbd203ed42b9fb57e361986725b6856def71b7a3d9e276c
+    image: tailscale/tailscale:v1.104.7@sha256:72c1e19e0aedca96b8533bbb0b4368564410ff20b17e53b804eb6c1f04a31be4
     container_name: pbs-guest
     hostname: pbs-guest
     restart: unless-stopped
@@ -37,9 +37,9 @@ services:
           memory: 256M
 
   caddy:
-    # Same custom build as the edge Caddy (Cloudflare DNS plugin). Serves only pbs., pve., hedgedoc. and wildcam. to the guest;
+    # Same custom build as the edge Caddy (Cloudflare DNS plugin). Serves only pbs., pve., hedgedoc. and the lecture task names to the guest;
     # the edge Caddy is never reachable from here. Docs: docs/services/pbs-guest.md
-    image: ghcr.io/drizzelat/nas-caddy:2.11.7@sha256:b2155cef2d64638639ce41246dd4ded1be1910bfabab464d427d5b03b92d5ec7
+    image: ghcr.io/drizzelat/nas-caddy:2.11.9@sha256:2bb84daec7f8cd62d8ecd588286d0840c0013fec9e5d70e9a5a9c35697fa1689
     container_name: pbs-guest-caddy
     restart: unless-stopped
     logging: *default-logging
@@ -104,14 +104,41 @@ configs:
             }
           }
         }
-        @wildcam host wildcam.example.com
-        handle @wildcam {
+        @task1 host task1-wildcam.example.com
+        handle @task1 {
           reverse_proxy https://pbs-tunnel:4443 {
             transport http {
               tls_insecure_skip_verify
             }
           }
         }
+        @task1traefik host task1-traefik.example.com
+        handle @task1traefik {
+          rewrite @not_dashboard /dashboard{uri}
+          reverse_proxy https://pbs-tunnel:4443 {
+            transport http {
+              tls_insecure_skip_verify
+            }
+          }
+        }
+        @task2 host task2-wildcam.example.com
+        handle @task2 {
+          reverse_proxy https://pbs-tunnel:5443 {
+            transport http {
+              tls_insecure_skip_verify
+            }
+          }
+        }
+        @task2traefik host task2-traefik.example.com
+        handle @task2traefik {
+          rewrite @not_dashboard /dashboard{uri}
+          reverse_proxy https://pbs-tunnel:5443 {
+            transport http {
+              tls_insecure_skip_verify
+            }
+          }
+        }
+        @not_dashboard not path /api /api/* /dashboard /dashboard/*   # -traefik names: everything else goes to the dashboard
         handle {
           abort
         }
