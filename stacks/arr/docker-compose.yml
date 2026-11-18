@@ -8,7 +8,7 @@ x-logging: &default-logging   # json-file never rotates by default. docs/runbook
 
 services:
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:2.7.0.5723-ls167@sha256:431d7efebcef466e56adaa40a7a2fa2b0e85159a037b8bf465eaadbf0cf5bedf
+    image: lscr.io/linuxserver/prowlarr:3.0.2.5780-ls169@sha256:45117ba8439e2337a92ffe38a451a4dafc0be771754d05d88cdf102419d09646
     container_name: prowlarr
     security_opt:
       - no-new-privileges=true
@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
   radarr:
-    image: lscr.io/linuxserver/radarr:6.4.4.10685-ls325@sha256:ade5937813c6ae415b29db729386e53fea3ecf067a019849bafbe2d2a6ec02ba
+    image: lscr.io/linuxserver/radarr:7.0.3.10918-ls328@sha256:044788f5508b7f67a3e0368cdd142c77c4d4cd5aec2efaba53e1a68b6b6231e7
     container_name: radarr
     security_opt:
       - no-new-privileges=true
@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
   bazarr:
-    image: lscr.io/linuxserver/bazarr:v1.6.2-ls371@sha256:7ef0e58216900dbce30b123e0eb65f5cb30e36f126de9474acdd2022fb069c54
+    image: lscr.io/linuxserver/bazarr:v1.6.2-ls372@sha256:832820dec70bce9e912c6eee7a95baf6551e03dbc63325a7208daaa455423752
     container_name: bazarr
     security_opt:
       - no-new-privileges=true

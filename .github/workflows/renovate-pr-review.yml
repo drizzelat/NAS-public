@@ -136,6 +136,7 @@ jobs:
           HEAD: ${{ steps.pr.outputs.head }}
           HEADREF: ${{ steps.pr.outputs.headref }}
           STACK: ${{ steps.delta.outputs.stack }}
+          RELEASE: ${{ steps.delta.outputs.release }}
           HAVE_TOKEN: ${{ steps.gate.outputs.have_token }}
           DELTA_VERDICT: ${{ steps.delta.outputs.verdict }}
           RISK: ${{ steps.agent.outputs.risk }}

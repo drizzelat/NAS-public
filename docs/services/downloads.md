@@ -5,7 +5,7 @@
 Every download client, sharing a single ProtonVPN WireGuard tunnel via **gluetun**. Split out of
 the old 15-service `mediaserver` stack.
 
-**These must stay one stack.** `qbittorrent`, `sabnzbd` and `flaresolverr` all run
+**These must stay one stack.** `qbittorrent`, `sabnzbd` and the exporters all run
 `network_mode: service:gluetun` — they share gluetun's network namespace and have no network at
 all without it. That constraint is what makes this split line natural rather than arbitrary.
 
@@ -16,7 +16,6 @@ all without it. That constraint is what makes this split line natural rather tha
 | gluetun | VPN kill-switch (ProtonVPN WireGuard) |
 | qbittorrent | Torrent client (network via gluetun) |
 | sabnzbd | Usenet client (network via gluetun) |
-| flaresolverr | Cloudflare bypass for Prowlarr (network via gluetun) |
 | qbittorrent-exporter | Prometheus metrics for qBittorrent on `:9022`, for the Kiwix section of the *Community services* dashboard and the *Media stack* dashboard (network via gluetun) |
 | exportarr-sabnzbd | Prometheus metrics for SABnzbd on `:9023`, for the *Media stack* dashboard (network via gluetun) |
 
@@ -35,8 +34,11 @@ all without it. That constraint is what makes this split line natural rather tha
 | SABnzbd | `https://sabnzbd.example.com` | 8080 |
 
 LAN-only — not in the VPS SNI allowlist, and Caddy's `lan_only` snippet aborts any other client.
-All three share gluetun's network namespace, so every port is on `gluetun` (qBittorrent moved to
-`8082` because SABnzbd holds `8080`). FlareSolverr (8191) has no route; only Prowlarr talks to it.
+Every client shares gluetun's network namespace, so every port is on `gluetun` (qBittorrent moved to
+`8082` because SABnzbd holds `8080`). FlareSolverr (8191) was removed on 2026-11-17: no indexer
+used it, and its bundled Chromium was the worst image in the CVE scan
+(cve-scan-posture). Re-adding it means its Prowlarr proxy
+and a `cf` tag on the indexers that need it.
 The qBittorrent exporter (`9022`) and the SABnzbd exporter (`9023`) have none either:
 `victoriametrics` joins `proxy_downloads` and scrapes `gluetun:9022` (job `qbittorrent`) and
 `gluetun:9023` (job `sabnzbd`). Any new service in gluetun's namespace needs a port not already on

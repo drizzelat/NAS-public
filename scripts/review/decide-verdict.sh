@@ -13,7 +13,9 @@ case "$HEADREF" in
   *) reason="not a renovate/* branch" ;;
 esac
 if [ -z "${reason:-}" ]; then
-  if [ "$STACK" != "true" ]; then
+  if [ "${RELEASE:-false}" = "true" ]; then
+    reason="NixOS release change — by hand: docs/runbooks/setup-operations/nixos-release-upgrade.md"; gate=failure
+  elif [ "$STACK" != "true" ]; then
     # No compose image moved (github-actions, stacks/caddy/Dockerfile inputs): nothing to
     # assess. The sweep merges these on the green status unless Renovate already has.
     reason="no stack compose image changed — nothing to assess"

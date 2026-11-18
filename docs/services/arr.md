@@ -73,7 +73,6 @@ and scrapes `exportarr-<app>:9707` (jobs `sonarr`, `radarr`, `prowlarr`, `bazarr
 - **`media_net`** (external) — **load-bearing.** These apps address the download clients as the
   hostname `gluetun`, which now lives in the [`downloads`](downloads.md) stack:
   - `sonarr` / `radarr` → qBittorrent at `gluetun:8082`
-  - `prowlarr` → FlareSolverr at `http://gluetun:8191/`
 
   Those hostnames are stored in each app's **own config database**, not in compose, so nothing in
   this repo would have caught them breaking. Without `media_net` the split would silently stop
@@ -130,7 +129,8 @@ update. They sat on their first pins until 2026-09-23 for that reason.
   950 ownership.
 - **Downloads never start; client "unavailable"** → the app addresses `gluetun`, so check
   `media_net` membership and that gluetun is healthy in the `downloads` stack.
-- **Indexers fail with Cloudflare challenges** → FlareSolverr at `gluetun:8191`, same path.
+- **Indexers fail with Cloudflare challenges** → no solver runs since 2026-11-17, when the unused
+  FlareSolverr was removed ([downloads.md → Access](downloads.md#access) says how to re-add it).
 - **Can't reach a UI off-LAN** → by design. Use Tailscale, or the FritzBox WireGuard fallback.
 - **An app shows DOWN on the Media stack dashboard but its UI works** → the exporter's API key is
   stale (regenerated in the app). `docker logs exportarr-<app>` shows `401`; update the key with

@@ -27,3 +27,9 @@ if [ -n "$(git diff --name-only "$BASE" "$HEAD" -- 'stacks/**/docker-compose.yml
 else
   echo "stack=false" >> "$GITHUB_OUTPUT"
 fi
+# A flake.nix edit from Renovate is a NixOS release change (nixos-YY.MM); flake.lock alone is not.
+if [ -n "$(git diff --name-only "$BASE" "$HEAD" -- flake.nix)" ]; then
+  echo "release=true" >> "$GITHUB_OUTPUT"
+else
+  echo "release=false" >> "$GITHUB_OUTPUT"
+fi

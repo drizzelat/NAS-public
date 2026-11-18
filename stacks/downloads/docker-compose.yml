@@ -104,25 +104,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
     logging: *default-logging
-  flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2@sha256:c80ae007ce2ccdcd217a12426e4f039ef763ff90738c808d38810c3e59323767
-    container_name: flaresolverr
-    security_opt:
-      - no-new-privileges=true
-    deploy:
-      resources:
-        limits:
-          cpus: "1"
-          memory: 1G
-    environment:
-      - LOG_LEVEL=info
-      - TZ=Europe/Berlin
-    network_mode: service:gluetun
-    depends_on:
-      gluetun:
-        condition: service_healthy
-    restart: unless-stopped
-    logging: *default-logging
   # Prometheus metrics for qBittorrent (Kiwix seeding panels), scraped as gluetun:9022 over proxy_downloads.
   # In gluetun's namespace so it logs in through "Bypass authentication for localhost": no password to store.
   qbittorrent-exporter:

@@ -129,6 +129,9 @@ in
     wantedBy = [ "multi-user.target" ];
   };
 
+  # Same as zfs-import-pools: a ZFS package bump made the switch stop it, and with it this target.
+  systemd.services.zfs-mount.restartIfChanged = false;
+
   # TrueNAS has autotrim off and no trim task; keep the pools as they are. fstrim
   # would walk ZFS mounts from mountinfo too, so limit it to the boot SSD's fstab.
   services.zfs.trim.enable = false;

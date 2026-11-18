@@ -19,6 +19,9 @@
   "vulnerabilityAlerts": {
     "labels": ["security"]
   },
+  "nix": {
+    "enabled": true
+  },
   "customManagers": [
     {
       "customType": "regex",
@@ -163,6 +166,25 @@
         "stacks/jellyfin/Dockerfile"
       ],
       "groupName": "jellyfin image build"
+    },
+    {
+      "description": "NixOS host packages (flake.lock: nixpkgs on its nixos-YY.MM branch, agenix, disko) for the NAS and the A1, as one PR on Mondays. Renovate runs nix itself (containerbase installs it) for `nix flake update <input>`. The review grades a lock-only PR green and the 05:00 sweep merges it once the `nixos` build check has passed; each host then switches itself (NAS at :40, A1 at :45), and a new kernel waits for a reboot by hand. docs/runbooks/setup-operations/os-updates.md",
+      "matchManagers": ["nix"],
+      "matchUpdateTypes": ["digest"],
+      "groupName": "nixos host packages",
+      "schedule": ["* * * * 1"]
+    },
+    {
+      "description": "A new NixOS release (nixos-26.05 -> nixos-26.11) edits flake.nix, so it gets its own PR and the review grades it red: it is done by hand, host by host (docs/runbooks/setup-operations/nixos-release-upgrade.md). Stable nixos-YY.MM branches only, never nixos-unstable, -small or the darwin ones.",
+      "matchManagers": ["nix"],
+      "matchDepNames": ["nixpkgs"],
+      "allowedVersions": "/^nixos-\\d{2}\\.\\d{2}$/"
+    },
+    {
+      "description": "Label the NixOS release PR like the stack majors.",
+      "matchManagers": ["nix"],
+      "matchUpdateTypes": ["major", "minor"],
+      "labels": ["major-update"]
     }
   ]
 }

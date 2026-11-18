@@ -187,7 +187,7 @@ flowchart LR
   subgraph media["Media — joined by media_net"]
     jellyfin["jellyfin<br>+ Seerr"]
     arr["arr<br>Sonarr · Radarr · Prowlarr<br>Bazarr · Unpackerr · Questarr"]
-    downloads["downloads<br>gluetun: qBittorrent · SABnzbd<br>FlareSolverr"]
+    downloads["downloads<br>gluetun: qBittorrent · SABnzbd"]
     books["books<br>Shelfmark"]
     games["games<br>GameVault"]
   end
@@ -228,7 +228,7 @@ flowchart LR
   mealie -.->|"OIDC"| authentik
   jellyfin -.->|"SSO plugin"| authentik
   jellyfin -->|"Seerr: sonarr · radarr"| arr
-  arr -->|"gluetun:8082 · gluetun:8191"| downloads
+  arr -->|"gluetun:8082"| downloads
   downloads ==>|"WireGuard"| proton
   downloads -->|"ROM grabs"| romm
   runner -.->|"deploys through"| komodo
@@ -274,7 +274,6 @@ flowchart LR
   subgraph downloads["downloads stack — one network namespace"]
     gluetun["gluetun<br>VPN kill-switch"]
     clients["qBittorrent · SABnzbd"]
-    flare["FlareSolverr"]
   end
 
   library[("/mnt/data/mediaserver/data<br>downloads + media, one dataset")]
@@ -283,10 +282,8 @@ flowchart LR
   seerr -->|"media_net"| sonarr
   sonarr --> prowlarr
   prowlarr -->|"search"| indexers
-  prowlarr -->|"Cloudflare-protected sites<br>gluetun:8191"| flare
   sonarr -->|"gluetun:8082"| clients
   clients --> gluetun
-  flare --> gluetun
   gluetun ==> vpnout
   clients -->|"completed download"| library
   unpackerr -->|"extract, then notify"| sonarr
@@ -335,15 +332,17 @@ flowchart TB
     clone[("repo clone<br>/mnt/apps/scripts/nas")]
     cron["NAS systemd timers"]
     nasstacks["NAS stacks<br>via nas-periphery"]
+    nasos["NAS NixOS config<br>nas-host-deploy, :40"]
   end
 
   microstacks["micro VPS stacks<br>via micro-vps-periphery"]
   a1stacks["A1 stacks<br>via a1-vps-periphery"]
+  a1os["A1 NixOS config<br>a1-host-deploy, :45"]
 
   author --> pr
   renovate --> pr
   pr --> gates
-  gates -->|"Renovate stack bump, green"| sweep
+  gates -->|"Renovate bump, green:<br>stack image, flake.lock"| sweep
   gates -->|"everything else"| byhand
   sweep --> mainb
   byhand --> mainb
@@ -358,6 +357,8 @@ flowchart TB
   komodo -.->|"deploy-runner, between jobs"| runner
   mainb -->|"git pull every 15 min"| clone
   clone -->|"timer scripts"| cron
+  clone -->|"nixos-rebuild switch"| nasos
+  mainb -->|"own clone, fetched hourly"| a1os
   cron -.->|"dispatch: Renovate, sweep,<br>health check, probes"| github
   author --> workstation
   vault --> workstation
@@ -367,6 +368,9 @@ flowchart TB
 - **Renovate raises every image bump; nothing merges one blind.** Each stack PR gets an image-delta
   check and a Claude risk verdict (`renovate-review`), and the morning sweep merges a PR when
   it is green (a no-op or `RISK: LOW`) and leaves a red one alone — scheduled-tasks.md → Renovate.
+- **The two NixOS hosts deploy themselves from `main`.** The weekly Renovate `flake.lock` PR is how
+  their packages move; a new NixOS release is red and done by hand
+  (os-updates).
 - **Self-built images** (`nas-caddy`, `nas-jellyfin`, the A1's Tor bridges) are built from their
   `stacks/<name>/Dockerfile` by GitHub-hosted workflows and pushed to ghcr.io. Only `main` pushes;
   a new build reaches a host when its compose pin moves in a pull request.

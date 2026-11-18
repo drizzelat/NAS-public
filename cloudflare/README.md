@@ -1,7 +1,8 @@
 # Cloudflare zone, as recorded
 
 A **read-only** copy of the zone, exported daily and diffed against what is committed here. This
-directory is a record, not a source of truth: nothing in this repo writes to Cloudflare.
+directory is a record, not a source of truth: nothing in this repo writes to Cloudflare. Hand
+changes can come from the dashboard or from a workstation's write token in the vault.
 
 | File | Holds |
 | ---- | ----- |

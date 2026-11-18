@@ -9,6 +9,8 @@ PLAIN_DIR="$REPO_ROOT/secrets/stack-env"          # gitignored plaintext (device
 ENC_DIR="$REPO_ROOT/secrets.enc/stack-env"        # committed ciphertext
 SSH_PLAIN_DIR="$REPO_ROOT/secrets/ssh"                # gitignored plaintext SSH keys (truenas + vps)
 SSH_ENC_DIR="$REPO_ROOT/secrets.enc/ssh"              # committed ciphertext SSH keys
+API_PLAIN_DIR="$REPO_ROOT/secrets/api"                # gitignored plaintext API credentials (Cloudflare, OCI), any depth
+API_ENC_DIR="$REPO_ROOT/secrets.enc/api"              # committed ciphertext API credentials
 KEY_PLAIN="$REPO_ROOT/secrets/age-key.txt"            # gitignored private identity (this device)
 KEY_ENC="$REPO_ROOT/secrets.enc/age-key.age"          # committed, passphrase-wrapped identity
 RECIPIENT_FILE="$REPO_ROOT/secrets.enc/age-recipient.txt"  # committed public key
@@ -90,6 +92,13 @@ cmd_init() {
   c_ylw "'scripts/secrets.sh push <stack>' instead."
 }
 
+# OCI's config needs an absolute key_file: point it at this checkout's copy after every unlock.
+fix_oci_key_path() {
+  local cfg="$API_PLAIN_DIR/oci/config" key="$API_PLAIN_DIR/oci/oci_api_key.pem"
+  [ -f "$cfg" ] || return 0
+  command -v cygpath >/dev/null 2>&1 && key="$(cygpath -m "$key")"
+  sed -i "s|^key_file=.*|key_file=$key|" "$cfg"
+}
 cmd_unlock() {
   find_age
   ensure_local_key
@@ -111,6 +120,17 @@ cmd_unlock() {
     chmod 600 "$plain"; n=$((n+1))
   done
   shopt -u nullglob
+  # API credentials: every file at any depth under secrets.enc/api/.
+  if [ -d "$API_ENC_DIR" ]; then
+    local enc rel plain
+    while IFS= read -r -d '' enc; do
+      rel="${enc#"$API_ENC_DIR"/}"; plain="$API_PLAIN_DIR/${rel%.age}"
+      mkdir -p "$(dirname "$plain")"
+      "$AGE" -d -i "$KEY_PLAIN" -o "$plain" "$enc"
+      chmod 600 "$plain"; n=$((n+1))
+    done < <(find "$API_ENC_DIR" -type f -name '*.age' -print0)
+    fix_oci_key_path
+  fi
   c_grn "unlocked $n secret file(s) -> secrets/  (SSH keys in $SSH_PLAIN_DIR — copy to ~/.ssh to use)"
 }
 
@@ -137,6 +157,16 @@ cmd_lock() {
       "$AGE" -r "$rcpt" -o "$enc" "$plain"
       n=$((n+1))
     done
+  fi
+  # API credentials: every file at any depth under secrets/api/.
+  if [ -d "$API_PLAIN_DIR" ]; then
+    local aplain arel aenc
+    while IFS= read -r -d '' aplain; do
+      arel="${aplain#"$API_PLAIN_DIR"/}"; aenc="$API_ENC_DIR/$arel.age"
+      mkdir -p "$(dirname "$aenc")"
+      "$AGE" -r "$rcpt" -o "$aenc" "$aplain"
+      n=$((n+1))
+    done < <(find "$API_PLAIN_DIR" -type f -print0)
   fi
   shopt -u nullglob
   [ "$n" -eq 0 ] && c_ylw "no plaintext secrets to lock" || c_grn "locked $n secret file(s) -> secrets.enc/"
@@ -524,6 +554,22 @@ cmd_status() {
       printf '%-20s %-10s %-10s %s\n' "$s" "$pf" "$ef" "$sync"
     done <<< "$suniq"
   fi
+
+  # API credentials, keyed by path under secrets/api/.
+  local anames
+  anames="$( { [ -d "$API_PLAIN_DIR" ] && (cd "$API_PLAIN_DIR" && find . -type f | sed 's|^\./||'); \
+               [ -d "$API_ENC_DIR" ] && (cd "$API_ENC_DIR" && find . -type f -name '*.age' | sed 's|^\./||; s|\.age$||'); } \
+             | sort -u | sed '/^$/d' || true)"
+  while IFS= read -r s; do
+    [ -z "$s" ] && continue
+    local p="$API_PLAIN_DIR/$s" e="$API_ENC_DIR/$s.age" pf="-" ef="-" sync="-"
+    [ -f "$p" ] && pf="yes"; [ -f "$e" ] && ef="yes"
+    if [ -f "$p" ] && [ -f "$e" ]; then
+      if [ "$p" -nt "$e" ]; then sync="$(c_ylw 'plaintext newer -> run lock')"; else sync="ok"; fi
+    elif [ -f "$e" ]; then sync="encrypted only -> run unlock"
+    elif [ -f "$p" ]; then sync="$(c_ylw 'not encrypted -> run lock')"; fi
+    printf '%-20s %-10s %-10s %s\n' "api/$s" "$pf" "$ef" "$sync"
+  done <<< "$anames"
 }
 
 case "${1:-}" in

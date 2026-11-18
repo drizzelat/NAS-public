@@ -138,6 +138,12 @@ while read -r pr; do
     echo "::warning::#$num: failing checks ($failed) — not merging."
     continue
   fi
+  # A check still running has not passed (the `nixos` build on a flake.lock PR takes minutes).
+  running=$(grep -E '=pending$' <<<"$runs" | cut -d= -f1 | paste -sd', ' -) || running=""
+  if [ -n "$running" ]; then
+    echo "#$num: checks still running ($running) — left for the next sweep."
+    continue
+  fi
   if [ "$mergeable" != "true" ] || [ "${validate:-MISSING}" != "success" ]; then
     echo "#$num: mergeable=$mergeable ($mstate) validate=${validate:-MISSING} — not merging."
     continue

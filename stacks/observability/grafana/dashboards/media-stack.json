@@ -3280,7 +3280,7 @@
           "format": "table"
         }
       ],
-      "description": "Failed queries usually mean a Cloudflare challenge FlareSolverr could not pass, a rate limit, or an expired account.",
+      "description": "Failed queries usually mean a Cloudflare challenge (no solver runs), a rate limit, or an expired account.",
       "transformations": [
         {
           "id": "merge",
