@@ -21,7 +21,7 @@ rollback instead of sharing one with fourteen others.
 - **Deploy:** Komodo Stack `jellyfin` on Server `nas` ([komodo.md → How an owned stack deploys](komodo.md#how-an-owned-stack-deploys)). A push to its
   folder deploys it through Komodo.
 - **Image recipe:** `stacks/jellyfin/Dockerfile` builds `ghcr.io/drizzelat/nas-jellyfin`, the stock
-  image with adaptive bitrate patched in. Compose does not use it yet — see [Image](#image).
+  linuxserver image with the adaptive bitrate patches and the Intel OpenCL runtime — see [Image](#image).
 
 ## Access
 
@@ -67,7 +67,7 @@ see the secret-sync runbook.
 
 ## Notes
 
-- **Jellyfin is public behind Authentik SSO** (web UI only, via `9p4/jellyfin-plugin-sso`). The
+- **Jellyfin is public behind Authentik SSO** (web UI only, via the SSO-Auth plugin, `K0lin/jellyfin-plugin-sso` since Jellyfin 12). The
   login page shows only *Sign in with authentik* plus Quick Connect; the native form is hidden
   (cosmetic only). The real block is Caddy's **public `:8443` site block**, which returns `403` for
   the password endpoints (`/Users/AuthenticateByName`, `/Users/{id}/Authenticate`, `/Users/Public`)
@@ -123,14 +123,15 @@ These are server settings, not repo state: they live in `/config/encoding.xml` a
   gateway) are now remote too.
 - **Transcode throttling and segment deletion are on**, with the defaults: ffmpeg pauses 180 s
   ahead of playback, and segments older than 720 s are deleted.
-- **The stock image has no adaptive bitrate.** In the web client, *Auto* quality is one bitrate
+- **The stock image has no adaptive bitrate** (as of 10.11; not re-checked on 12). In the web client, *Auto* quality is one bitrate
   test at playback start. The client downloads 0.5, 1, then 3 MB from `/Playback/BitrateTest`, uses
   70 % of the measured speed, and caches the result for 1 h. LAN clients skip the test and get
   140 Mbps. Each session is one fixed-bitrate transcode, so changing quality restarts it and the
   player rebuffers. The server's `enableAdaptiveBitrateStreaming` ladder is never requested by
   jellyfin-web, and it would not help: all its variants share one transcode.
-- **The patched image ([Image](#image)) has real adaptive bitrate** for remote web clients on
-  *Auto*:
+- **The patched image has real adaptive bitrate** for remote web clients on *Auto*. The patches
+  were rebased onto 12.4 on 2026-11-18 and are live again since 2026-11-19 ([Image](#image)).
+  What follows was written for 10.11 and holds for the 12.4 build:
   - The server offers the requested bitrate plus up to three lower rungs: 50 % in a 720p box,
     25 % in 540p and 12.5 % in 360p, each a transcode of its own. hls.js switches between them
     without a rebuffer, but a switch shows only once the buffer ahead has played out, up to 30 s.
@@ -181,41 +182,31 @@ These are server settings, not repo state: they live in `/config/encoding.xml` a
 
 ## Image
 
-**Deployed since 2026-09-22:** `stacks/jellyfin/docker-compose.yml` pins `ghcr.io/drizzelat/nas-jellyfin`.
-Rolling back and rebasing the patches are in the
-jellyfin-abr-image runbook.
+**Jellyfin 12.4 with the adaptive bitrate patches.** 10.11 reached its last release and bundles
+.NET 9.0.16, which misses the Brotli fix (CVE-2026-111497); .NET 9 itself went end of life on
+2026-11-10. The move to 12.4 (.NET 10) dropped the patches for a day; they were rebased onto `v12.4`
+on 2026-11-18 (what changed).
+The patched 12.4 build passed its scratch test and has been the running pin since 2026-11-19 (#958).
 
 [`stacks/jellyfin/Dockerfile`](../../stacks/jellyfin/Dockerfile) takes the pinned
-`lscr.io/linuxserver/jellyfin` image and replaces two things. Both are rebuilt from the upstream
-commit the stock files were built from:
+`lscr.io/linuxserver/jellyfin` image, rebuilds `Jellyfin.Api.dll` (.NET SDK 10) and the web client
+(Node 24) from the upstream tag the image was built from plus [`patches/`](../../stacks/jellyfin/patches/),
+and adds Ubuntu's `intel-opencl-icd`, the Intel OpenCL runtime the stock image lacks.
 
-| Replaced | Built from |
-| --- | --- |
-| `/usr/lib/jellyfin/bin/Jellyfin.Api.dll` | `jellyfin` + [`patches/jellyfin.patch`](../../stacks/jellyfin/patches/jellyfin.patch) |
-| `/usr/share/jellyfin/web/` | `jellyfin-web` + [`patches/jellyfin-web.patch`](../../stacks/jellyfin/patches/jellyfin-web.patch) |
-
-It also adds Ubuntu's `intel-opencl-icd`, the Intel OpenCL runtime the stock image lacks.
-
-- **The base image decides what gets built.** The Dockerfile reads the release, the commit and the
-  assembly version out of the stock assemblies. The build fails if the release tag is not that
-  commit, or if the new DLL's assembly version differs. A mismatched DLL stops the server with
-  `Could not load file or assembly 'Jellyfin.Api, Version=…'`. Official builds stamp it with a
-  version of their own, not the release (`24.4.0.0` for 10.11.11).
 - **[`build-jellyfin-image.yml`](../../.github/workflows/build-jellyfin-image.yml) builds it** on a
-  GitHub-hosted runner and checks that both patched parts are in the image. A pull request only
-  builds. `main` pushes `ghcr.io/drizzelat/nas-jellyfin:<linuxserver tag>` and prints the pin.
+  GitHub-hosted runner, checks that `Jellyfin.Api.dll` and the web client are the patched ones and
+  the OpenCL runtime is in the image, and fails if the .NET runtime Jellyfin bundles is older than
+  10.0.14. A pull request only builds. `main` pushes
+  `ghcr.io/drizzelat/nas-jellyfin:<linuxserver tag>` and prints the pin.
+- **Jellyfin ships its own .NET runtime** (self-contained builds), so a .NET security fix reaches
+  the server only with a new Jellyfin or linuxserver build, never through the host.
 - **The compose pin moves through a Renovate PR that the review always fails**: the agent prompt makes any
   `nas-jellyfin` bump `RISK: REVIEW`, so test the new tag on a scratch instance, then approve the PR and
   re-run the review (hand-merge route).
   A Dockerfile bump only rebuilds the image.
-- **The package is public**, so the NAS pulls it without a registry credential. The image carries
-  modified GPL code; its source is upstream plus the two patch files, which the public mirror
-  publishes.
-- **The patches come from two private forks**, `drizzelat/jellyfin` and `drizzelat/jellyfin-web`,
-  branch `abr-prototype`, one commit per change. Each patch file is `git diff v<release>` of that
-  branch.
-- **They are not upstreamable as they stand** — no admin config, no cap on the extra transcode, no
-  tests. What closing that gap would take, and the design questions it raises, are in the
+- **The package is public**, so the NAS pulls it without a registry credential.
+- **The ABR patches come from two private forks**, `drizzelat/jellyfin` and `drizzelat/jellyfin-web`,
+  branch `abr-prototype` over `v12.4` (the 10.11 tips are kept as `abr-10.11.11`). They are not upstreamable as they stand — see the
   jellyfin-abr-upstream runbook.
 
 ## Operations
@@ -231,9 +222,18 @@ Pinned `tag@sha256:digest`; Renovate proposes bumps. **Read Jellyfin's release n
 the service whose major bumps most deserve a deliberate look, which is exactly what it could not
 get while bundled with fourteen others.
 
-Once compose runs the patched image, a new Jellyfin release needs the patches rebased and tested
-before its `nas-jellyfin` bump is merged — see the
-jellyfin-abr-image runbook.
+A Jellyfin **major** (10.11 → 12 was one) migrates the database one way: snapshot
+`apps/mediaserver/config/jellyfin` first, and check every installed plugin has a build for the new
+plugin ABI. The SSO-Auth plugin is the one that matters — without it the public web UI has no login.
+
+**On 12.4 since 2026-11-18** (migration plus first start took 40 s; snapshot
+`apps/mediaserver/config/jellyfin@pre-jellyfin-12`). Plugins are server state, installed through the
+API or Dashboard → Plugins: SSO Authentication 5.1.1 (repository `SSO-Auth` → the K0lin manifest),
+DLNA, Open Subtitles, Playback Reporting, Subtitle Extract and TMDb Box Sets from Jellyfin Stable.
+**Theme Songs is not installed:** its repository (Skin Manager) had only a 10.11 build. Bookshelf is
+part of the server since 12. The migration turned `EnableLegacyAuthorization` off; Seerr and the
+exporter work without it.
+Rolling back across a release is a restore of that snapshot, not an image revert.
 
 ### Restore from backup
 

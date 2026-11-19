@@ -44,10 +44,11 @@ jobs:
           docker build -t "$IMAGE:$tag" stacks/jellyfin
           echo "TAG=$tag" >> "$GITHUB_ENV"
 
-      - name: Check the patched server and web client are in the image
+      - name: Check the patched server, web client and runtime are in the image
         run: |
           set -euo pipefail
           base=$(sed -n 's|^FROM \(lscr\.io/linuxserver/jellyfin:[^ ]*\) AS base$|\1|p' stacks/jellyfin/Dockerfile)
+          [ -n "$base" ] || { echo "::error::cannot read the base image from stacks/jellyfin/Dockerfile"; exit 1; }
           dll=/usr/lib/jellyfin/bin/Jellyfin.Api.dll
           stock=$(docker run --rm --entrypoint sha256sum "$base" "$dll" | cut -d' ' -f1)
           ours=$(docker run --rm --entrypoint sha256sum "$IMAGE:$TAG" "$dll" | cut -d' ' -f1)
@@ -56,7 +57,14 @@ jobs:
             || { echo "::error::the web client in the image is not the patched one"; exit 1; }
           docker run --rm --entrypoint test "$IMAGE:$TAG" -s /etc/OpenCL/vendors/intel.icd \
             || { echo "::error::the Intel OpenCL runtime is not in the image"; exit 1; }
-          echo "patched Jellyfin.Api.dll, web client and Intel OpenCL runtime present"
+          # Jellyfin bundles its own .NET runtime; 10.0.14 is the Brotli fix (CVE-2026-111497).
+          min=10.0.14
+          rt=$(docker run --rm --entrypoint cat "$IMAGE:$TAG" /usr/lib/jellyfin/bin/jellyfin.runtimeconfig.json \
+            | grep -A1 '"Microsoft.NETCore.App"' | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p')
+          [ -n "$rt" ] || { echo "::error::cannot read the bundled .NET runtime version"; exit 1; }
+          [ "$(printf '%s\n%s\n' "$min" "$rt" | sort -V | head -1)" = "$min" ] \
+            || { echo "::error::bundled .NET runtime $rt is older than $min"; exit 1; }
+          echo "patched Jellyfin.Api.dll and web client, Intel OpenCL runtime, bundled .NET runtime $rt"
 
       # Only main pushes: the tag is what Renovate watches, so a branch build would come back as a digest PR.
       - name: Push

@@ -108,7 +108,7 @@
       "allowedVersions": "/^8\\.0\\.\\d+$/"
     },
     {
-      "description": "linuxserver tags end in -ls<N>, the image build number. Renovate's docker versioning reads that as a compatibility suffix, so 2.4.0.5397-ls151 and 2.4.0.5397-ls152 count as incompatible and every lscr.io image sat on its first pin, never offered an update (prowlarr stuck at -ls151 while upstream was at 2.6.5 -ls162). Regex versioning compares the ls number instead. This rule: four-part app versions (prowlarr, radarr, sonarr). Renovate only compares `revision` when `build` matched, hence the second rule for three-part versions. The jellyfin base (…ubu2404-ls38) matches neither: upstream moved it to an Ubuntu 26.04 base (ubu2604), which is a rebase of the patched build, not a bump.",
+      "description": "linuxserver tags end in -ls<N>, the image build number. Renovate's docker versioning reads that as a compatibility suffix, so 2.4.0.5397-ls151 and 2.4.0.5397-ls152 count as incompatible and every lscr.io image sat on its first pin, never offered an update (prowlarr stuck at -ls151 while upstream was at 2.6.5 -ls162). Regex versioning compares the ls number instead. This rule: four-part app versions (prowlarr, radarr, sonarr). Renovate only compares `revision` when `build` matched, hence the second rule for three-part versions. The jellyfin tags (12.4ubu2604-ls60) match neither and have a rule of their own.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["lscr.io/linuxserver/*"],
       "matchCurrentValue": "/^\\d+\\.\\d+\\.\\d+\\.\\d+-ls\\d+$/",
@@ -149,16 +149,17 @@
       "groupName": "caddy image build"
     },
     {
-      "description": "The .NET SDK that compiles the patched Jellyfin.Api.dll: major 9 only. Jellyfin's own global.json pins `\"version\": \"9.0.0\"` with `rollForward: latestMinor`, so any other major fails the build stage outright - Renovate's SDK 11 PR (#517) died on `Requested SDK version: 9.0.0 ... Installed SDKs: 11.0.100-rc.1`. This bound lifts when upstream moves global.json.",
-      "matchFileNames": ["stacks/jellyfin/Dockerfile"],
-      "matchPackageNames": ["mcr.microsoft.com/dotnet/sdk"],
-      "allowedVersions": "/^9\\./"
+      "description": "Jellyfin tags on the Ubuntu base (12.4ubu2604-ls60), for the linuxserver base and the nas-jellyfin build of it alike. Default docker versioning reads `ubu2604-ls60` as a compatibility suffix, so a new -ls build would never be offered. The ubu part stays the compatibility (a new Ubuntu base is a deliberate move), the ls number is the patch.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["lscr.io/linuxserver/jellyfin", "ghcr.io/drizzelat/nas-jellyfin"],
+      "matchCurrentValue": "/^\\d+\\.\\d+ubu\\d+-ls\\d+$/",
+      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)(?<compatibility>ubu\\d+)-ls(?<patch>\\d+)$"
     },
     {
-      "description": "The Node image that builds jellyfin-web: up to 22. jellyfin-web's package.json asks for `npm >=9.6.4 <11.0.0`, and node 24 ships npm 11, so `npm ci` runs against an npm upstream does not support. Node 22 is the newest LTS that still ships npm 10.",
+      "description": "The .NET SDK that compiles the patched Jellyfin.Api.dll: major 10 only. Jellyfin's own global.json pins `\"version\": \"10.0.0\"` with `rollForward: latestMinor`, so any other major fails the build stage outright (Renovate's SDK 11 PR #517 died on `Requested SDK version: 9.0.0 ... Installed SDKs: 11.0.100-rc.1` back on 10.11). This bound moves when upstream moves global.json.",
       "matchFileNames": ["stacks/jellyfin/Dockerfile"],
-      "matchPackageNames": ["node"],
-      "allowedVersions": "<23"
+      "matchPackageNames": ["mcr.microsoft.com/dotnet/sdk"],
+      "allowedVersions": "/^10\\./"
     },
     {
       "description": "Everything stacks/jellyfin/Dockerfile builds from - the linuxserver/jellyfin base, and the .NET SDK and Node images the patched Jellyfin.Api.dll and web client are compiled with - in one PR. Its build-jellyfin-image check shows whether the patches still apply to a new Jellyfin release. Merging it only rebuilds ghcr.io/drizzelat/nas-jellyfin on main; the server moves when the nas-jellyfin PR that follows is reviewed and merged like any other.",

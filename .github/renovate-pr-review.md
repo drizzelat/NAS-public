@@ -46,9 +46,9 @@ and, with one exception, none is pre-rejected:** a database, an SSO server and a
 what the release actually changes, never by what the image is. The exception:
 
 - **`ghcr.io/drizzelat/nas-jellyfin` is always `RISK: REVIEW`.** If the PR diff changes that image line,
-  end with `RISK: REVIEW` whatever the release notes say: a new Jellyfin release in it needs the adaptive
-  bitrate patches tested on a scratch instance first
-  (`docs/runbooks/setup-operations/jellyfin-abr-image.md`). Say so in the verdict in one line.
+  end with `RISK: REVIEW` whatever the release notes say: a new build of this self-built image is tested
+  on a scratch instance first (`docs/runbooks/setup-operations/jellyfin-abr-image.md`). Say so in the
+  verdict in one line.
 
 For everything else, weigh:
 

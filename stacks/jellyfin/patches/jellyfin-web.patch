@@ -1,20 +1,20 @@
 Adaptive bitrate for jellyfin-web: request the ladder on Auto, start a remote stream on Auto as a transcode, keep the
 lowest level and every playlist loaded (a few minutes of the lowest level while the buffer is healthy), open up higher
 levels once the connection carries them, switch quality in place without a restart, fetch a fragment before its init
-segment, and size the buffer per level. git diff v10.11.11 of drizzelat/jellyfin-web abr-prototype.
+segment, and size the buffer per level. git diff v12.4 of drizzelat/jellyfin-web abr-prototype.
 diff --git a/src/components/playback/playbackmanager.js b/src/components/playback/playbackmanager.js
-index 8c6922888..04acba158 100644
+index 837202c4a2..445e60813e 100644
 --- a/src/components/playback/playbackmanager.js
 +++ b/src/components/playback/playbackmanager.js
-@@ -32,6 +32,7 @@ import { MediaError } from 'types/mediaError';
+@@ -36,6 +36,7 @@ import { MediaError } from 'types/mediaError';
  import { getMediaError } from 'utils/mediaError';
- import { toApi } from 'utils/jellyfin-apiclient/compat';
  import { bindSkipSegment } from './skipsegment.ts';
+ import * as bitrateTest from 'utils/bitrateTest';
 +import { enableHlsJsPlayer, enableHlsJsPlayerForCodecs } from '../htmlMediaHelper';
  
  const UNLIMITED_ITEMS = -1;
  
-@@ -490,6 +491,17 @@ async function getPlaybackInfo(player, apiClient, item, deviceProfile, mediaSour
+@@ -493,6 +494,17 @@ async function getPlaybackInfo(player, apiClient, item, deviceProfile, mediaSour
          query.EnableDirectStream = false;
      }
  
@@ -32,10 +32,10 @@ index 8c6922888..04acba158 100644
      if (player.getDirectPlayProtocols) {
          query.DirectPlayProtocols = player.getDirectPlayProtocols();
      }
-@@ -1407,6 +1419,15 @@ export class PlaybackManager {
+@@ -1424,6 +1436,15 @@ export class PlaybackManager {
                  if (options.enableAutomaticBitrateDetection) {
                      appSettings.enableAutomaticBitrateDetection(endpointInfo.IsInNetwork, mediaType, true);
-                     promise = apiClient.detectBitrate(true);
+                     promise = bitrateTest.detectBitrate(api, true);
 +
 +                    // An adaptive bitrate stream goes back to Auto at once; the bitrate test only updates the setting
 +                    if (player.setAdaptiveBitrateLimit?.(0)) {
@@ -48,7 +48,7 @@ index 8c6922888..04acba158 100644
                  } else {
                      appSettings.enableAutomaticBitrateDetection(endpointInfo.IsInNetwork, mediaType, false);
                      promise = Promise.resolve(options.maxBitrate);
-@@ -1415,6 +1436,12 @@ export class PlaybackManager {
+@@ -1432,6 +1453,12 @@ export class PlaybackManager {
                  promise.then(function (bitrate) {
                      appSettings.maxStreamingBitrate(endpointInfo.IsInNetwork, mediaType, bitrate);
  
@@ -61,7 +61,7 @@ index 8c6922888..04acba158 100644
                      changeStream(player, getCurrentTicks(player), {
                          MaxStreamingBitrate: bitrate
                      });
-@@ -2860,6 +2887,13 @@ export class PlaybackManager {
+@@ -2906,6 +2933,13 @@ export class PlaybackManager {
  
                      if (mediaSource.TranscodingSubProtocol === 'hls') {
                          contentType = 'application/x-mpegURL';
@@ -76,7 +76,7 @@ index 8c6922888..04acba158 100644
                          contentType = getMimeType(type.toLowerCase(), mediaSource.TranscodingContainer);
  
 diff --git a/src/components/playback/playersettingsmenu.js b/src/components/playback/playersettingsmenu.js
-index 12b2488fc..4d12e5226 100644
+index 12b2488fc3..4d12e52262 100644
 --- a/src/components/playback/playersettingsmenu.js
 +++ b/src/components/playback/playersettingsmenu.js
 @@ -123,7 +123,9 @@ function getQualitySecondaryText(player) {
@@ -91,7 +91,7 @@ index 12b2488fc..4d12e5226 100644
      }
  
 diff --git a/src/components/qualityOptions.js b/src/components/qualityOptions.js
-index 4520c5084..a362ebcd5 100644
+index 4520c50847..a362ebcd51 100644
 --- a/src/components/qualityOptions.js
 +++ b/src/components/qualityOptions.js
 @@ -77,6 +77,10 @@ export function getVideoQualityOptions(options) {
@@ -115,10 +115,10 @@ index 4520c5084..a362ebcd5 100644
  };
 diff --git a/src/plugins/htmlVideoPlayer/hlsFloorLevel.js b/src/plugins/htmlVideoPlayer/hlsFloorLevel.js
 new file mode 100644
-index 000000000..cae07d26f
+index 0000000000..a5a53fc6b2
 --- /dev/null
 +++ b/src/plugins/htmlVideoPlayer/hlsFloorLevel.js
-@@ -0,0 +1,682 @@
+@@ -0,0 +1,684 @@
 +/**
 + * Keeps the lowest adaptive bitrate level of an hls.js stream loaded past the end of the buffer, up to a few minutes
 + * of it while the buffer is healthy, and every level's playlist loaded in advance. When the connection breaks down, playback drops to the lowest level at once instead of
@@ -716,9 +716,11 @@ index 000000000..cae07d26f
 +        // bitrate, as it always did, and the connection has to prove itself for the levels above it. The master
 +        // playlist lists the level built for that bitrate first, so that level is the line. A bitrate of its own
 +        // would not do: the levels above it double it, but the top one is what the source carries, and that can
-+        // land just above the requested bitrate rather than a level away from it.
++        // land just above the requested bitrate rather than a level away from it. hls.js sorts the levels by
++        // height, then bitrate, and firstLevel is where the manifest's first one ended up; since each level
++        // carries its own RESOLUTION (Jellyfin 12), levels[0] is the lowest, not the first.
 +        if (level !== -1 && !ceilingBitrate) {
-+            ceilingBitrate = hls.levels[0].bitrate;
++            ceilingBitrate = (hls.levels[hls.firstLevel] ?? hls.levels[0]).bitrate;
 +            ceilingAt = performance.now();
 +
 +            // hls.js has picked the level to start on by now, off an estimate with no measurement behind it yet.
@@ -802,18 +804,18 @@ index 000000000..cae07d26f
 +    return { FragmentLoader, PlaylistLoader, attach, switchLevel };
 +}
 diff --git a/src/plugins/htmlVideoPlayer/plugin.js b/src/plugins/htmlVideoPlayer/plugin.js
-index 1bfa5e9cd..4d8e846e4 100644
+index eb05840900..7ea0fb4c66 100644
 --- a/src/plugins/htmlVideoPlayer/plugin.js
 +++ b/src/plugins/htmlVideoPlayer/plugin.js
-@@ -44,6 +44,7 @@ import { PluginType } from '../../types/plugin.ts';
+@@ -44,6 +44,7 @@ import { setBackdropTransparency, TRANSPARENCY_LEVEL } from '../../components/ba
  import Events from '../../utils/events.ts';
  import { includesAny } from '../../utils/container.ts';
  import { isHls } from '../../utils/mediaSource.ts';
 +import { createHlsFloorLevel } from './hlsFloorLevel';
  
- /**
-  * Returns resolved URL.
-@@ -305,6 +306,7 @@ export class HtmlVideoPlayer {
+ const NATIVE_UNSUPPORTED_SUBTITLE_CODECS = ['ssa', 'ass', 'pgssub', 'dvdsub', 'vobsub'];
+ const ASS_SUBTITLE_CODECS = ['ssa', 'ass'];
+@@ -357,6 +358,7 @@ export class HtmlVideoPlayer {
       * @type {any | undefined}
       */
      _hlsPlayer;
@@ -821,7 +823,7 @@ index 1bfa5e9cd..4d8e846e4 100644
      /**
       * @private (used in other files)
       * @type {any | null | undefined}
-@@ -440,28 +442,49 @@ export class HtmlVideoPlayer {
+@@ -552,28 +554,49 @@ export class HtmlVideoPlayer {
      setSrcWithHlsJs(elem, options, url) {
          return new Promise((resolve, reject) => {
              requireHlsPlayer(async () => {
@@ -876,7 +878,7 @@ index 1bfa5e9cd..4d8e846e4 100644
                  hls.loadSource(url);
                  hls.attachMedia(elem);
  
-@@ -2112,6 +2135,44 @@ export class HtmlVideoPlayer {
+@@ -2302,6 +2325,44 @@ export class HtmlVideoPlayer {
          return this.setAirPlayEnabled(!this.isAirPlayEnabled());
      }
  

@@ -1,11 +1,10 @@
 Adaptive bitrate for Jellyfin: real per-variant transcodes, a resolution-stepped ladder reaching above and below
-the requested bitrate, the lowest rung as its own transcode, rungs aligned to the segment grid for gapless switches, and init segment requests that survive a job restart. git diff v10.11.11 of drizzelat/jellyfin abr-prototype.
-
+the requested bitrate, the lowest rung as its own transcode, rungs aligned to the segment grid for gapless switches, and init segment requests that survive a job restart. git diff v12.4 of drizzelat/jellyfin abr-prototype.
 diff --git a/Jellyfin.Api/Controllers/DynamicHlsController.cs b/Jellyfin.Api/Controllers/DynamicHlsController.cs
-index c69040d4e..8003e05f1 100644
+index 6df76de0b4..1a1b1c04e0 100644
 --- a/Jellyfin.Api/Controllers/DynamicHlsController.cs
 +++ b/Jellyfin.Api/Controllers/DynamicHlsController.cs
-@@ -1405,6 +1405,33 @@ public class DynamicHlsController : BaseJellyfinApiController
+@@ -1384,6 +1384,33 @@ public class DynamicHlsController : BaseJellyfinApiController
              .ConfigureAwait(false);
      }
  
@@ -39,7 +38,7 @@ index c69040d4e..8003e05f1 100644
      private async Task<ActionResult> GetVariantPlaylistInternal(StreamingRequestDto streamingRequest, CancellationTokenSource cancellationTokenSource)
      {
          using var state = await StreamingHelpers.GetStreamingState(
-@@ -1421,15 +1448,7 @@ public class DynamicHlsController : BaseJellyfinApiController
+@@ -1400,15 +1427,7 @@ public class DynamicHlsController : BaseJellyfinApiController
                  cancellationTokenSource.Token)
              .ConfigureAwait(false);
          var mediaSourceId = state.BaseRequest.MediaSourceId;
@@ -56,16 +55,22 @@ index c69040d4e..8003e05f1 100644
  
          var request = new CreateMainPlaylistRequest(
              mediaSourceId is null ? null : Guid.Parse(mediaSourceId),
-@@ -1476,6 +1495,8 @@ public class DynamicHlsController : BaseJellyfinApiController
+@@ -1455,11 +1474,13 @@ public class DynamicHlsController : BaseJellyfinApiController
  
          var segmentExtension = EncodingHelper.GetSegmentFileExtension(state.Request.SegmentContainer);
  
 +        var isInitSegment = segmentId == -1;
 +
-         TranscodingJob? job;
- 
-         if (System.IO.File.Exists(segmentPath))
-@@ -1500,8 +1521,14 @@ public class DynamicHlsController : BaseJellyfinApiController
+         // Keep segment selection and transcoding replacement under the same playlist lock.
+         // An out-of-order request must not replace a job while another request is using its output.
++        TranscodingJob? job;
+         using (await _transcodeManager.LockAsync(playlistPath, cancellationToken).ConfigureAwait(false))
+         {
+-            TranscodingJob? job;
+             var startTranscoding = false;
+             if (System.IO.File.Exists(segmentPath))
+             {
+@@ -1473,8 +1494,14 @@ public class DynamicHlsController : BaseJellyfinApiController
  
              if (segmentId == -1)
              {
@@ -82,10 +87,10 @@ index c69040d4e..8003e05f1 100644
                  segmentId = 0;
              }
              else if (currentTranscodingIndex is null)
-@@ -1525,6 +1552,10 @@ public class DynamicHlsController : BaseJellyfinApiController
-                 // If the playlist doesn't already exist, startup ffmpeg
-                 try
-                 {
+@@ -1501,6 +1528,10 @@ public class DynamicHlsController : BaseJellyfinApiController
+                     var currentJob = _transcodeManager.GetTranscodingJob(playlistPath, TranscodingJobType);
+                     await WaitForActiveTranscodingRequests(currentJob, cancellationToken).ConfigureAwait(false);
+ 
 +                    // An adaptive bitrate switch stops the job of the variant the client left.
 +                    var otherVariantJob = streamingRequest.PlaySessionId is null ? null : _transcodeManager.GetTranscodingJob(streamingRequest.PlaySessionId);
 +                    var otherVariantWasRunning = otherVariantJob is not null && otherVariantJob.Type == TranscodingJobType && !otherVariantJob.HasExited;
@@ -93,7 +98,7 @@ index c69040d4e..8003e05f1 100644
                      await _transcodeManager.KillTranscodingJobs(streamingRequest.DeviceId, streamingRequest.PlaySessionId, p => false)
                          .ConfigureAwait(false);
  
-@@ -1533,13 +1564,24 @@ public class DynamicHlsController : BaseJellyfinApiController
+@@ -1509,13 +1540,24 @@ public class DynamicHlsController : BaseJellyfinApiController
                          await DeleteLastFile(playlistPath, segmentExtension, 0).ConfigureAwait(false);
                      }
  
@@ -120,16 +125,28 @@ index c69040d4e..8003e05f1 100644
                          Request.HttpContext.User.GetUserId(),
                          TranscodingJobType,
                          cancellationTokenSource).ConfigureAwait(false);
-@@ -1564,9 +1606,44 @@ public class DynamicHlsController : BaseJellyfinApiController
+@@ -1537,10 +1579,17 @@ public class DynamicHlsController : BaseJellyfinApiController
+                 }
+             }
  
-         _logger.LogDebug("returning {0} [general case]", segmentPath);
-         job ??= _transcodeManager.OnTranscodeBeginRequest(playlistPath, TranscodingJobType);
-+        if (isInitSegment)
-+        {
-+            return await GetInitSegmentResult(state, playlistPath, segmentPath, segmentExtension, job).ConfigureAwait(false);
-+        }
+-            _logger.LogDebug("returning {0} [general case]", segmentPath);
+             job ??= _transcodeManager.OnTranscodeBeginRequest(playlistPath, TranscodingJobType);
+-            return await GetSegmentResult(state, playlistPath, segmentPath, segmentExtension, segmentId, job, cancellationToken).ConfigureAwait(false);
++            if (!isInitSegment)
++            {
++                _logger.LogDebug("returning {0} [general case]", segmentPath);
++                return await GetSegmentResult(state, playlistPath, segmentPath, segmentExtension, segmentId, job, cancellationToken).ConfigureAwait(false);
++            }
+         }
 +
-         return await GetSegmentResult(state, playlistPath, segmentPath, segmentExtension, segmentId, job, cancellationToken).ConfigureAwait(false);
++        // Outside the playlist lock, so a media request can restart the job while this waits.
++        _logger.LogDebug("returning {0} [init segment]", segmentPath);
++        return await GetInitSegmentResult(state, playlistPath, segmentPath, segmentExtension, job).ConfigureAwait(false);
+     }
+ 
+     internal static async Task WaitForActiveTranscodingRequests(TranscodingJob? job, CancellationToken cancellationToken)
+@@ -1551,6 +1600,58 @@ public class DynamicHlsController : BaseJellyfinApiController
+         }
      }
  
 +    /// <summary>
@@ -143,29 +160,51 @@ index c69040d4e..8003e05f1 100644
 +        string segmentExtension,
 +        TranscodingJob? transcodingJob)
 +    {
-+        for (var waited = 0; waited < 30000; waited += 100)
++        try
 +        {
-+            // ffmpeg writes the init segment just before it closes the first media segment.
-+            var lastFile = GetLastTranscodingFile(playlistPath, segmentExtension, _fileSystem);
-+            if (lastFile is not null
-+                && System.IO.File.Exists(initSegmentPath)
-+                && !string.Equals(lastFile.FullName, initSegmentPath, StringComparison.OrdinalIgnoreCase)
-+                && lastFile.LastWriteTimeUtc >= System.IO.File.GetLastWriteTimeUtc(initSegmentPath))
++            for (var waited = 0; waited < 30000; waited += 100)
 +            {
-+                return GetSegmentResult(state, initSegmentPath, transcodingJob);
-+            }
++                // ffmpeg writes the init segment just before it closes the first media segment.
++                var lastFile = GetLastTranscodingFile(playlistPath, segmentExtension, _fileSystem);
++                if (lastFile is not null
++                    && System.IO.File.Exists(initSegmentPath)
++                    && !string.Equals(lastFile.FullName, initSegmentPath, StringComparison.OrdinalIgnoreCase)
++                    && lastFile.LastWriteTimeUtc >= System.IO.File.GetLastWriteTimeUtc(initSegmentPath))
++                {
++                    return GetSegmentResult(state, initSegmentPath, -1, transcodingJob);
++                }
 +
-+            await Task.Delay(100, HttpContext.RequestAborted).ConfigureAwait(false);
++                await Task.Delay(100, HttpContext.RequestAborted).ConfigureAwait(false);
++            }
++        }
++        catch (OperationCanceledException)
++        {
++            ReleaseRequest(transcodingJob);
++            throw;
 +        }
 +
 +        _logger.LogWarning("cannot serve {0} as no transcode wrote it in time", initSegmentPath);
++        ReleaseRequest(transcodingJob);
 +        return NotFound();
++    }
++
++    /// <summary>
++    /// Ends this request's count on its transcoding job when it ends without a segment served, which is what ends it
++    /// otherwise. A count left behind stops the job from ever being replaced: a seek or adaptive bitrate switch to
++    /// its playlist waits on <see cref="WaitForActiveTranscodingRequests"/>, holding the playlist lock, for good.
++    /// </summary>
++    private void ReleaseRequest(TranscodingJob? transcodingJob)
++    {
++        if (transcodingJob is not null)
++        {
++            _transcodeManager.OnTranscodeEndRequest(transcodingJob);
++        }
 +    }
 +
      private static double[] GetSegmentLengths(StreamState state)
          => GetSegmentLengthsInternal(state.RunTimeTicks ?? 0, state.SegmentLength);
  
-@@ -1591,7 +1668,7 @@ public class DynamicHlsController : BaseJellyfinApiController
+@@ -1575,7 +1676,7 @@ public class DynamicHlsController : BaseJellyfinApiController
          return segments;
      }
  
@@ -174,7 +213,7 @@ index c69040d4e..8003e05f1 100644
      {
          var videoCodec = _encodingHelper.GetVideoEncoder(state, _encodingOptions);
          var threads = EncodingHelper.GetNumberOfThreads(state, _encodingOptions, videoCodec);
-@@ -1617,6 +1694,14 @@ public class DynamicHlsController : BaseJellyfinApiController
+@@ -1591,6 +1692,14 @@ public class DynamicHlsController : BaseJellyfinApiController
          var segmentFormat = string.Empty;
          var segmentContainer = outputExtension.TrimStart('.');
          var inputModifier = _encodingHelper.GetInputModifier(state, _encodingOptions, segmentContainer);
@@ -189,7 +228,7 @@ index c69040d4e..8003e05f1 100644
          var hlsArguments = $"-hls_playlist_type {(isEventPlaylist ? "event" : "vod")} -hls_list_size 0";
  
          if (string.Equals(segmentContainer, "ts", StringComparison.OrdinalIgnoreCase))
-@@ -1666,11 +1751,11 @@ public class DynamicHlsController : BaseJellyfinApiController
+@@ -1641,11 +1750,11 @@ public class DynamicHlsController : BaseJellyfinApiController
              CultureInfo.InvariantCulture,
              "{0} {1} -map_metadata -1 -map_chapters -1 -threads {2} {3} {4} {5} -copyts -avoid_negative_ts disabled -max_muxing_queue_size {6} -f hls -max_delay 5000000 -hls_time {7} -hls_segment_type {8} -start_number {9}{10} -hls_segment_filename \"{11}\" {12} -y \"{13}\"",
              inputModifier,
@@ -203,7 +242,7 @@ index c69040d4e..8003e05f1 100644
              maxMuxingQueueSize,
              state.SegmentLength.ToString(CultureInfo.InvariantCulture),
              segmentFormat,
-@@ -1685,8 +1770,9 @@ public class DynamicHlsController : BaseJellyfinApiController
+@@ -1660,8 +1769,9 @@ public class DynamicHlsController : BaseJellyfinApiController
      /// Gets the audio arguments for transcoding.
      /// </summary>
      /// <param name="state">The <see cref="StreamState"/>.</param>
@@ -214,7 +253,7 @@ index c69040d4e..8003e05f1 100644
      {
          if (state.AudioStream is null)
          {
-@@ -1802,7 +1888,20 @@ public class DynamicHlsController : BaseJellyfinApiController
+@@ -1772,7 +1882,20 @@ public class DynamicHlsController : BaseJellyfinApiController
              args += " -ar 48000";
          }
  
@@ -236,8 +275,38 @@ index c69040d4e..8003e05f1 100644
  
          return args;
      }
+@@ -1974,7 +2097,15 @@ public class DynamicHlsController : BaseJellyfinApiController
+                     }
+                 }
+ 
+-                await Task.Delay(100, cancellationToken).ConfigureAwait(false);
++                try
++                {
++                    await Task.Delay(100, cancellationToken).ConfigureAwait(false);
++                }
++                catch (OperationCanceledException)
++                {
++                    ReleaseRequest(transcodingJob);
++                    throw;
++                }
+             }
+ 
+             if (!System.IO.File.Exists(segmentPath))
+@@ -1986,7 +2117,11 @@ public class DynamicHlsController : BaseJellyfinApiController
+                 _logger.LogDebug("serving {0} as it's on disk and transcoding stopped", segmentPath);
+             }
+ 
+-            cancellationToken.ThrowIfCancellationRequested();
++            if (cancellationToken.IsCancellationRequested)
++            {
++                ReleaseRequest(transcodingJob);
++                cancellationToken.ThrowIfCancellationRequested();
++            }
+         }
+         else
+         {
 diff --git a/Jellyfin.Api/Helpers/DynamicHlsHelper.cs b/Jellyfin.Api/Helpers/DynamicHlsHelper.cs
-index 16e51151d..03955ba32 100644
+index 4995d37f4b..b764a434e4 100644
 --- a/Jellyfin.Api/Helpers/DynamicHlsHelper.cs
 +++ b/Jellyfin.Api/Helpers/DynamicHlsHelper.cs
 @@ -25,6 +25,7 @@ using MediaBrowser.Model.Net;
@@ -263,7 +332,7 @@ index 16e51151d..03955ba32 100644
      private readonly ITrickplayManager _trickplayManager;
  
      /// <summary>
-@@ -295,22 +304,7 @@ public class DynamicHlsHelper
+@@ -314,22 +323,7 @@ public class DynamicHlsHelper
  
          if (EnableAdaptiveBitrateStreaming(state, isLiveStream, enableAdaptiveBitrateStreaming, _httpContextAccessor.HttpContext.GetNormalizedRemoteIP()))
          {
@@ -287,7 +356,7 @@ index 16e51151d..03955ba32 100644
          }
  
          if (!isLiveStream && (state.VideoRequest?.EnableTrickplay ?? false))
-@@ -323,6 +317,162 @@ public class DynamicHlsHelper
+@@ -342,6 +336,162 @@ public class DynamicHlsHelper
          return new FileContentResult(Encoding.UTF8.GetBytes(builder.ToString()), MimeTypes.GetMimeType("playlist.m3u8"));
      }
  
@@ -450,7 +519,7 @@ index 16e51151d..03955ba32 100644
      private StringBuilder AppendPlaylist(StringBuilder builder, StreamState state, string url, int bitrate, string? subtitleGroup)
      {
          var playlistBuilder = new StringBuilder();
-@@ -580,11 +730,6 @@ public class DynamicHlsHelper
+@@ -659,11 +809,6 @@ public class DynamicHlsHelper
              return false;
          }
  
@@ -462,7 +531,7 @@ index 16e51151d..03955ba32 100644
          if (!state.IsOutputVideo)
          {
              return false;
-@@ -857,43 +1002,6 @@ public class DynamicHlsHelper
+@@ -951,43 +1096,6 @@ public class DynamicHlsHelper
          return string.Empty;
      }
  
@@ -507,10 +576,10 @@ index 16e51151d..03955ba32 100644
      {
          var oldPlaylist = playlist.ToString();
 diff --git a/Jellyfin.Api/Helpers/StreamingHelpers.cs b/Jellyfin.Api/Helpers/StreamingHelpers.cs
-index e17468cfa..5f22c3416 100644
+index 60c5bb2ef6..d25210e1ee 100644
 --- a/Jellyfin.Api/Helpers/StreamingHelpers.cs
 +++ b/Jellyfin.Api/Helpers/StreamingHelpers.cs
-@@ -373,7 +373,8 @@ public static class StreamingHelpers
+@@ -376,7 +376,8 @@ public static class StreamingHelpers
      /// <returns>The complete file path, including the folder, for the transcoding file.</returns>
      private static string GetOutputFilePath(StreamState state, string outputFileExtension, IServerConfigurationManager serverConfigurationManager, string? deviceId, string? playSessionId)
      {
