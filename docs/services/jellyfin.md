@@ -147,6 +147,14 @@ These are server settings, not repo state: they live in `/config/encoding.xml` a
     it does open, everything the connection carries opens at once. Rungs that have played stay open,
     so recovery after an outage is immediate, and a manual pick above the ceiling raises it. hls.js
     also caps *Auto* at the player's own size, so a small window does not climb to a 1080p rung.
+  - **Waiting for the server does not count against the link.** Jellyfin sends a fragment only once
+    ffmpeg has written it, so the wait before its first byte is transcoding time, and the bytes then
+    come at link speed. The web client shows hls.js at most 300 ms of that wait. Counted in full, a
+    4K source (each rung decodes it, about 1.9× realtime with two running) pinned the estimate at
+    1–3 Mbps on any link, and remote 4K played at 360p for minutes.
+  - **A switch to a higher rung waits for 15 s of buffer.** A higher rung is a transcode that still
+    has to start, 5–10 s for a 4K source, while the server may be the bottleneck rather than the
+    link. Switches down are never held.
   - The lowest rung is kept loaded 30 s past the end of the buffer, and every rung's playlist is
     fetched in advance. While 15 s or more are buffered, the lowest rung keeps loading up to 5 min
     past the buffer, in browser memory (about 14–40 MB at a 0.375–1 Mbps floor), so an outage of a

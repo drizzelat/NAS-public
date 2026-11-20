@@ -8,7 +8,7 @@ services:
   # Tails the Caddy access log, enriches it, and fans out: logs to VictoriaLogs,
   # derived counters to VictoriaMetrics. Adding a source = one file in vector/.
   vector:
-    image: timberio/vector:0.61.0-alpine@sha256:3bb7ed5152910ed51729e256937b1d8a4bf67ff624e9d565e8e5877bffd015c7
+    image: timberio/vector:0.62.0-alpine@sha256:149c77c09aabf16a3aa543abf9cea2e2152c1d9a7d4a45669fe7ad05f4ed8b27
     container_name: vector
     restart: unless-stopped
     logging: *default-logging
@@ -37,7 +37,7 @@ services:
       - default
 
   victorialogs:
-    image: victoriametrics/victoria-logs:v1.53.0@sha256:251121fa882af99b95ba0c230a4a2f412ea602d2698c64a96c58dc9842bb755d
+    image: victoriametrics/victoria-logs:v1.54.0@sha256:ee4e820cac3721f5f5d91641b950c22439593adc4224f9655e5333d5a84c1dfe
     container_name: victorialogs
     restart: unless-stopped
     logging: *default-logging
@@ -164,7 +164,7 @@ services:
           memory: 64M
 
   grafana:
-    image: grafana/grafana:13.3.0@sha256:488984b716c0862639f91a698adbe2862677a5a07bad42da5f03f3030883b205
+    image: grafana/grafana:13.3.1@sha256:0615ec4fbd4072004b7d86b46ded63013a74b7d6eb1119273dd89e8fa25c13cf
     container_name: grafana
     restart: unless-stopped
     logging: *default-logging
